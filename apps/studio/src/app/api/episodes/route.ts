@@ -28,6 +28,7 @@ interface CreateBody {
   styleHint?: string;
   budgetUsd: number;
   vertical?: boolean;
+  qa?: boolean;
 }
 
 /** Bölümü oluşturur ve senaryo üretimini hemen başlatır (stil → hikâye → senaryo, sonra onay bekler). */
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
     voiceId: body.voiceId || undefined,
     styleHint: body.styleHint?.trim() || undefined,
     autoApprove: false,
+    qa: body.qa !== false,
     width: body.vertical ? 1080 : 1920,
     height: body.vertical ? 1920 : 1080,
     fps: 30,

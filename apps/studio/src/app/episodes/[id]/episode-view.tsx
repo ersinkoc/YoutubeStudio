@@ -610,8 +610,17 @@ function ProductionStep({ data }: { data: EpisodeResponse }) {
           {shots.map((s) => {
             const kf = state.keyframes?.[s.id];
             const clip = state.clips?.[s.id];
+            const qa = state.qa?.[s.id];
+            const title = [
+              `${s.id} · ${duration((s.endMs - s.startMs) / 1000)}`,
+              s.ambience && s.ambience !== "none" ? `efekt: ${s.ambience}` : "",
+              qa && !qa.skipped ? `kontrol ${qa.score}/10, ${qa.attempts} çizim${qa.issues.length ? `: ${qa.issues.map((i) => i.detail).join("; ")}` : ""}` : "",
+              s.description,
+            ]
+              .filter(Boolean)
+              .join(" · ");
             return (
-              <div key={s.id} className="relative overflow-hidden rounded-lg bg-panel-2" title={`${s.id} · ${duration((s.endMs - s.startMs) / 1000)}${s.ambience && s.ambience !== "none" ? ` · efekt: ${s.ambience}` : ""} · ${s.description}`}>
+              <div key={s.id} className={`relative overflow-hidden rounded-lg bg-panel-2 ${qa && !qa.passed ? "ring-2 ring-bad" : ""}`} title={title}>
                 {kf ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={asset(kf.key)} alt={s.id} className="aspect-video w-full object-cover" />
@@ -622,6 +631,11 @@ function ProductionStep({ data }: { data: EpisodeResponse }) {
                   {((s.endMs - s.startMs) / 1000).toFixed(1)} sn
                 </span>
                 {clip && <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 text-[10px] text-accent">▶ {clip.durationSec} sn</span>}
+                {qa && !qa.skipped && (
+                  <span className={`absolute top-1 right-1 rounded bg-black/70 px-1.5 text-[10px] ${qa.passed ? "text-ok" : "text-bad"}`}>
+                    {qa.score}/10{qa.attempts > 1 ? ` · ${qa.attempts}×` : ""}
+                  </span>
+                )}
               </div>
             );
           })}

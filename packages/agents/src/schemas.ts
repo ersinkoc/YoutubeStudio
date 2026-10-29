@@ -90,3 +90,24 @@ export const ShotPlanOut = z.object({
   scenes: z.array(SceneShots),
 });
 export type ShotPlanOut = z.infer<typeof ShotPlanOut>;
+
+export const FrameIssue = z.object({
+  type: z.enum([
+    "text",
+    "panels",
+    "duplicate_character",
+    "wrong_character",
+    "anatomy",
+    "missing_subject",
+    "off_style",
+    "other",
+  ]),
+  detail: z.string().describe("Short English description of the problem"),
+});
+
+export const FrameReviewOut = z.object({
+  score: z.number().int().min(0).max(10).describe("Overall usability of the frame for the shot, 10 = perfect"),
+  issues: z.array(FrameIssue),
+  fix: z.string().describe("English instruction to add to the image prompt to fix the issues, or empty string"),
+});
+export type FrameReviewOut = z.infer<typeof FrameReviewOut>;

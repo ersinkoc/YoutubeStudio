@@ -41,6 +41,8 @@ export interface EpisodeInput {
   voiceId?: string;
   /** true: onay kapılarında durma (CLI varsayılanı). Stüdyo false kullanır. */
   autoApprove?: boolean;
+  /** Kare kalite kontrolü (görsel model). Varsayılan açık; false ile kapatılır. */
+  qa?: boolean;
   width: number;
   height: number;
   fps: number;
@@ -71,6 +73,18 @@ export interface PlannedShotState {
   ambience?: Ambience;
   characterIds?: string[];
   locationId?: string;
+}
+
+export interface FrameQa {
+  score: number;
+  issues: { type: string; detail: string }[];
+  /** Kaç kez çizildi (1 = ilk deneme kabul edildi). */
+  attempts: number;
+  passed: boolean;
+  /** Denetçinin yeniden çizim için önerisi. */
+  fix?: string;
+  /** Denetim yapılamadıysa nedeni (ajan hatası, görsel çok büyük…). */
+  skipped?: string;
 }
 
 export interface AssetRef {
@@ -125,6 +139,8 @@ export interface EpisodeState {
   shotPlan?: ShotPlanOut;
   shots?: PlannedShotState[];
   keyframes?: Record<string, AssetRef>;
+  /** Çekim başına kare denetimi sonucu. */
+  qa?: Record<string, FrameQa>;
   clips?: Record<string, AssetRef & { durationSec: number }>;
   timeline?: Timeline;
   render?: { path: string; at: string };

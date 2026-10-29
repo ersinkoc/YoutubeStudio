@@ -43,7 +43,7 @@ Komutlar:
   episode approve <id> script|concept
   episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
   episode preview <id>              seçilen referanslarla deneme kareleri
-              new için: [--motion animated|mixed|still] [--manual: onaylarda dur]
+              new için: [--motion animated|mixed|still] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı]
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
 
 Ortak seçenekler:
@@ -111,6 +111,7 @@ async function main(): Promise<void> {
       only: { type: "string" },
       motion: { type: "string" },
       manual: { type: "boolean", default: false },
+      "no-qa": { type: "boolean", default: false },
       vertical: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
     if (command === "render-demo") return renderDemo(pipeline, store);
     return episodeCommand(pipeline, positionals[1], positionals[2], {
       ...values,
+      noQa: values["no-qa"],
       gate: positionals[3],
       pick: positionals[3],
       minutes: values.minutes,

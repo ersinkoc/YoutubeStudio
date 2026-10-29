@@ -41,6 +41,25 @@ describe("runStructured", () => {
     ).rejects.toBeInstanceOf(AgentError);
   });
 
+  it("görselleri metinden önce base64 görsel bloğu olarak gönderir", async () => {
+    let prompt: unknown;
+    const queryFn = ((params: { prompt: unknown }) => {
+      prompt = params.prompt;
+      return (async function* () {
+        yield { type: "result", subtype: "success", duration_ms: 1, total_cost_usd: 0.001, structured_output: { title: "x", n: 1 } };
+      })();
+    }) as unknown as QueryFn;
+    await runStructured({ ...call, images: [{ data: new Uint8Array([1, 2, 3]), mimeType: "image/png" }] }, { queryFn });
+
+    const messages = [];
+    for await (const m of prompt as AsyncIterable<{ message: { content: unknown[] } }>) messages.push(m);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.message.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+      { type: "text", text: "p" },
+    ]);
+  });
+
   it("başarısız sonucu (ör. bütçe aşımı) hata olarak iletir", async () => {
     await expect(
       runStructured(call, { queryFn: fakeQuery({ subtype: "error_max_budget_usd" }) }),

@@ -32,6 +32,7 @@ export interface EpisodeArgs {
   only?: string;
   motion?: string;
   manual?: boolean;
+  noQa?: boolean;
   gate?: string;
   pick?: string;
   vertical?: boolean;
@@ -63,6 +64,7 @@ export async function episodeCommand(
         styleHint: args.style,
         voiceId: args.voice,
         autoApprove: !args.manual,
+        qa: !args.noQa,
         width: args.vertical ? 1080 : 1920,
         height: args.vertical ? 1920 : 1080,
         fps: 30,

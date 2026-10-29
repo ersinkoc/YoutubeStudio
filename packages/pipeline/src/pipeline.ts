@@ -4,6 +4,7 @@ import {
   artDirector,
   castingDirector,
   director,
+  frameInspector,
   screenwriter,
   storyArchitect,
   type AgentDeps,
@@ -23,6 +24,7 @@ import { getJson, putJson, type AssetStore } from "@ys/storage";
 import { renderEpisode } from "@ys/video/render";
 import { invalidateFrom, missingSelections, newEpisodeState } from "./actions.ts";
 import { mapLimit, normalizeClip, probeDurationMs } from "./media.ts";
+import { frameRank, judgeFrame, QA_MAX_BYTES, redrawPrompt } from "./qa.ts";
 import {
   STAGES,
   gateBefore,
@@ -30,6 +32,8 @@ import {
   motionModeOf,
   type AssetRef,
   type EpisodeInput,
+  type FrameQa,
+  type PlannedShotState,
   type EpisodeState,
   type SceneVoice,
   type Stage,
@@ -49,6 +53,8 @@ export interface PipelineDeps {
   log?: (message: string) => void;
   /** Aynı anda kaç görsel/klip üretilsin. */
   concurrency?: number;
+  /** Kare denetimden geçmezse en fazla kaç kez yeniden çizilsin (varsayılan 1). */
+  qaRedraws?: number;
 }
 
 export interface RunEpisodeOptions {
@@ -221,6 +227,46 @@ export class EpisodePipeline {
       ? `Reference images in order: ${entries.map((e, i) => `[${i + 1}] ${e.label}`).join("; ")}. Match the references' art style exactly.`
       : "";
     return { refs, text };
+  }
+
+  /**
+   * Kareyi görsel modelle denetler. Denetim başarısız olursa (ajan hatası, büyük dosya) kare kabul edilir;
+   * kalite kontrolü üretimi durdurmamalı.
+   */
+  private async inspect(state: EpisodeState, shot: PlannedShotState, frame: AssetRef, attempt: number): Promise<FrameQa> {
+    const bytes = await this.bytes(frame.key);
+    if (bytes.length > QA_MAX_BYTES) {
+      return { score: 0, issues: [], attempts: attempt, passed: true, skipped: "görsel çok büyük" };
+    }
+    const selected = state.concept?.selected ?? {};
+    const cast = (shot.characterIds ?? [])
+      .map((id) => state.cast?.characters.find((c) => c.id === id))
+      .filter((c) => c !== undefined);
+    const refs = await Promise.all(
+      cast
+        .filter((c) => selected[c.id])
+        .map(async (c) => ({ label: c.name, image: { data: await this.bytes(selected[c.id]!.key), mimeType: selected[c.id]!.mimeType } })),
+    );
+    try {
+      const out = await this.agent(
+        state,
+        "keyframes",
+        frameInspector(
+          {
+            frame: { data: bytes, mimeType: frame.mimeType },
+            refs,
+            description: shot.description,
+            imagePrompt: shot.imagePrompt,
+            characters: cast.map((c) => c.name),
+          },
+          this.deps.agentDeps,
+        ),
+      );
+      return judgeFrame(out, attempt);
+    } catch (e) {
+      this.log(`  ${shot.id}: kare kontrolü yapılamadı (${e instanceof Error ? e.message : String(e)})`);
+      return { score: 0, issues: [], attempts: attempt, passed: true, skipped: "denetim hatası" };
+    }
   }
 
   private async keyframe(
@@ -438,6 +484,7 @@ export class EpisodePipeline {
         for (const s of state.shots) s.kind = motionMode === "animated" ? "ai_clip" : "still_motion";
       }
       state.keyframes = {};
+      state.qa = {};
       state.clips = {};
       this.log(`  ${state.shots.length} çekim (${state.shots.filter((s) => s.kind === "ai_clip").length} AI klip)`);
     },
@@ -449,11 +496,30 @@ export class EpisodePipeline {
       const keyframes = state.keyframes;
       const todo = shots.filter((s) => !keyframes[s.id]);
 
+      const qaOn = state.input.qa !== false;
+      const redraws = this.deps.qaRedraws ?? 1;
+      state.qa ??= {};
+      const qa = state.qa;
+
       await mapLimit(todo, this.deps.concurrency ?? 3, async (shot) => {
-        const res = await this.keyframe(state, "keyframes", shot.imagePrompt, shot.characterIds, shot.locationId, opts.signal, shot.id);
-        keyframes[shot.id] = { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType };
+        let prompt = shot.imagePrompt;
+        let best: { ref: AssetRef; qa?: FrameQa } | undefined;
+        let attempts = 0;
+        for (let attempt = 1; attempt <= 1 + (qaOn ? redraws : 0); attempt++) {
+          attempts = attempt;
+          const res = await this.keyframe(state, "keyframes", prompt, shot.characterIds, shot.locationId, opts.signal, shot.id);
+          const ref = { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType };
+          const review = qaOn ? await this.inspect(state, shot, ref, attempt) : undefined;
+          if (!best || frameRank(review) > frameRank(best.qa)) best = { ref, qa: review };
+          this.log(
+            `  ${shot.id} ${review ? (review.passed ? "✓" : "✗") : "✓"} (${res.providerId}${res.cacheHit ? ", önbellek" : ""}${review && !review.skipped ? `, kontrol ${review.score}/10` : ""}${review?.issues.length ? `: ${review.issues.map((i) => i.type).join(", ")}` : ""})`,
+          );
+          if (!review || review.passed) break;
+          prompt = redrawPrompt(shot.imagePrompt, review);
+        }
+        keyframes[shot.id] = best!.ref;
+        if (best!.qa) qa[shot.id] = { ...best!.qa, attempts };
         await this.save(state);
-        this.log(`  ${shot.id} ✓ (${res.providerId}${res.cacheHit ? ", önbellek" : ""})`);
       });
     },
 

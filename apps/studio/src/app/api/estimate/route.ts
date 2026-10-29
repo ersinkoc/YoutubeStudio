@@ -10,6 +10,7 @@ interface Body {
   voiceId?: string;
   budgetUsd?: number;
   vertical?: boolean;
+  qa?: boolean;
 }
 
 /** Yeni bölüm formu için canlı tahmin: henüz oluşturulmamış bir bölümün üç hareket modundaki maliyet ve süresi. */
@@ -24,6 +25,7 @@ export async function POST(req: Request) {
     aiClipRatio: 0.2,
     budgetUsd: b.budgetUsd || 20,
     voiceId: b.voiceId || undefined,
+    qa: b.qa !== false,
     width: b.vertical ? 1080 : 1920,
     height: b.vertical ? 1920 : 1080,
     fps: 30,

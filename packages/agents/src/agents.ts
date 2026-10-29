@@ -1,5 +1,5 @@
-import { models, runStructured, type AgentDeps, type AgentResult } from "./runner.ts";
-import { CastOut, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "./schemas.ts";
+import { models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
+import { CastOut, FrameReviewOut, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "./schemas.ts";
 
 /*
  * Model'e giden talimatlar İngilizce (görsel modeller de İngilizce prompt bekliyor);
@@ -172,6 +172,46 @@ ${MOTION_RULES[opts.motionMode ?? "mixed"](opts.aiClipRatio)}
 - ambience: a subtle animated overlay that makes still_motion shots feel alive. It must match what is in the frame: "rain"/"snow" only outdoors in that weather, "fog" for night, mist or mystery, "dust" for old rooms, workshops, attics, "embers" near fire or forges, "flicker" for candle/lamp/screen light, "rays" for sunlight through windows or trees. Use "none" when nothing fits; keep the same ambience across shots of one location and moment.
 Visual style for reference: ${style.artStyle}.`,
       prompt: cast + scenes,
+    },
+    deps,
+  );
+}
+
+export interface FrameReviewInput {
+  frame: AgentImage;
+  /** Kadro referansları; kimlik karşılaştırması için. */
+  refs: { image: AgentImage; label: string }[];
+  description: string;
+  imagePrompt: string;
+  /** Karede görünmesi beklenen karakter adları. */
+  characters: string[];
+}
+
+/** Üretilen kareyi ucuz bir görsel modelle denetler; yazı, kolaj, çift karakter gibi hataları yakalar. */
+export function frameInspector(input: FrameReviewInput, deps?: AgentDeps): Promise<AgentResult<FrameReviewOut>> {
+  const refList = input.refs.map((r, i) => `Image ${i + 2}: reference for ${r.label}`).join("\n");
+  return runStructured(
+    {
+      name: "frame-inspector",
+      model: models().cheap,
+      effort: "low",
+      schema: FrameReviewOut,
+      images: [input.frame, ...input.refs.map((r) => r.image)],
+      system: `You are a strict quality inspector for keyframes of an animated narrated video. Image 1 is the generated frame; any further images are cast reference sheets.
+Report only real, visible problems:
+- text: any readable letters, words, numbers, signs, captions or watermarks in image 1.
+- panels: image 1 is a collage, comic panels, split screen, book page or has borders/frames.
+- duplicate_character: the same character appears more than once.
+- wrong_character: an expected character does not match its reference (face, hair, outfit), or an unexpected main character appears.
+- anatomy: extra or missing limbs/fingers, melted faces, broken objects that a viewer would notice.
+- missing_subject: the frame does not show what the shot description asks for.
+- off_style: the art style clearly differs from the references.
+Small stylistic imperfections are not issues. Score 8–10 for usable frames, 5–7 for noticeable but tolerable flaws, 0–4 for frames that must be redrawn.
+fix: one short instruction that would prevent the problems when redrawing (e.g. "show Hasan only once, no signs or lettering"), or empty.`,
+      prompt: `Shot description: ${input.description}
+Image prompt used: ${input.imagePrompt}
+Expected characters: ${input.characters.length ? input.characters.join(", ") : "none specified"}
+${refList}`,
     },
     deps,
   );

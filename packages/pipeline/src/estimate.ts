@@ -41,6 +41,12 @@ const AGENT_MODEL: Partial<Record<Stage, { usd: number; usdPerMin: number; sec: 
   shots: { usd: 0.04, usdPerMin: 0.015, sec: 20, secPerMin: 8 },
 };
 
+/**
+ * Kare denetimi (Haiku, 1 kare + en fazla 3 referans görsel). Henüz ölçülmedi: ~6k girdi token'ından
+ * kaba tahmin. İlk gerçek bölümden sonra defterdeki "keyframes" aşaması ajan kayıtlarıyla güncellenmeli.
+ */
+const QA = { usd: 0.008, ms: 6_000, redrawRate: 0.2 };
+
 /** Aynı anda kaç görsel/klip üretiliyor (pipeline concurrency). */
 const PARALLEL = 3;
 const CHARS_PER_WORD = 6.5;
@@ -178,14 +184,23 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     aspectRatio,
     refs: [{ role: "character", bytes: new Uint8Array(), mimeType: "image/png" }],
   });
+  // Kare denetimi: her kareye bir görsel model çağrısı, reddedilenler bir kez yeniden çizilir.
+  const qaOn = state.input.qa !== false;
+  const draws = shotCount * (qaOn ? 1 + QA.redrawRate : 1);
+  const checks = qaOn ? draws : 0;
   add({
     stage: "keyframes",
     providerId: kf.providerId,
-    quantity: shotCount,
+    quantity: Math.round(draws),
     unit: "görsel",
-    costUsd: kf.usd * shotCount,
-    seconds: (Math.ceil(shotCount / PARALLEL) * kf.ms) / 1000,
-    basis: shotList ? kf.basis : `${kf.basis}; çekim sayısı tahmini`,
+    costUsd: kf.usd * draws + QA.usd * checks,
+    seconds: (Math.ceil(shotCount / PARALLEL) * (kf.ms * (draws / Math.max(1, shotCount)) + (qaOn ? QA.ms : 0))) / 1000,
+    basis: [
+      shotList ? kf.basis : `${kf.basis}; çekim sayısı tahmini`,
+      qaOn ? `kare kontrolü ~${Math.round(QA.redrawRate * 100)}% yeniden çizim, ~$${QA.usd}/kontrol (tahmin)` : "",
+    ]
+      .filter(Boolean)
+      .join("; "),
   });
 
   // --- animasyon: çekim süresine göre 5/10 sn klip, sağlayıcının fatura adımıyla

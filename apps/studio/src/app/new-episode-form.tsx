@@ -28,6 +28,7 @@ function estimateInput(form: HTMLFormElement) {
     voiceId: f.get("voiceId"),
     budgetUsd: Number(f.get("budgetUsd")),
     vertical: f.get("vertical") === "on",
+    qa: f.get("qa") === "on",
   };
 }
 
@@ -79,6 +80,7 @@ export function NewEpisodeForm() {
         styleHint: form.get("styleHint"),
         budgetUsd: Number(form.get("budgetUsd")),
         vertical: form.get("vertical") === "on",
+        qa: form.get("qa") === "on",
       }),
     });
     const body = (await res.json()) as { id?: string; error?: string };
@@ -151,6 +153,16 @@ export function NewEpisodeForm() {
           <input type="checkbox" name="vertical" /> Dikey (9:16)
         </label>
       </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="qa" defaultChecked className="mt-1" />
+        <span>
+          Kare kontrolü
+          <span className="block text-xs text-muted">
+            Her kareyi görsel model denetler; yazı, kolaj, çift karakter varsa bir kez yeniden çizer. Hatalı kareye
+            animasyon parası ödenmez.
+          </span>
+        </span>
+      </label>
 
       {est && estimates && (
         <div className={`rounded-xl border p-3 text-sm ${overBudget ? "border-bad/50 bg-bad/10" : "border-line bg-panel-2"}`}>
