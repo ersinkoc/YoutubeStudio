@@ -1,0 +1,13 @@
+{
+  "name": "@ys/media-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ys/core": "workspace:*",
+    "@ys/storage": "workspace:*"
+  }
+}

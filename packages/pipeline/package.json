@@ -1,0 +1,17 @@
+{
+  "name": "@ys/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./light": "./src/light.ts"
+  },
+  "dependencies": {
+    "@ys/agents": "workspace:*",
+    "@ys/core": "workspace:*",
+    "@ys/media-gateway": "workspace:*",
+    "@ys/storage": "workspace:*",
+    "@ys/video": "workspace:*"
+  }
+}

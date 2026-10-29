@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+dist/
+out/
+.turbo/
+*.log
+.data/
+packages/db/drizzle/meta/_journal.json.bak
+
+apps/studio/.next/
+apps/studio/next-env.d.ts
+*.tsbuildinfo
+.playwright-mcp/

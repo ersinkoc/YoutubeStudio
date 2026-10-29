@@ -1,0 +1,46 @@
+[
+  {
+    "id": "flux2-dev-t2i",
+    "file": "flux2-dev-t2i.json",
+    "capabilities": ["t2i"],
+    "limits": { "maxRefs": 0 },
+    "qualityPrior": 0.65
+  },
+  {
+    "id": "flux2-dev-ref",
+    "file": "flux2-dev-ref.json",
+    "capabilities": ["i2i_multiref"],
+    "limits": { "maxRefs": 4 },
+    "qualityPrior": 0.62
+  },
+  {
+    "id": "ltx23-i2v",
+    "file": "ltx23-i2v.json",
+    "capabilities": ["i2v"],
+    "limits": { "maxRefs": 1, "minDurationSec": 2, "maxDurationSec": 10 },
+    "qualityPrior": 0.55,
+    "fps": 24
+  },
+  {
+    "id": "wan22-i2v",
+    "file": "wan22-i2v.json",
+    "capabilities": ["i2v"],
+    "limits": { "maxRefs": 1, "minDurationSec": 2, "maxDurationSec": 5 },
+    "qualityPrior": 0.62,
+    "fps": 16
+  },
+  {
+    "id": "depth",
+    "file": "depth-anything.json",
+    "capabilities": ["depth"],
+    "limits": { "maxRefs": 1 },
+    "qualityPrior": 0.8
+  },
+  {
+    "id": "upscale-image",
+    "file": "upscale-image.json",
+    "capabilities": ["upscale_image"],
+    "limits": { "maxRefs": 1 },
+    "qualityPrior": 0.75
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "name": "@ys/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ys/core": "workspace:*",
+    "@ys/db": "workspace:*",
+    "@ys/media-gateway": "workspace:*",
+    "@ys/pipeline": "workspace:*",
+    "@ys/storage": "workspace:*"
+  }
+}

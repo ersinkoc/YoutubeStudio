@@ -1,0 +1,57 @@
+import type { WordTiming } from "@ys/core";
+
+/** Ham 16-bit little-endian PCM'i WAV kabına sarar (Gemini TTS ham PCM döndürür). */
+export function pcm16ToWav(pcm: Uint8Array, sampleRate = 24_000, channels = 1): Uint8Array {
+  const header = new DataView(new ArrayBuffer(44));
+  const byteRate = sampleRate * channels * 2;
+  const writeAscii = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) header.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeAscii(0, "RIFF");
+  header.setUint32(4, 36 + pcm.length, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  header.setUint32(16, 16, true);
+  header.setUint16(20, 1, true); // PCM
+  header.setUint16(22, channels, true);
+  header.setUint32(24, sampleRate, true);
+  header.setUint32(28, byteRate, true);
+  header.setUint16(32, channels * 2, true);
+  header.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  header.setUint32(40, pcm.length, true);
+
+  const out = new Uint8Array(44 + pcm.length);
+  out.set(new Uint8Array(header.buffer), 0);
+  out.set(pcm, 44);
+  return out;
+}
+
+/** ElevenLabs karakter hizalamasını kelime zamanlamalarına çevirir. */
+export function charAlignmentToWords(
+  characters: readonly string[],
+  startSeconds: readonly number[],
+  endSeconds: readonly number[],
+): WordTiming[] {
+  const words: WordTiming[] = [];
+  let text = "";
+  let start = 0;
+  let end = 0;
+
+  const flush = () => {
+    if (text) words.push({ text, startMs: Math.round(start * 1000), endMs: Math.round(end * 1000) });
+    text = "";
+  };
+
+  characters.forEach((ch, i) => {
+    if (/\s/.test(ch)) {
+      flush();
+      return;
+    }
+    if (!text) start = startSeconds[i] ?? 0;
+    text += ch;
+    end = endSeconds[i] ?? start;
+  });
+  flush();
+  return words;
+}

@@ -1,0 +1,9 @@
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
+  // Workspace paketleri derlenmemiş TypeScript kaynağı olarak gelir.
+  transpilePackages: ["@ys/core", "@ys/media-gateway", "@ys/pipeline", "@ys/storage"],
+  serverExternalPackages: ["@aws-sdk/client-s3"],
+};
+
+export default config;

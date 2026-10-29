@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0e0e10;
+  --color-panel: #17171a;
+  --color-panel-2: #1f1f23;
+  --color-line: #2c2c31;
+  --color-muted: #9a9aa3;
+  --color-accent: #f2b33d;
+  --color-accent-ink: #1a1405;
+  --color-ok: #4fbf7a;
+  --color-bad: #e5604d;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-ink);
+  color: #ececf0;
+}
+
+@utility card {
+  @apply rounded-2xl border border-line bg-panel p-5;
+}
+
+@utility btn {
+  @apply inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@utility btn-primary {
+  @apply btn bg-accent text-accent-ink hover:brightness-110;
+}
+
+@utility btn-ghost {
+  @apply btn border border-line bg-panel-2 hover:border-muted;
+}
+
+@utility field {
+  @apply w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-sm outline-none focus:border-accent;
+}
+
+@utility label {
+  @apply mb-1 block text-xs font-medium tracking-wide text-muted uppercase;
+}

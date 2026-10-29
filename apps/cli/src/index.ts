@@ -1,0 +1,266 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
+import { parseArgs } from "node:util";
+import { BudgetTier, Capability, Quality, formatUsd, usd } from "@ys/core";
+import { createDb, DbCostLedger } from "@ys/db";
+import {
+  createProvidersFromEnv,
+  JsonlLedger,
+  MediaGateway,
+  type AspectRatio,
+  type CostLedger,
+  type GenerationRequest,
+  type RefInput,
+  type RunOptions,
+} from "@ys/media-gateway";
+import { EpisodePipeline } from "@ys/pipeline";
+import { createStoreFromEnv } from "@ys/storage";
+import { episodeCommand, renderDemo } from "./episode.ts";
+
+const LEDGER_FILE = ".data/ledger.jsonl";
+const WORK_DIR = ".data/episodes";
+
+const HELP = `YoutubeStudio CLI (Faz 0)
+
+Kullanım: pnpm ys <komut> [seçenekler]
+
+Komutlar:
+  providers                         Etkin ve atlanan sağlayıcıları listeler
+  plan   --cap <yetenek>            Para harcamadan router sıralamasını gösterir
+  image  --prompt "..." [--ref yol]...
+  video  --image yol --prompt "..." [--last yol] [--duration 5]
+  tts    --text "..." [--voice id] [--lang tr]
+  sfx    --prompt "..." [--duration 3]
+  music  --prompt "..." [--duration 60]
+  cost   [--episode id]             Maliyet defteri özeti
+
+  episode new --topic "..." [--lang tr] [--minutes 3] [--tier economy] [--budget 10]
+              [--clips 0.2] [--style "..."] [--voice id] [--vertical]
+  episode run <id> [--until <aşama>] [--from <aşama>] [--only <aşama>]
+              aşamalar: style story script voice shots keyframes clips timeline render
+  episode show <id>
+  episode approve <id> script|concept
+  episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
+  episode preview <id>              seçilen referanslarla deneme kareleri
+              new için: [--motion animated|mixed|still] [--manual: onaylarda dur]
+  render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
+
+Ortak seçenekler:
+  --tier ultra|economy|standard|premium   (varsayılan: economy)
+  --quality draft|standard|hero           (varsayılan: standard)
+  --aspect 16:9|9:16|1:1
+  --episode <id>  --budget <usd>  --no-cache  --no-local
+  --provider <id>                         Sadece bu sağlayıcıyı kullan
+`;
+
+const MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+};
+
+async function loadRef(path: string, role: RefInput["role"]): Promise<RefInput> {
+  const mimeType = MIME[extname(path).toLowerCase()];
+  if (!mimeType) throw new Error(`Desteklenmeyen dosya türü: ${path}`);
+  return { role, bytes: new Uint8Array(await readFile(path)), mimeType };
+}
+
+function createLedger(): CostLedger {
+  if (process.env.LEDGER === "db" && process.env.DATABASE_URL) {
+    return new DbCostLedger(createDb(process.env.DATABASE_URL));
+  }
+  return new JsonlLedger(LEDGER_FILE);
+}
+
+async function main(): Promise<void> {
+  if (existsSync(".env")) process.loadEnvFile(".env");
+
+  const { positionals, values } = parseArgs({
+    allowPositionals: true,
+    options: {
+      cap: { type: "string" },
+      prompt: { type: "string" },
+      negative: { type: "string" },
+      text: { type: "string" },
+      voice: { type: "string" },
+      lang: { type: "string" },
+      image: { type: "string" },
+      last: { type: "string" },
+      ref: { type: "string", multiple: true },
+      duration: { type: "string" },
+      aspect: { type: "string" },
+      seed: { type: "string" },
+      tier: { type: "string", default: "economy" },
+      quality: { type: "string", default: "standard" },
+      episode: { type: "string" },
+      budget: { type: "string" },
+      provider: { type: "string" },
+      "no-cache": { type: "boolean", default: false },
+      "no-local": { type: "boolean", default: false },
+      topic: { type: "string" },
+      minutes: { type: "string" },
+      clips: { type: "string" },
+      style: { type: "string" },
+      until: { type: "string" },
+      from: { type: "string" },
+      only: { type: "string" },
+      motion: { type: "string" },
+      manual: { type: "boolean", default: false },
+      vertical: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+
+  const command = positionals[0];
+  if (!command || values.help) {
+    console.log(HELP);
+    return;
+  }
+
+  const { providers, skipped } = createProvidersFromEnv(process.env);
+  const ledger = createLedger();
+
+  if (command === "providers") {
+    console.log("Etkin sağlayıcılar:");
+    for (const p of providers) {
+      const price = p.price.unit === "free" ? "ücretsiz" : `$${p.price.usd} ${p.price.unit}`;
+      console.log(`  ${p.id.padEnd(28)} q=${p.qualityPrior.toFixed(2)}  ${price.padEnd(26)} ${p.capabilities.join(", ")}`);
+    }
+    console.log("\nAtlananlar:");
+    for (const s of skipped) console.log(`  ${s}`);
+    return;
+  }
+
+  if (command === "cost") {
+    if (!(ledger instanceof JsonlLedger)) {
+      console.log(values.episode ? formatUsd(await ledger.spent(values.episode)) : "--episode gerekli (LEDGER=db)");
+      return;
+    }
+    const entries = (await ledger.all()).filter((e) => !values.episode || e.episodeId === values.episode);
+    const byProvider = new Map<string, { n: number; micros: number; hits: number }>();
+    for (const e of entries) {
+      const row = byProvider.get(e.providerId) ?? { n: 0, micros: 0, hits: 0 };
+      row.n++;
+      if (e.cacheHit) row.hits++;
+      else row.micros += e.estimateMicros;
+      byProvider.set(e.providerId, row);
+    }
+    let total = 0;
+    for (const [id, r] of byProvider) {
+      total += r.micros;
+      console.log(`  ${id.padEnd(28)} ${String(r.n).padStart(4)} çağrı  ${String(r.hits).padStart(4)} önbellek  ${formatUsd(r.micros)}`);
+    }
+    console.log(`  ${"TOPLAM".padEnd(28)} ${formatUsd(total)}`);
+    return;
+  }
+
+  if (command === "episode" || command === "render-demo") {
+    const store = createStoreFromEnv(process.env);
+    const log = (m: string) => console.error(m);
+    const gateway = new MediaGateway({ providers, store, ledger, log: (m) => log(`  · ${m}`) });
+    const pipeline = new EpisodePipeline({ gateway, store, ledger, workDir: WORK_DIR, log, agentDeps: { log } });
+    if (command === "render-demo") return renderDemo(pipeline, store);
+    return episodeCommand(pipeline, positionals[1], positionals[2], {
+      ...values,
+      gate: positionals[3],
+      pick: positionals[3],
+      minutes: values.minutes,
+      lang: values.lang,
+    });
+  }
+
+  const tier = BudgetTier.parse(values.tier);
+  const quality = Quality.parse(values.quality);
+  const durationSec = values.duration ? Number(values.duration) : undefined;
+  const base = {
+    quality,
+    prompt: values.prompt,
+    negativePrompt: values.negative,
+    aspectRatio: values.aspect as AspectRatio | undefined,
+    seed: values.seed ? Number(values.seed) : undefined,
+    durationSec,
+  };
+
+  let req: GenerationRequest;
+  switch (command) {
+    case "plan":
+      req = { ...base, capability: Capability.parse(values.cap), text: values.text, voiceId: values.voice };
+      break;
+    case "image": {
+      const refs = await Promise.all((values.ref ?? []).map((p) => loadRef(p, "character")));
+      req = { ...base, capability: refs.length ? "i2i_multiref" : "t2i", refs };
+      break;
+    }
+    case "video": {
+      if (!values.image) throw new Error("--image gerekli");
+      const refs = [await loadRef(values.image, "first_frame")];
+      if (values.last) refs.push(await loadRef(values.last, "last_frame"));
+      req = { ...base, capability: values.last ? "first_last_frame" : "i2v", refs };
+      break;
+    }
+    case "tts":
+      if (!values.text) throw new Error("--text gerekli");
+      req = { ...base, capability: "tts", text: values.text, voiceId: values.voice, language: values.lang };
+      break;
+    case "sfx":
+      req = { ...base, capability: "sfx" };
+      break;
+    case "music":
+      req = { ...base, capability: "music" };
+      break;
+    default:
+      throw new Error(`Bilinmeyen komut: ${command}\n\n${HELP}`);
+  }
+
+  const gateway = new MediaGateway({
+    providers,
+    store: createStoreFromEnv(process.env),
+    ledger,
+    log: (m) => console.error(`· ${m}`),
+  });
+  const run: RunOptions = {
+    policy: {
+      tier,
+      useLocal: !values["no-local"],
+      allow: values.provider ? [values.provider] : undefined,
+    },
+    episodeId: values.episode,
+    stage: `cli:${command}`,
+    budgetCapMicros: values.budget ? usd(Number(values.budget)) : undefined,
+    noCache: values["no-cache"],
+  };
+
+  if (command === "plan") {
+    const ranked = gateway.plan(req, run.policy);
+    if (ranked.length === 0) console.log("Uygun sağlayıcı yok.");
+    ranked.forEach((r, i) =>
+      console.log(`${i + 1}. ${r.adapter.id.padEnd(28)} ~${formatUsd(r.estimateMicros).padEnd(10)} skor=${r.score.toFixed(2)}`),
+    );
+    return;
+  }
+
+  const result = await gateway.generate(req, run);
+  console.log(
+    JSON.stringify(
+      {
+        provider: result.providerId,
+        cost: formatUsd(result.costMicros),
+        cacheHit: result.cacheHit,
+        files: result.files.map((f) => f.uri),
+        words: result.words?.length,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+main().catch((e: unknown) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exitCode = 1;
+});
