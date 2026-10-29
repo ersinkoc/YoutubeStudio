@@ -1,5 +1,6 @@
 import {
   approve,
+  changeVoice,
   editNarration,
   revokeApproval,
   selectCandidate,
@@ -18,6 +19,7 @@ export type StudioAction =
   | { type: "preview" }
   | { type: "set-motion"; motionMode: MotionMode; aiClipRatio?: number }
   | { type: "approve-concept" }
+  | { type: "change-voice"; voiceId: string }
   | { type: "resume" }
   | { type: "cancel" };
 
@@ -57,6 +59,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       case "approve-concept":
         await episodes.update(id, (s) => approve(s, "concept"));
         startJob(id, "Video üretiliyor", ["episode", "run", id]);
+        break;
+      case "change-voice":
+        await episodes.update(id, (s) => changeVoice(s, action.voiceId));
         break;
       case "resume":
         startJob(id, "Kaldığı yerden devam", ["episode", "run", id]);

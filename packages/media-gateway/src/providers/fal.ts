@@ -2,6 +2,7 @@ import type { Capability } from "@ys/core";
 import { pollUntil, requestBytes, requestJson } from "../http.ts";
 import type {
   GenerateContext,
+  PriceSource,
   GenerationRequest,
   GenerationResult,
   PriceRule,
@@ -17,6 +18,7 @@ export interface FalModelSpec {
   limits: ProviderLimits;
   qualityPrior: number;
   price: PriceRule;
+  priceSource?: PriceSource;
   /**
    * false: endpoint adı veya girdi alanları fal model sayfasından henüz doğrulanmadı.
    * Bu modeller sadece FAL_ENABLE_UNVERIFIED=1 iken açılır.
@@ -47,6 +49,7 @@ export class FalAdapter implements ProviderAdapter {
   readonly limits: ProviderLimits;
   readonly qualityPrior: number;
   readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
 
   constructor(
     private readonly spec: FalModelSpec,
@@ -57,6 +60,7 @@ export class FalAdapter implements ProviderAdapter {
     this.limits = spec.limits;
     this.qualityPrior = spec.qualityPrior;
     this.price = spec.price;
+    this.priceSource = spec.priceSource;
   }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {

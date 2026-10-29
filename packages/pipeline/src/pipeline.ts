@@ -36,6 +36,9 @@ import {
 } from "./state.ts";
 import { buildTimeline, estimateWordTimings, resolveShotTimes } from "./timing.ts";
 
+/** Sağlayıcı kotası işi bitirmeye yetmiyor; para harcanmadan önce durulur. */
+export class QuotaError extends Error {}
+
 export interface PipelineDeps {
   gateway: MediaGateway;
   store: AssetStore;
@@ -98,9 +101,7 @@ export class EpisodePipeline {
     const state = await this.load(id);
     if (opts.only) {
       this.log(`▶ ${opts.only} (sadece)`);
-      await this.stages[opts.only](state, opts);
-      state.done[opts.only] = new Date().toISOString();
-      await this.save(state);
+      await this.runStage(state, opts.only, opts);
       return state;
     }
     if (opts.from) {
@@ -120,11 +121,31 @@ export class EpisodePipeline {
         return state;
       }
       this.log(`▶ ${stage}`);
-      await this.stages[stage](state, opts);
-      state.done[stage] = new Date().toISOString();
-      await this.save(state);
+      await this.runStage(state, stage, opts);
     }
     return state;
+  }
+
+  /** Aşamayı çalıştırır; süresini ve (varsa) hatasını kalıcı olarak bölüm durumuna yazar. */
+  private async runStage(state: EpisodeState, stage: Stage, opts: RunEpisodeOptions): Promise<void> {
+    const started = Date.now();
+    state.stats = { ...state.stats, [stage]: { startedAt: new Date(started).toISOString() } };
+    delete state.lastError;
+    await this.save(state);
+    const finish = () => {
+      state.stats![stage] = { ...state.stats![stage]!, endedAt: new Date().toISOString(), durationMs: Date.now() - started };
+    };
+    try {
+      await this.stages[stage](state, opts);
+    } catch (e) {
+      finish();
+      state.lastError = { stage, message: e instanceof Error ? e.message : String(e), at: new Date().toISOString() };
+      await this.save(state);
+      throw e;
+    }
+    finish();
+    state.done[stage] = new Date().toISOString();
+    await this.save(state);
   }
 
   // ---------------- yardımcılar ----------------
@@ -146,15 +167,17 @@ export class EpisodePipeline {
       estimateMicros: usd(res.costUsd),
       cacheHit: false,
       requestHash: `${stage}:${state.id}`,
+      durationMs: res.durationMs,
     });
     return res.data;
   }
 
-  private runOptions(state: EpisodeState, stage: Stage, signal?: AbortSignal): RunOptions {
+  private runOptions(state: EpisodeState, stage: Stage, signal?: AbortSignal, refId?: string): RunOptions {
     return {
       policy: { tier: state.input.tier },
       episodeId: state.id,
       stage,
+      refId,
       budgetCapMicros: usd(state.input.budgetUsd),
       signal,
     };
@@ -207,6 +230,7 @@ export class EpisodePipeline {
     characterIds: string[] | undefined,
     locationId: string | undefined,
     signal?: AbortSignal,
+    refId?: string,
   ) {
     const style = state.style;
     if (!style) throw new Error("style yok");
@@ -220,7 +244,7 @@ export class EpisodePipeline {
         aspectRatio: this.aspect(state),
         refs,
       },
-      this.runOptions(state, stage, signal),
+      this.runOptions(state, stage, signal, refId),
     );
   }
 
@@ -242,7 +266,7 @@ export class EpisodePipeline {
       // visualIntent sahnenin tüm anlarını anlatır; olduğu gibi verilince model kolaj/panel çiziyordu
       // (29 Eki stüdyo denemesi). Deneme karesi tek bir anı göstermeli.
       const moment = `One single moment only — the opening moment of this scene, one camera angle, no collage, no insets: ${scene.visualIntent}`;
-      const res = await this.keyframe(state, "concept", moment, characterIds, locationId, signal);
+      const res = await this.keyframe(state, "concept", moment, characterIds, locationId, signal, scene.id);
       this.log(`  deneme ${scene.id} ✓ (${res.providerId})`);
       return { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType, caption: scene.narration.slice(0, 120) };
     });
@@ -315,7 +339,7 @@ export class EpisodePipeline {
             aspectRatio: this.aspect(state),
             seed: job.seed,
           },
-          this.runOptions(state, "concept", opts.signal),
+          this.runOptions(state, "concept", opts.signal, job.id),
         );
         (concept.candidates[job.id] ??= []).push({ key: res.files[0]!.key, mimeType: res.files[0]!.mimeType });
         this.log(`  ${job.id} aday ✓ (${res.providerId})`);
@@ -332,32 +356,57 @@ export class EpisodePipeline {
     voice: async (state, opts) => {
       if (!state.script) throw new Error("script yok");
       state.voice ??= {};
+      const voice = state.voice;
       const { gateway } = this.deps;
-      const run = this.runOptions(state, "voice", opts.signal);
+      const todo = state.script.scenes.filter((s) => !voice[s.id]);
+      if (todo.length === 0) return;
 
-      for (const scene of state.script.scenes) {
-        if (state.voice[scene.id]) continue;
+      const requestFor = (text: string): GenerationRequest => {
         const base: GenerationRequest = {
           capability: "tts_timestamps",
           quality: "standard",
-          text: scene.narration,
+          text,
           voiceId: state.input.voiceId,
           language: state.input.lang,
         };
-        // Zamanlamalı TTS (ElevenLabs) yoksa veya daha pahalıysa düz TTS + tahmini zamanlama.
-        const req = gateway.plan(base, run.policy).length > 0 ? base : { ...base, capability: "tts" as const };
-        const res = await gateway.generate(req, run);
+        // Zamanlamalı TTS (ElevenLabs) seçilemiyorsa düz TTS + tahmini zamanlama.
+        const policy = this.runOptions(state, "voice").policy;
+        return gateway.plan(base, policy).length > 0 ? base : { ...base, capability: "tts" };
+      };
+
+      // Bölüm tek bir sesle anlatılır: ilk sahneyi üreten sağlayıcıya sabitlenir.
+      // Ortada başka sağlayıcıya düşmek anlatıcının sesini değiştirirdi.
+      const sample = requestFor(todo[0]!.narration);
+      const provider =
+        state.voiceProviderId ?? gateway.plan(sample, this.runOptions(state, "voice").policy)[0]?.adapter.id;
+      if (!provider) throw new Error("Seslendirme için uygun sağlayıcı yok");
+
+      // Kota ön kontrolü: para harcamadan, yarıda kalmadan önce.
+      const chars = todo.reduce((n, s) => n + s.narration.length, 0);
+      const quota = await gateway.quota(provider);
+      if (quota && quota.unit === "chars" && quota.limit - quota.used < chars) {
+        const reset = quota.resetsAt ? `, yenilenme ${new Date(quota.resetsAt).toLocaleDateString("tr-TR")}` : "";
+        throw new QuotaError(
+          `${provider} kotası yetmiyor: ${chars.toLocaleString("tr-TR")} karakter gerekli, ${(quota.limit - quota.used).toLocaleString("tr-TR")} kaldı (${quota.plan ?? "plan"}${reset}). Sesi değiştir veya planı yükselt.`,
+        );
+      }
+
+      for (const scene of todo) {
+        const run = this.runOptions(state, "voice", opts.signal, scene.id);
+        run.policy = { ...run.policy, allow: [provider] };
+        const res = await gateway.generate(requestFor(scene.narration), run);
+        state.voiceProviderId = res.providerId;
         const file = res.files[0]!;
         const bytes = await this.bytes(file.key);
         const durationMs = await probeDurationMs(bytes, EXT[file.mimeType] ?? "bin");
-        const voice: SceneVoice = {
+        const sceneVoice: SceneVoice = {
           key: file.key,
           mimeType: file.mimeType,
           durationMs,
           words: res.words ?? estimateWordTimings(scene.narration, durationMs),
           estimatedTiming: !res.words,
         };
-        state.voice[scene.id] = voice;
+        voice[scene.id] = sceneVoice;
         await this.save(state);
         this.log(`  ${scene.id}: ${(durationMs / 1000).toFixed(1)} sn (${res.providerId})`);
       }
@@ -401,7 +450,7 @@ export class EpisodePipeline {
       const todo = shots.filter((s) => !keyframes[s.id]);
 
       await mapLimit(todo, this.deps.concurrency ?? 3, async (shot) => {
-        const res = await this.keyframe(state, "keyframes", shot.imagePrompt, shot.characterIds, shot.locationId, opts.signal);
+        const res = await this.keyframe(state, "keyframes", shot.imagePrompt, shot.characterIds, shot.locationId, opts.signal, shot.id);
         keyframes[shot.id] = { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType };
         await this.save(state);
         this.log(`  ${shot.id} ✓ (${res.providerId}${res.cacheHit ? ", önbellek" : ""})`);
@@ -415,7 +464,6 @@ export class EpisodePipeline {
       const clips = state.clips;
       const todo = shots.filter((s) => s.kind === "ai_clip" && !clips[s.id] && keyframes[s.id]);
       if (todo.length === 0) return;
-      const run = this.runOptions(state, "clips", opts.signal);
 
       await mapLimit(todo, this.deps.concurrency ?? 3, async (shot) => {
         const kf = keyframes[shot.id]!;
@@ -432,7 +480,7 @@ export class EpisodePipeline {
               durationSec: clipSec,
               aspectRatio: this.aspect(state),
             },
-            run,
+            this.runOptions(state, "clips", opts.signal, shot.id),
           );
           clips[shot.id] = { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType, durationSec: clipSec };
           await this.save(state);

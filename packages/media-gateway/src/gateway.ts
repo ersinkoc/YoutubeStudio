@@ -2,8 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { formatUsd, type Micros, type WordTiming } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import type { CostLedger } from "./ledger.ts";
+import { billing } from "./pricing.ts";
 import { HealthTracker, rankProviders, type RankedProvider, type RoutePolicy } from "./router.ts";
-import type { GenerationRequest, ProviderAdapter } from "./types.ts";
+import type { GenerationRequest, ProviderAdapter, Quota } from "./types.ts";
 
 export class NoProviderError extends Error {}
 export class BudgetExceededError extends Error {}
@@ -40,6 +41,8 @@ export interface RunOptions {
   budgetCapMicros?: Micros;
   /** true: önbelleği atla (ör. reddedilen bir üretimi yeniden denemek için). */
   noCache?: boolean;
+  /** Maliyet kaydında çağrının ait olduğu çekim/sahne/varlık. */
+  refId?: string;
   signal?: AbortSignal;
 }
 
@@ -124,6 +127,18 @@ export class MediaGateway {
     return this.opts.providers;
   }
 
+  /** Sağlayıcının kalan hesap kotası; desteklemiyorsa veya sorgu başarısızsa undefined. */
+  async quota(providerId: string): Promise<Quota | undefined> {
+    const adapter = this.opts.providers.find((p) => p.id === providerId);
+    if (!adapter?.quota) return undefined;
+    try {
+      return await adapter.quota({ fetch: this.fetchFn });
+    } catch (e) {
+      this.log(`kota sorgulanamadı: ${providerId}: ${e instanceof Error ? e.message : String(e)}`);
+      return undefined;
+    }
+  }
+
   /** Para harcamadan hangi sağlayıcıların hangi sırayla deneneceğini gösterir. */
   plan(req: GenerationRequest, policy: RoutePolicy): RankedProvider[] {
     return rankProviders(this.opts.providers, req, policy, this.health);
@@ -149,6 +164,7 @@ export class MediaGateway {
           at: new Date().toISOString(),
           episodeId: run.episodeId,
           stage: run.stage,
+          refId: run.refId,
           providerId: cached.providerId,
           capability: req.capability,
           estimateMicros: 0,
@@ -170,6 +186,7 @@ export class MediaGateway {
     let skippedForBudget = 0;
 
     for (const { adapter, estimateMicros } of candidates) {
+      const bill = billing(adapter.price, req);
       if (run.budgetCapMicros !== undefined && run.episodeId) {
         const spent = await ledger.spent(run.episodeId);
         if (spent + estimateMicros > run.budgetCapMicros) {
@@ -179,6 +196,7 @@ export class MediaGateway {
         }
       }
 
+      const startedAt = Date.now();
       try {
         this.log(`üretiliyor: ${adapter.id} ~${formatUsd(estimateMicros)}`);
         const result = await adapter.generate(req, {
@@ -204,18 +222,37 @@ export class MediaGateway {
           at: new Date().toISOString(),
           episodeId: run.episodeId,
           stage: run.stage,
+          refId: run.refId,
           providerId: adapter.id,
           capability: req.capability,
           estimateMicros,
           cacheHit: false,
           requestHash,
+          durationMs: Date.now() - startedAt,
+          units: bill.units,
+          unitLabel: bill.unitLabel,
         });
         return { requestHash, ...entry, costMicros: estimateMicros, cacheHit: false };
       } catch (error) {
         if (run.signal?.aborted) throw error;
         this.health.recordFailure(adapter.id);
-        this.log(`hata: ${adapter.id}: ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`hata: ${adapter.id}: ${message}`);
         failures.push({ providerId: adapter.id, error });
+        // Başarısız deneme de kayda geçer: hangi sağlayıcı ne kadar süre sonra neden düştü görünsün.
+        await ledger.record({
+          at: new Date().toISOString(),
+          episodeId: run.episodeId,
+          stage: run.stage,
+          refId: run.refId,
+          providerId: adapter.id,
+          capability: req.capability,
+          estimateMicros: 0,
+          cacheHit: false,
+          requestHash,
+          durationMs: Date.now() - startedAt,
+          error: message.slice(0, 300),
+        });
       }
     }
 

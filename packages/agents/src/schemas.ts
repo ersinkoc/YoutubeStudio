@@ -1,3 +1,4 @@
+import { Ambience } from "@ys/core";
 import { z } from "zod";
 
 export const StyleBibleOut = z.object({
@@ -77,6 +78,7 @@ export const PlannedShot = z.object({
     .describe("English image prompt for the keyframe, WITHOUT the style prefix; no text or letters in the image"),
   motionPrompt: z.string().describe("English camera/subject motion for animation"),
   camera: z.enum(["push_in", "pull_out", "pan_left", "pan_right", "static"]),
+  ambience: Ambience.describe("Procedural atmosphere overlay drawn on still_motion shots"),
 });
 
 export const SceneShots = z.object({

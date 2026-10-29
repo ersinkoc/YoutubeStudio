@@ -8,6 +8,8 @@ import { FAL_MODELS } from "./providers/fal-models.ts";
 import { GeminiImageAdapter, GeminiTtsAdapter, VeoAdapter } from "./providers/gemini.ts";
 import type { ProviderAdapter } from "./types.ts";
 
+const GEMINI_PRICING = "https://ai.google.dev/gemini-api/docs/pricing";
+
 export const DEFAULT_COMFY_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../comfy-workflows");
 
 export interface RegistryReport {
@@ -57,6 +59,19 @@ export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAUL
         apiKey,
         qualityPrior: 0.9,
         price: { unit: "per_output", usd: 0.134 },
+        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: "1K–2K; 4K $0.24" },
+      }),
+      new GeminiImageAdapter({
+        id: "gemini:nano-banana-2.1",
+        model: env.GEMINI_IMAGE_CHEAP_MODEL ?? "gemini-nano-banana-2.1",
+        apiKey,
+        qualityPrior: 0.8,
+        price: { unit: "per_output", usd: 0.0336 },
+        priceSource: {
+          url: "https://www.developersdigest.tech/blog/image-video-generation-api-pricing-2026",
+          checked: "2026-10-18",
+          note: "1K; $30/1M görsel token. Batch API'de $0.0168",
+        },
       }),
       new GeminiImageAdapter({
         id: "gemini:nano-banana-2",
@@ -64,6 +79,7 @@ export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAUL
         apiKey,
         qualityPrior: 0.8,
         price: { unit: "per_output", usd: 0.067 },
+        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: "Google'ın listesinde 'legacy'; 2.1'in iki katı" },
       }),
       new GeminiTtsAdapter({
         id: "gemini:tts",
@@ -71,13 +87,16 @@ export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAUL
         apiKey,
         qualityPrior: 0.75,
         price: { unit: "per_1k_chars", usd: 0.03 },
+        priceSource: { url: GEMINI_PRICING, checked: "2026-10-29", note: "Token bazlı; 1000 karakter ≈ 1 dk ses ≈ $0.01–0.03" },
       }),
       new VeoAdapter({
         id: "gemini:veo",
         model: env.GEMINI_VEO_MODEL ?? "veo-3.1-generate-preview",
         apiKey,
         qualityPrior: 0.92,
-        price: { unit: "per_second", usd: 0.4 },
+        // Veo 4/6/8 sn üretir.
+        price: { unit: "per_second", usd: 0.4, stepSec: 2, minSec: 4 },
+        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: "Bu anahtarda Veo modeli listelenmiyor (ücretli katman gerekli)" },
       }),
     );
   } else {

@@ -10,7 +10,7 @@ import type { Timeline } from "@ys/core";
 
 const run = promisify(execFile);
 
-const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "entry.ts");
+export const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "entry.ts");
 
 export interface RenderOptions {
   timeline: Timeline;
@@ -32,7 +32,8 @@ const MAX_DEFAULT_CONCURRENCY = 8;
 
 /** Timeline'ı yerelde MP4'e render eder (Remotion; ≤3 kişilik ekipte lisans ücretsiz). */
 export async function renderEpisode(opts: RenderOptions): Promise<string> {
-  const serveUrl = await bundle({ entryPoint: ENTRY, publicDir: opts.publicDir });
+  // Göreli publicDir ile bundle sunucusu görselleri çözemiyor ("source image cannot be decoded").
+  const serveUrl = await bundle({ entryPoint: ENTRY, publicDir: resolve(opts.publicDir) });
   const inputProps = { timeline: opts.timeline };
   const composition = await selectComposition({ serveUrl, id: "Episode", inputProps });
 

@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import type { Micros } from "@ys/core";
+import type { Capability, Micros } from "@ys/core";
 import type { CostEntry, CostLedger } from "@ys/media-gateway";
 import * as schema from "./schema.ts";
 
@@ -26,5 +26,28 @@ export class DbCostLedger implements CostLedger {
       .from(schema.costEntries)
       .where(and(eq(schema.costEntries.episodeId, episodeId), eq(schema.costEntries.cacheHit, false)));
     return Number(row?.total ?? 0);
+  }
+
+  async list(episodeId?: string): Promise<CostEntry[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.costEntries)
+      .where(episodeId ? eq(schema.costEntries.episodeId, episodeId) : undefined)
+      .orderBy(asc(schema.costEntries.at));
+    return rows.map((r) => ({
+      at: r.at.toISOString(),
+      episodeId: r.episodeId ?? undefined,
+      stage: r.stage ?? undefined,
+      refId: r.refId ?? undefined,
+      providerId: r.providerId,
+      capability: r.capability as Capability,
+      estimateMicros: r.estimateMicros,
+      cacheHit: r.cacheHit,
+      requestHash: r.requestHash,
+      durationMs: r.durationMs ?? undefined,
+      units: r.units ?? undefined,
+      unitLabel: r.unitLabel ?? undefined,
+      error: r.error ?? undefined,
+    }));
   }
 }

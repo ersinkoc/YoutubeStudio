@@ -13,6 +13,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+import { Ambience } from "./Ambience.tsx";
 
 export type EpisodeProps = { timeline: Timeline };
 
@@ -47,6 +48,7 @@ function StillMotion({ visual }: { visual: Visual }) {
           transform: `scale(${scale}) translateX(${panX}%)`,
         }}
       />
+      <Ambience kind={visual.ambience} seed={visual.shotId} />
     </AbsoluteFill>
   );
 }

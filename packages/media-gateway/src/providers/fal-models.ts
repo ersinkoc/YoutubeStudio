@@ -45,6 +45,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     // 0.55 ile standart seviyenin tabanının (0.6) altında kalır: ekonomide FLUX, standartta NB2.
     qualityPrior: 0.55,
     price: { unit: "per_output", usd: 0.025 },
+    priceSource: { url: "https://fal.ai/models/fal-ai/flux/dev", checked: "2026-09-11", note: "~1 MP; megapiksel başına" },
     verified: true,
     buildInput: (req) => ({
       prompt: req.prompt,
@@ -63,6 +64,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     // Standart tabanın (0.6) altında: karakterli keyframe'lerde NB2 seçilsin, ekonomide Kontext kalabilir.
     qualityPrior: 0.58,
     price: { unit: "per_output", usd: 0.04 },
+    priceSource: { url: "https://fal.ai/models/fal-ai/flux-pro/kontext", checked: "2026-09-11" },
     verified: true,
     buildInput: (req) => ({
       prompt: req.prompt,
@@ -78,7 +80,9 @@ export const FAL_MODELS: FalModelSpec[] = [
     capabilities: ["i2v"],
     limits: { maxRefs: 1, minDurationSec: 1, maxDurationSec: 10 },
     qualityPrior: 0.7,
-    price: { unit: "per_second", usd: 0.05 },
+    // Kling 5 veya 10 sn klip üretir; 6 sn istek 10 sn faturalanır.
+    price: { unit: "per_second", usd: 0.05, stepSec: 5, minSec: 5 },
+    priceSource: { url: "https://fal.ai/models/fal-ai/kling-video/v2.1/standard/image-to-video", checked: "2026-10-29", note: "29 Eki faturası: 5 sn klip $0.25" },
     verified: true,
     buildInput: (req) => ({
       prompt: req.prompt,
@@ -94,7 +98,8 @@ export const FAL_MODELS: FalModelSpec[] = [
     capabilities: ["i2v", "first_last_frame"],
     limits: { maxRefs: 2, minDurationSec: 1, maxDurationSec: 10 },
     qualityPrior: 0.85,
-    price: { unit: "per_second", usd: 0.112 },
+    price: { unit: "per_second", usd: 0.112, stepSec: 5, minSec: 5 },
+    priceSource: { url: "https://www.developersdigest.tech/blog/image-video-generation-api-pricing-2026", checked: "2026-10-18", note: "Kling 3.0 1080p sessiz 0.8 Unit/sn; fal fiyatı doğrulanmadı" },
     verified: false,
     buildInput: (req) => ({
       prompt: req.prompt,
@@ -112,7 +117,8 @@ export const FAL_MODELS: FalModelSpec[] = [
     capabilities: ["ref2v"],
     limits: { maxRefs: 9, minDurationSec: 4, maxDurationSec: 15 },
     qualityPrior: 0.85,
-    price: { unit: "per_second", usd: 0.23 },
+    price: { unit: "per_second", usd: 0.23, minSec: 4 },
+    priceSource: { url: "https://fal.ai/seedance-2.0", checked: "2026-09-01", note: "720p; sağlayıcıya göre $0.15–0.30/sn" },
     verified: false,
     buildInput: (req) => ({
       prompt: req.prompt,

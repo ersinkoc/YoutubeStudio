@@ -101,37 +101,15 @@ export function setMotion(state: EpisodeState, motionMode: MotionMode, aiClipRat
   if (aiClipRatio !== undefined) state.input.aiClipRatio = aiClipRatio;
 }
 
-// ---------------- maliyet tahmini ----------------
-
-/** Tahmini birim fiyatlar (plan §10, §18; 29 Eki faturalarıyla uyumlu). */
-const PRICE = {
-  imageStandard: 0.067, // Nano Banana 2
-  imageEconomy: 0.025, // FLUX dev
-  clipPerSecond: 0.05, // Kling 2.1 standart, sessiz
-  ttsPer1kChars: 0.1, // ElevenLabs v3 (Gemini TTS ~0.03)
-  agents: 0.5,
-} as const;
-
-export interface CostEstimate {
-  shots: number;
-  keyframesUsd: number;
-  clipsUsd: number;
-  voiceUsd: number;
-  agentsUsd: number;
-  conceptUsd: number;
-  totalUsd: number;
-}
-
-export function estimateCost(input: EpisodeInput, opts: { shots?: number; castSize?: number } = {}): CostEstimate {
-  const shots = opts.shots ?? Math.max(1, Math.round(input.targetSec / 5.5));
-  const image = input.tier === "economy" || input.tier === "ultra" ? PRICE.imageEconomy : PRICE.imageStandard;
-  const mode = input.motionMode ?? (input.aiClipRatio > 0 ? "mixed" : "still");
-  const clipShare = mode === "animated" ? 1 : mode === "mixed" ? input.aiClipRatio : 0;
-  // Klipler 5 veya 10 sn faturalanıyor; ortalama ~7 sn.
-  const clipsUsd = shots * clipShare * 7 * PRICE.clipPerSecond;
-  const keyframesUsd = shots * image;
-  const voiceUsd = ((input.targetSec / 60) * 900 * PRICE.ttsPer1kChars) / 1000;
-  const conceptUsd = (opts.castSize ?? 6) * 3 * PRICE.imageStandard + 3 * PRICE.imageStandard;
-  const totalUsd = keyframesUsd + clipsUsd + voiceUsd + PRICE.agents + conceptUsd;
-  return { shots, keyframesUsd, clipsUsd, voiceUsd, agentsUsd: PRICE.agents, conceptUsd, totalUsd };
+/**
+ * Anlatıcı sesini değiştirir. Bölüm tek sesle anlatıldığı için tüm sahneler yeniden seslendirilir;
+ * zamanlama değiştiği için çekim planı ve sonrası da yeniden üretilir.
+ */
+export function changeVoice(state: EpisodeState, voiceId: string | undefined): void {
+  if (state.done.render) throw new Error("Video render edildi; ses değiştirmek için yeni bölüm aç");
+  state.input.voiceId = voiceId || undefined;
+  delete state.voice;
+  delete state.voiceProviderId;
+  delete state.lastError;
+  invalidateFrom(state, "voice");
 }

@@ -6,11 +6,41 @@ import type {
   GenerationRequest,
   GenerationResult,
   PriceRule,
+  PriceSource,
   ProviderAdapter,
   ProviderLimits,
+  Quota,
 } from "../types.ts";
 
 const BASE = "https://api.elevenlabs.io/v1";
+
+const SOURCE: PriceSource = {
+  url: "https://elevenlabs.io/pricing/api",
+  checked: "2026-07-01",
+  note: "Abonelikte karakter kotasından düşer; ücretsiz plan ticari kullanıma izin vermez",
+};
+
+interface Subscription {
+  tier: string;
+  character_count: number;
+  character_limit: number;
+  next_character_count_reset_unix?: number;
+}
+
+/** Hesabın aylık karakter kotası; bütün ElevenLabs ürünleri aynı kotadan düşer. */
+async function subscriptionQuota(apiKey: string, ctx: GenerateContext): Promise<Quota> {
+  const s = await requestJson<Subscription>(ctx.fetch, `${BASE}/user/subscription`, {
+    headers: { "xi-api-key": apiKey },
+    signal: ctx.signal,
+  });
+  return {
+    unit: "chars",
+    used: s.character_count,
+    limit: s.character_limit,
+    plan: s.tier,
+    resetsAt: s.next_character_count_reset_unix ? new Date(s.next_character_count_reset_unix * 1000).toISOString() : undefined,
+  };
+}
 
 interface TimestampResponse {
   audio_base64: string;
@@ -29,11 +59,16 @@ export class ElevenLabsTtsAdapter implements ProviderAdapter {
   readonly id = "elevenlabs:tts";
   readonly qualityPrior = 0.9;
   readonly price: PriceRule = { unit: "per_1k_chars", usd: 0.1 };
+  readonly priceSource = SOURCE;
 
   constructor(
     private readonly apiKey: string,
     private readonly model = "eleven_v3",
   ) {}
+
+  quota(ctx: GenerateContext): Promise<Quota> {
+    return subscriptionQuota(this.apiKey, ctx);
+  }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
     if (!req.voiceId || !req.text) throw new Error("ElevenLabs TTS için voiceId ve text gerekli");

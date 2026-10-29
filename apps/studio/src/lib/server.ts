@@ -2,30 +2,82 @@ import "server-only";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { JsonlLedger } from "@ys/media-gateway";
-import { EpisodeRepo } from "@ys/pipeline/light";
+import { createDb, DbCostLedger } from "@ys/db";
+import {
+  createProvidersFromEnv,
+  InMemoryLedger,
+  JsonlLedger,
+  MediaGateway,
+  measuredLatency,
+  type CostEntry,
+  type CostLedger,
+  type ProviderAdapter,
+  type Quota,
+} from "@ys/media-gateway";
+import { EpisodeRepo, type EstimateContext } from "@ys/pipeline/light";
 import { createStoreFromEnv, type AssetStore } from "@ys/storage";
 
 /** Monorepo kökü: stüdyo apps/studio içinden çalışır, veriler kökteki .data altındadır. */
 // Çalışma anında çözülen veri klasörü; derleyicinin tüm projeyi pakete izlemesini engeller.
 export const ROOT = resolve(/*turbopackIgnore: true*/ process.env.YS_ROOT ?? join(process.cwd(), "..", ".."));
 
-const g = globalThis as unknown as { __ys?: { store: AssetStore; repo: EpisodeRepo; ledger: JsonlLedger; jobs: Map<string, Job> } };
+interface Studio {
+  store: AssetStore;
+  repo: EpisodeRepo;
+  ledger: CostLedger;
+  providers: ProviderAdapter[];
+  skipped: string[];
+  gateway: MediaGateway;
+  jobs: Map<string, Job>;
+  quotas: Map<string, { at: number; quota: Quota | undefined }>;
+}
 
-function init() {
+const g = globalThis as unknown as { __ys?: Studio };
+
+function init(): Studio {
   if (g.__ys) return g.__ys;
   const envFile = join(ROOT, ".env");
   if (existsSync(envFile)) process.loadEnvFile(envFile);
   const store = createStoreFromEnv(process.env, join(ROOT, ".data", "assets"));
-  g.__ys = { store, repo: new EpisodeRepo(store), ledger: new JsonlLedger(join(ROOT, ".data", "ledger.jsonl")), jobs: new Map() };
+  // CLI ile aynı defter: LEDGER=db ise Postgres, değilse JSONL dosyası.
+  const ledger: CostLedger =
+    process.env.LEDGER === "db" && process.env.DATABASE_URL
+      ? new DbCostLedger(createDb(process.env.DATABASE_URL))
+      : new JsonlLedger(join(ROOT, ".data", "ledger.jsonl"));
+  const { providers, skipped } = createProvidersFromEnv(process.env);
+  // Stüdyonun gateway'i sadece kota sorgusu için; üretim CLI sürecinde yapılır.
+  const gateway = new MediaGateway({ providers, store, ledger: new InMemoryLedger() });
+  g.__ys = { store, repo: new EpisodeRepo(store), ledger, providers, skipped, gateway, jobs: new Map(), quotas: new Map() };
   return g.__ys;
 }
 
 export const store = () => init().store;
 export const repo = () => init().repo;
+export const catalog = () => ({ providers: init().providers, skipped: init().skipped });
+
+export async function ledgerEntries(episodeId?: string): Promise<CostEntry[]> {
+  return init().ledger.list(episodeId);
+}
 
 export async function episodeSpentUsd(episodeId: string): Promise<number> {
   return (await init().ledger.spent(episodeId)) / 1_000_000;
+}
+
+/** Tahmin motorunun girdisi: etkin sağlayıcılar ve defterden ölçülen gecikmeler. */
+export async function estimateContext(): Promise<EstimateContext> {
+  return { providers: init().providers, latency: measuredLatency(await ledgerEntries()) };
+}
+
+const QUOTA_TTL_MS = 60_000;
+
+/** Sağlayıcı kotası; arayüz sık yenilendiği için 60 sn önbelleklenir. */
+export async function quotaOf(providerId: string): Promise<Quota | undefined> {
+  const { quotas, gateway } = init();
+  const hit = quotas.get(providerId);
+  if (hit && Date.now() - hit.at < QUOTA_TTL_MS) return hit.quota;
+  const quota = await gateway.quota(providerId);
+  quotas.set(providerId, { at: Date.now(), quota });
+  return quota;
 }
 
 // ---------------- arka plan işleri ----------------

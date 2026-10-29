@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ys/core": "workspace:*",
+    "@ys/db": "workspace:*",
     "@ys/media-gateway": "workspace:*",
     "@ys/pipeline": "workspace:*",
     "@ys/storage": "workspace:*",

@@ -73,6 +73,7 @@ export function resolveShotTimes(
         imagePrompt: shot.imagePrompt,
         motionPrompt: shot.motionPrompt,
         camera: shot.camera,
+        ambience: shot.ambience,
         characterIds: shot.characterIds?.slice(0, 3),
         locationId: shot.locationId || undefined,
       });
@@ -115,6 +116,8 @@ export function buildTimeline(state: EpisodeState, assetPath: (key: string) => s
         fromFrame,
         durationInFrames,
         motion: clip ? undefined : { type: "ken_burns" as const, ...CAMERA_MOTION[shot.camera] },
+        // Gerçek klipte hareket zaten var; katman yalnız durağan karelere.
+        ambience: clip ? ("none" as const) : (shot.ambience ?? "none"),
         // Klip çekimden kısaysa yavaşlatılır (en fazla 2 kat); uzunsa kırpılır.
         playbackRate: clip ? Math.min(1, Math.max(0.5, clip.durationSec / ((shot.endMs - shot.startMs) / 1000))) : 1,
       },

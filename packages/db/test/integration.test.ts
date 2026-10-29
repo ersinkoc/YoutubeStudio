@@ -18,6 +18,10 @@ run("entegrasyon: Postgres + RustFS", () => {
     await ledger.record({ ...base, at: new Date().toISOString(), episodeId, estimateMicros: 0, cacheHit: true });
     await ledger.record({ ...base, at: new Date().toISOString(), episodeId, estimateMicros: usd(1.5), cacheHit: false });
     expect(await ledger.spent(episodeId)).toBe(usd(1.525));
+    await ledger.record({ ...base, at: new Date().toISOString(), episodeId, estimateMicros: 0, cacheHit: false, durationMs: 4200, error: "kota doldu" });
+    const rows = await ledger.list(episodeId);
+    expect(rows).toHaveLength(4);
+    expect(rows.at(-1)).toMatchObject({ durationMs: 4200, error: "kota doldu", refId: undefined });
     await db.$client.end();
   });
 

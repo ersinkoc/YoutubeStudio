@@ -7,7 +7,7 @@ import {
   approve,
   editNarration,
   EpisodeRepo,
-  estimateCost,
+  changeVoice,
   gateBefore,
   isApproved,
   missingSelections,
@@ -98,17 +98,23 @@ describe("onay kapıları", () => {
   });
 });
 
-describe("estimateCost", () => {
-  it("animasyon modu klip maliyetini tüm çekimlere yayar", () => {
-    const still = estimateCost({ ...input, motionMode: "still" });
-    const animated = estimateCost({ ...input, motionMode: "animated" });
-    expect(still.clipsUsd).toBe(0);
-    expect(animated.shots).toBe(33);
-    expect(animated.clipsUsd).toBeCloseTo(33 * 7 * 0.05);
-    expect(animated.totalUsd).toBeGreaterThan(still.totalUsd);
+describe("changeVoice", () => {
+  it("sesi ve zamanlamaya bağlı tüm aşamaları sıfırlar; render sonrası izin vermez", () => {
+    const s = baseState();
+    s.done = { ...s.done, voice: "x", shots: "x", keyframes: "x" };
+    s.voice = { s1: { key: "v", mimeType: "audio/mpeg", durationMs: 1000, words: [], estimatedTiming: false } };
+    s.voiceProviderId = "elevenlabs:tts";
+    s.lastError = { stage: "voice", message: "kota", at: "" };
+    changeVoice(s, "");
+    expect(s.input.voiceId).toBeUndefined();
+    expect(s.voice).toBeUndefined();
+    expect(s.voiceProviderId).toBeUndefined();
+    expect(s.lastError).toBeUndefined();
+    expect(Object.keys(s.done)).toEqual(["style", "story", "script", "cast", "concept"]);
+    s.done.render = "x";
+    expect(() => changeVoice(s, "v2")).toThrow(/render/);
   });
 });
-
 describe("EpisodeRepo", () => {
   it("bölümleri yeniden eskiye listeler", async () => {
     const repo = new EpisodeRepo(new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-repo-"))));

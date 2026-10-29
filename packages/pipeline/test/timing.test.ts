@@ -26,6 +26,7 @@ const shot = (startWord: number, kind: "still_motion" | "ai_clip" = "still_motio
   imagePrompt: "p",
   motionPrompt: "m",
   camera: "push_in" as const,
+  ambience: "dust" as const,
 });
 
 describe("estimateWordTimings", () => {
@@ -84,8 +85,8 @@ describe("buildTimeline", () => {
       script: { scenes: [{ id: "s1", beatId: "b1", narration: "merhaba dünya", visualIntent: "", emotion: "", location: "" }] },
       voice,
       shots: [
-        { id: "a", sceneId: "s1", kind: "still_motion", startMs: 0, endMs: 1500, description: "", imagePrompt: "", motionPrompt: "", camera: "pan_left" },
-        { id: "b", sceneId: "s1", kind: "ai_clip", startMs: 1500, endMs: 3400, description: "", imagePrompt: "", motionPrompt: "", camera: "static" },
+        { id: "a", sceneId: "s1", kind: "still_motion", startMs: 0, endMs: 1500, description: "", imagePrompt: "", motionPrompt: "", camera: "pan_left", ambience: "rain" },
+        { id: "b", sceneId: "s1", kind: "ai_clip", startMs: 1500, endMs: 3400, description: "", imagePrompt: "", motionPrompt: "", camera: "static", ambience: "rain" },
       ],
       keyframes: { a: { key: "kf/a.png", mimeType: "image/png" }, b: { key: "kf/b.png", mimeType: "image/png" } },
       clips: { b: { key: "clip/b.mp4", mimeType: "video/mp4", durationSec: 5 } },
@@ -94,8 +95,9 @@ describe("buildTimeline", () => {
     const tl = buildTimeline(state, (k) => `assets/${k}`);
     expect(tl.durationInFrames).toBe(102);
     expect(tl.visuals).toMatchObject([
-      { shotId: "a", kind: "still_motion", fromFrame: 0, durationInFrames: 45, assetUrl: "assets/kf/a.png", motion: { panX: -1 } },
-      { shotId: "b", kind: "ai_clip", fromFrame: 45, durationInFrames: 57, assetUrl: "assets/clip/b.mp4", playbackRate: 1 },
+      { shotId: "a", kind: "still_motion", fromFrame: 0, durationInFrames: 45, assetUrl: "assets/kf/a.png", motion: { panX: -1 }, ambience: "rain" },
+      // Gerçek klibin üstüne atmosfer çizilmez.
+      { shotId: "b", kind: "ai_clip", fromFrame: 45, durationInFrames: 57, assetUrl: "assets/clip/b.mp4", playbackRate: 1, ambience: "none" },
     ]);
     expect(tl.audio).toEqual([{ role: "voice", assetUrl: "assets/voice/s1.mp3", fromFrame: 0, durationInFrames: 90, volume: 1 }]);
     expect(tl.captions.map((c) => c.text)).toEqual(["merhaba", "dünya"]);

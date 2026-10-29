@@ -12,3 +12,5 @@ apps/studio/.next/
 apps/studio/next-env.d.ts
 *.tsbuildinfo
 .playwright-mcp/
+
+.dfmt/

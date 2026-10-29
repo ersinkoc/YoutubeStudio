@@ -47,6 +47,9 @@ importers:
       '@ys/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@ys/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@ys/media-gateway':
         specifier: workspace:*
         version: link:../../packages/media-gateway

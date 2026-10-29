@@ -7,6 +7,7 @@ import type {
   GenerationResult,
   OutputFile,
   PriceRule,
+  PriceSource,
   ProviderAdapter,
   ProviderLimits,
 } from "../types.ts";
@@ -29,6 +30,7 @@ interface GeminiModelConfig {
   apiKey: string;
   qualityPrior: number;
   price: PriceRule;
+  priceSource?: PriceSource;
 }
 
 function inlineParts(res: GenerateContentResponse): InlineData[] {
@@ -44,11 +46,13 @@ export class GeminiImageAdapter implements ProviderAdapter {
   readonly id: string;
   readonly qualityPrior: number;
   readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
 
   constructor(private readonly cfg: GeminiModelConfig) {
     this.id = cfg.id;
     this.qualityPrior = cfg.qualityPrior;
     this.price = cfg.price;
+    this.priceSource = cfg.priceSource;
   }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
@@ -85,6 +89,7 @@ export class GeminiTtsAdapter implements ProviderAdapter {
   readonly id: string;
   readonly qualityPrior: number;
   readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
 
   constructor(
     private readonly cfg: GeminiModelConfig,
@@ -93,6 +98,7 @@ export class GeminiTtsAdapter implements ProviderAdapter {
     this.id = cfg.id;
     this.qualityPrior = cfg.qualityPrior;
     this.price = cfg.price;
+    this.priceSource = cfg.priceSource;
   }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
@@ -139,11 +145,13 @@ export class VeoAdapter implements ProviderAdapter {
   readonly id: string;
   readonly qualityPrior: number;
   readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
 
   constructor(private readonly cfg: GeminiModelConfig) {
     this.id = cfg.id;
     this.qualityPrior = cfg.qualityPrior;
     this.price = cfg.price;
+    this.priceSource = cfg.priceSource;
   }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {

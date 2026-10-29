@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 export type QueryFn = typeof query;
@@ -12,11 +12,18 @@ export const models = () => ({
   cheap: process.env.YS_MODEL_CHEAP ?? "claude-haiku-5-5",
 });
 
+export interface AgentImage {
+  data: Uint8Array;
+  mimeType: string;
+}
+
 export interface AgentCall<T> {
   name: string;
   model: string;
   system: string;
   prompt: string;
+  /** Prompt metninden önce gönderilen görseller (görsel kalite kontrolü gibi işler için). */
+  images?: AgentImage[];
   schema: z.ZodType<T>;
   effort?: Effort;
   maxBudgetUsd?: number;
@@ -45,6 +52,28 @@ export function toOutputSchema(schema: z.ZodType): Record<string, unknown> {
   return rest;
 }
 
+/** Görselli istek: SDK görsel bloklarını yalnız akış girdisiyle kabul ediyor. */
+async function* withImages(text: string, images: AgentImage[]): AsyncIterable<SDKUserMessage> {
+  yield {
+    type: "user",
+    parent_tool_use_id: null,
+    message: {
+      role: "user",
+      content: [
+        ...images.map((img) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: img.mimeType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+            data: Buffer.from(img.data).toString("base64"),
+          },
+        })),
+        { type: "text" as const, text },
+      ],
+    },
+  };
+}
+
 /**
  * Araçsız, tek amaçlı bir Claude çağrısı: şemaya uyan JSON döner.
  * Claude Code harness'ı üzerinden çalıştığı için abonelik (Agent SDK kredisi) veya API anahtarı kullanılır.
@@ -54,7 +83,7 @@ export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {})
   deps.log?.(`ajan: ${call.name} (${call.model})`);
 
   const q = queryFn({
-    prompt: call.prompt,
+    prompt: call.images?.length ? withImages(call.prompt, call.images) : call.prompt,
     options: {
       model: call.model,
       systemPrompt: call.system,

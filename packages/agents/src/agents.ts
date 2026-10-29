@@ -133,7 +133,7 @@ export type MotionMode = "animated" | "mixed" | "still";
 
 const MOTION_RULES: Record<MotionMode, (ratio: number) => string> = {
   animated: () =>
-    `- Every shot is "ai_clip" (the whole video is animated). Shots last 4–10 seconds. Each motionPrompt describes clear but simple motion that fits the shot.`,
+    `- Every shot is "ai_clip" (the whole video is animated). Shots last 3–5 seconds: clips are billed in 5-second blocks, so a 6-second shot costs as much as a 10-second one. Each motionPrompt describes one clear, simple motion that fits the shot.`,
   mixed: (ratio) =>
     `- About ${Math.round(ratio * 100)}% of shots should be "ai_clip" (real motion needed: action, transformation). All others "still_motion" (parallax/Ken Burns on a still). Shots last 3–8 seconds.`,
   still: () => `- Every shot is "still_motion" (parallax/Ken Burns on a still). Shots last 3–8 seconds.`,
@@ -169,6 +169,7 @@ Rules:
 ${MOTION_RULES[opts.motionMode ?? "mixed"](opts.aiClipRatio)}
 - imagePrompt: one concrete frame, describe action, composition, framing. The style prefix and the cast/location reference images are added automatically — refer to cast members by name, do not redescribe their looks. Never ask for text in the image.
 - characterIds/locationId: tag every shot with the cast ids that appear in it, so reference images can be attached.
+- ambience: a subtle animated overlay that makes still_motion shots feel alive. It must match what is in the frame: "rain"/"snow" only outdoors in that weather, "fog" for night, mist or mystery, "dust" for old rooms, workshops, attics, "embers" near fire or forges, "flicker" for candle/lamp/screen light, "rays" for sunlight through windows or trees. Use "none" when nothing fits; keep the same ambience across shots of one location and moment.
 Visual style for reference: ${style.artStyle}.`,
       prompt: cast + scenes,
     },

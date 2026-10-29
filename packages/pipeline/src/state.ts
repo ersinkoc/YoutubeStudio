@@ -1,5 +1,5 @@
 import type { CastOut, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
-import type { BudgetTier, Timeline, WordTiming } from "@ys/core";
+import type { Ambience, BudgetTier, Timeline, WordTiming } from "@ys/core";
 
 export type { MotionMode };
 
@@ -67,6 +67,8 @@ export interface PlannedShotState {
   imagePrompt: string;
   motionPrompt: string;
   camera: "push_in" | "pull_out" | "pan_left" | "pan_right" | "static";
+  /** Eski planlarda yok; yoksa "none". */
+  ambience?: Ambience;
   characterIds?: string[];
   locationId?: string;
 }
@@ -87,11 +89,29 @@ export interface ConceptState {
   previews?: (AssetRef & { caption: string })[];
 }
 
+/** Bir aşamanın son çalışmasının zamanlaması (maliyet, defterden aşamaya göre toplanır). */
+export interface StageStat {
+  startedAt: string;
+  endedAt?: string;
+  durationMs?: number;
+}
+
+export interface EpisodeError {
+  stage: Stage;
+  message: string;
+  at: string;
+}
+
 export interface EpisodeState {
   id: string;
   createdAt: string;
   input: EpisodeInput;
   done: Partial<Record<Stage, string>>;
+  stats?: Partial<Record<Stage, StageStat>>;
+  /** Son başarısız aşama; stüdyo sunucusu yeniden başlasa da görünür kalsın diye durumda tutulur. */
+  lastError?: EpisodeError;
+  /** Bölümün anlatıcı sesini üreten sağlayıcı; sahneler arasında ses karışmasın diye sabitlenir. */
+  voiceProviderId?: string;
   approvals?: Partial<Record<Gate, string>>;
   /** Pipeline bir onay kapısında durduysa hangisi. */
   waitingFor?: Gate;

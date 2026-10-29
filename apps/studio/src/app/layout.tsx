@@ -18,7 +18,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <span className="inline-block h-3 w-3 rounded-full bg-accent" />
               YoutubeStudio
             </Link>
-            <span className="text-xs text-muted">AI video fabrikası</span>
+            <nav className="flex items-center gap-5 text-sm text-muted">
+              <Link href="/" className="hover:text-white">Bölümler</Link>
+              <Link href="/costs" className="hover:text-white">Maliyetler</Link>
+              <Link href="/pricing" className="hover:text-white">Fiyatlar</Link>
+            </nav>
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>

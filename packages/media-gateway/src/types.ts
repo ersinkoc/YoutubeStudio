@@ -60,7 +60,11 @@ export interface ProviderLimits {
 export type PriceRule =
   | { unit: "free" }
   | { unit: "per_output"; usd: number }
-  | { unit: "per_second"; usd: number }
+  /**
+   * stepSec: faturalama adımı (Kling 5 → 6 sn'lik istek 10 sn faturalanır).
+   * minSec: en az faturalanan süre.
+   */
+  | { unit: "per_second"; usd: number; stepSec?: number; minSec?: number }
   | { unit: "per_1k_chars"; usd: number }
   | { unit: "per_minute"; usd: number };
 
@@ -68,6 +72,23 @@ export interface GenerateContext {
   fetch: typeof fetch;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+}
+
+/** Fiyatın nereden alındığı; stüdyonun fiyat kataloğunda gösterilir. */
+export interface PriceSource {
+  url: string;
+  /** Kontrol tarihi (YYYY-AA-GG). */
+  checked: string;
+  note?: string;
+}
+
+/** Hesap kotası (ör. ElevenLabs aylık karakter). */
+export interface Quota {
+  unit: "chars" | "credits" | "usd";
+  used: number;
+  limit: number;
+  resetsAt?: string;
+  plan?: string;
 }
 
 export interface ProviderAdapter {
@@ -79,5 +100,8 @@ export interface ProviderAdapter {
   /** 0–1 arası ön kalite tahmini; benchmark sonuçlarıyla zamanla güncellenecek. */
   readonly qualityPrior: number;
   readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
   generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult>;
+  /** Kalan hesap kotası; işe başlamadan önce yetip yetmeyeceği kontrol edilir. */
+  quota?(ctx: GenerateContext): Promise<Quota>;
 }

@@ -73,6 +73,11 @@ export const costEntries = pgTable(
     actualMicros: bigint("actual_micros", { mode: "number" }),
     cacheHit: boolean("cache_hit").notNull(),
     requestHash: text("request_hash").notNull(),
+    refId: text("ref_id"),
+    durationMs: integer("duration_ms"),
+    units: real("units"),
+    unitLabel: text("unit_label"),
+    error: text("error"),
   },
   (t) => [index("cost_episode_idx").on(t.episodeId)],
 );
