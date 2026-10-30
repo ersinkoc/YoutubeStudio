@@ -391,6 +391,16 @@ function QualityGate({ state, busy, act }: { state: EpisodeState; busy: boolean;
                   ))}
                 </ul>
               )}
+              {c.plan && (
+                <details className="text-xs text-muted">
+                  <summary className="cursor-pointer hover:text-white">{t("gate.plan")}</summary>
+                  <div className="mt-1 grid gap-0.5">
+                    <div className="text-white/90">{c.plan.subject}</div>
+                    {c.plan.cues.length > 0 && <div>{t("gate.planCues", { items: c.plan.cues.join(" · ") })}</div>}
+                    {c.plan.moved.length > 0 && <div className="text-accent">{t("gate.planMoved", { items: c.plan.moved.join(" · ") })}</div>}
+                  </div>
+                </details>
+              )}
               {c.override?.note && <div className="text-xs text-accent">{t("gate.note", { note: c.override.note })}</div>}
               <HumanDecision checkKey={key} passed={c.passed} human={c.override?.decision} busy={busy} act={act} />
               {c.sources.length > 0 && (

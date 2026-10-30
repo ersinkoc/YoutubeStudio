@@ -11,6 +11,8 @@ import {
   storyArchitect,
   vectorDesigner,
   assetGate,
+  assetPlanner,
+  gateDescription,
   assetGuess,
   type AgentImage,
   type VectorAssetOut,
@@ -23,6 +25,7 @@ import {
 } from "@ys/agents";
 import { createHash } from "node:crypto";
 import {
+  AssetPlan,
   betterGate,
   gatePasses,
   QUALITY_GATE,
@@ -399,13 +402,17 @@ export class EpisodePipeline {
     brief: AssetBrief,
     svg: string,
     references: AgentImage[] | undefined,
+    plan?: AssetPlan,
   ): Promise<GateResult> {
     const drawing = await rasterizeSvg(svg);
     const guess = await this.agent(state, stage, assetGuess(drawing, this.deps.agentDeps));
     const gate = await this.agent(
       state,
       stage,
-      assetGate({ kind: brief.kind, name: brief.name, description: brief.description, guess, drawing, references }, this.deps.agentDeps),
+      assetGate(
+        { kind: brief.kind, name: brief.name, description: gateDescription(brief.description, plan), guess, drawing, references },
+        this.deps.agentDeps,
+      ),
     );
     return {
       // Referanslar konuyu göstermiyorsa denetçi sadakat vermez (null): yalnız tanınırlıkla karar verilir.
@@ -441,6 +448,22 @@ export class EpisodePipeline {
       }
       return refs?.images.length ? refs.images : undefined;
     };
+    // Çizim planı varlık başına bir kez hazırlanır ve kütüphanede durur: yeniden çizimler ve devamlar aynı planı kullanır.
+    const planKey = key.replace(/\.svg$/, ".plan.json");
+    let plan = (await getJson<AssetPlan>(this.deps.store, planKey)) ?? undefined;
+    const makePlan = async (references: AgentImage[] | undefined) => {
+      if (plan) return plan;
+      try {
+        const out = await this.agent(state, stage, assetPlanner({ ...brief, references }, state.style!, this.deps.agentDeps));
+        plan = AssetPlan.parse(out);
+        await putJson(this.deps.store, planKey, plan);
+        this.log(`  ${brief.name}: çizim planı → ${plan.subject}${plan.moved.length ? ` (bu çizime girmeyen: ${plan.moved.join("; ")})` : ""}`);
+      } catch (e) {
+        // Plan yardımcıdır: hazırlanamazsa tarifle çizilir.
+        this.log(`  ${brief.name}: çizim planı hazırlanamadı, tarifle çiziliyor (${e instanceof Error ? e.message : String(e)})`);
+      }
+      return plan;
+    };
     const record = (check: AssetCheck) => ((state.assetChecks ??= {})[key] = check);
     const checkOf = (r: GateResult, attempts: number): AssetCheck => ({
       kind: brief.kind,
@@ -454,6 +477,7 @@ export class EpisodePipeline {
       query: refs?.images.length ? query : undefined,
       sources: refs?.sources ?? [],
       refs: refs?.keys ?? [],
+      plan,
       entityId: brief.id,
     });
     const scoreText = (r: { scores: GateScores; guess: string }) =>
@@ -471,7 +495,7 @@ export class EpisodePipeline {
         this.log(`  ${brief.name}: kütüphaneden (kapı ✓)`);
         return ref;
       }
-      const res = await this.gateCheck(state, stage, brief, new TextDecoder().decode(cached), await loadRefs());
+      const res = await this.gateCheck(state, stage, brief, new TextDecoder().decode(cached), await loadRefs(), plan);
       const check = checkOf(res, 0);
       if (check.passed) {
         await putJson(this.deps.store, `${key}.json`, { ...meta, check });
@@ -500,13 +524,14 @@ export class EpisodePipeline {
     }
 
     const references = await loadRefs();
+    await makePlan(references);
     let best: { svg: string; out: VectorAssetOut; res: GateResult } | undefined;
     let lastError: unknown;
     let draws = 0;
     for (let attempt = 1; attempt <= QUALITY_GATE.maxDraws; attempt++) {
       draws = attempt;
       const lessons = topLessons(await loadLessons(this.deps.store), "designer");
-      const out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix }, state.style!, this.deps.agentDeps));
+      const out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix, plan }, state.style!, this.deps.agentDeps));
       let svg: string;
       try {
         const clean = sanitizeSvg(out.svg);
@@ -521,12 +546,12 @@ export class EpisodePipeline {
         this.log(`  ${brief.name}: deneme ${attempt} geçersiz SVG (${e instanceof Error ? e.message : String(e)})`);
         continue;
       }
-      const res = await this.gateCheck(state, stage, brief, svg, references);
+      const res = await this.gateCheck(state, stage, brief, svg, references, plan);
       const passed = gatePasses(brief.kind, res.scores);
       if (betterGate(brief.kind, res.scores, best?.res.scores)) best = { svg, out, res };
       this.log(`  ${brief.name}: deneme ${attempt}, ${scoreText(res)} ${passed ? "✓" : "✗"}`);
       if (passed) break;
-      fix = [`- A viewer who did not know the name saw: "${res.guess}". It must read clearly as: ${brief.name}.`, ...res.defects.map((d) => `- ${d}`)].join("\n");
+      fix = [`- A viewer who did not know the name saw: "${res.guess}". It must read clearly as: ${plan?.subject ?? brief.name}.`, ...res.defects.map((d) => `- ${d}`)].join("\n");
     }
     if (!best) throw lastError;
 

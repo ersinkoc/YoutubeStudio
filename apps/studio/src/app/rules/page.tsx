@@ -15,6 +15,7 @@ export default async function RulesPage() {
       title: "rules.gate",
       rules: [
         ["rules.gate.every"],
+        ["rules.gate.plan"],
         ["rules.gate.blind"],
         ["rules.gate.thresholds", { character: g.recognizableMin.character, prop: g.recognizableMin.prop, background: g.recognizableMin.background, fidelity: g.fidelityMin }],
         ["rules.gate.redraw", { n: g.maxDraws }],

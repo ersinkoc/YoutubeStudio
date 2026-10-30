@@ -1,4 +1,4 @@
-import { FlagSpec, MapSpec, RIG, VectorShot, type LineStyle } from "@ys/core";
+import { FlagSpec, MapSpec, RIG, VectorShot, type AssetPlan, type LineStyle } from "@ys/core";
 import { z } from "zod";
 import { indexWords } from "./agents.ts";
 import { lessonsBlock, models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
@@ -59,6 +59,101 @@ export interface VectorAssetBrief {
   references?: AgentImage[];
   /** Önceki çizimin referansla karşılaştırılmasından çıkan düzeltmeler. */
   fix?: string;
+  /** Çizimden önce hazırlanan plan (assetPlanner); tarifle çeliştiği yerde plan geçerlidir. */
+  plan?: AssetPlan;
+}
+
+/** Varlık türünün kısıtı: plan bunun dışına çıkan her şeyi "moved" listesine ayırır. */
+const KIND_LIMITS: Record<VectorAssetBrief["kind"], string> = {
+  character:
+    "a single HUMAN puppet standing alone, front view, rest pose (arms hanging, legs straight); code animates walking and gestures. It cannot sit, ride, lie, kneel or hold anything bigger than a hand, and it contains no animals, vehicles, furniture or other people: those become separate props or are left out. Identity comes from build, face, hair, clothing, headgear and small worn items (bag strap, badge, belt tools).",
+  background:
+    "an EMPTY place seen straight on: sky/landscape or back wall and the ground/floor plane. No people, animals, vehicles or furniture standing on the ground (separate props). Keep the middle band plain; identity comes from architecture, landform, vegetation, windows, distant landmarks and colour of light.",
+  prop: "ONE object, animal or vehicle alone on a transparent background, no people. Animals and vehicles in side view standing on all their legs/wheels; objects front or three-quarter view at a readable angle.",
+};
+
+export const AssetPlanOut = z.object({
+  subject: z.string().describe("One sentence: exactly what this single asset shows, rewritten to fit the asset kind's limits"),
+  moved: z
+    .array(z.string())
+    .max(4)
+    .describe("Things from the description that cannot be part of THIS asset (other people, animals, vehicles, an impossible pose) — empty if all fits"),
+  pose: z.string().describe("View and pose in a few words (e.g. 'side view, standing on four legs, head slightly lowered')"),
+  silhouette: z.string().describe("Overall outline and proportions, e.g. 'horizontal body ~2.2:1, long neck at 45°, legs 45% of total height'"),
+  parts: z
+    .array(
+      z.object({
+        name: z.string(),
+        count: z.number().int().nullable().describe("How many (4 legs, 2 windows); null when not countable"),
+        shape: z.string().describe("Simple geometric description"),
+        colour: z.string().describe("Hex colour taken from the references when they show it, otherwise from the palette"),
+        where: z.string().describe("Position relative to the whole"),
+      }),
+    )
+    .max(12)
+    .describe("The main parts, biggest first"),
+  cues: z.array(z.string()).min(2).max(4).describe("The 2–4 features that MUST be visible for a viewer to recognise the subject at a glance"),
+  avoid: z.array(z.string()).max(4).describe("Typical mistakes when drawing this subject simply (e.g. 'horse upright on two legs', 'telegraph pole without crossarm and insulators')"),
+});
+export type AssetPlanOut = z.infer<typeof AssetPlanOut>;
+
+/**
+ * Çizim planı: tasarımcıdan önce, referans görsellere bakarak tarifi varlık türüne uydurur ve parçaları, sayıları,
+ * renkleri, tanınma ipuçlarını çıkarır. Böylece tasarımcı ne çizeceğini düşünmekle değil çizmekle uğraşır; kapı da
+ * aynı ipuçlarına bakar. Yeniden çizimler aynı planı kullanır.
+ */
+export function assetPlanner(
+  brief: Pick<VectorAssetBrief, "kind" | "name" | "description" | "references">,
+  style: StyleBibleOut,
+  deps?: AgentDeps,
+): Promise<AgentResult<AssetPlanOut>> {
+  const refs = brief.references ?? [];
+  return runStructured(
+    {
+      name: `asset-planner:${brief.kind}`,
+      model: models().fast,
+      effort: "low",
+      schema: AssetPlanOut,
+      system: `You prepare a drawing plan for a vector illustrator of an animated explainer channel. The illustrator draws simple flat shapes; your plan decides WHAT to draw so the result is instantly recognisable and true to reality.
+Art style: ${style.artStyle}. Palette: ${style.palette.join(", ")}.
+This asset is ${KIND_LIMITS[brief.kind]}
+Anything in the description that does not fit these limits goes to "moved", and the subject is rewritten without it (e.g. "rider galloping on a horse" as a character → subject "a young 1860s rider standing, mail pouch strap across the chest", moved ["the horse: separate prop"]).
+Be concrete and countable: real proportions, number of legs/wheels/windows, which colours where. Prefer the few big features a viewer recognises over small detail.${refs.length ? `
+The ${refs.length} attached image(s) are real references found online; take shapes, proportions and colours from those that show the subject and ignore any that do not.` : ""}`,
+      prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}
+${brief.description}`,
+      images: refs.length ? refs : undefined,
+    },
+    deps,
+  );
+}
+
+/** Planın tasarımcıya giden metni. */
+export function planBlock(plan: AssetPlan): string {
+  const lines = [
+    `Drawing plan (prepared from the references; where it differs from the description, the plan wins):`,
+    `Subject: ${plan.subject}`,
+    plan.pose && `Pose/view: ${plan.pose}`,
+    plan.silhouette && `Silhouette: ${plan.silhouette}`,
+    plan.parts.length &&
+      `Parts:\n${plan.parts.map((p) => `- ${p.name}${p.count !== null ? ` ×${p.count}` : ""}: ${p.shape}, ${p.colour}, ${p.where}`).join("\n")}`,
+    plan.cues.length && `Must be clearly visible: ${plan.cues.join("; ")}`,
+    plan.avoid.length && `Avoid: ${plan.avoid.join("; ")}`,
+    plan.moved.length && `NOT part of this asset (do not draw): ${plan.moved.join("; ")}`,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+/** Kapının denetlediği tarif: plan varsa uydurulmuş özne ve tanınma ipuçları (çizilemeyecek şeyler aranmaz). */
+export function gateDescription(description: string, plan?: AssetPlan): string {
+  if (!plan) return description;
+  return [
+    plan.subject,
+    plan.cues.length && `Must show: ${plan.cues.join("; ")}`,
+    plan.moved.length && `Deliberately NOT in this asset (do not penalise their absence): ${plan.moved.join("; ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Tek bir SVG varlığı tasarlar: iskeletli karakter, oda kabuğu (arka plan) ya da nesne. */
@@ -81,7 +176,7 @@ Quality: a distinctive silhouette and outfit that tells who they are; 2–3 tone
 The wall meets the floor along a horizontal line at floorY (between 620 and 760, return it). Below floorY there is only plain floor (2 tones at most).
 Keep it MINIMAL and calm: 6–12 large flat shapes, 2–3 value steps, muted low-saturation colours, low contrast, no small clutter, patterns, stripes or textures. No lettering.
 Leave the stage band plain: between x 420–1500 and y 180–floorY the wall is an empty surface (people's heads, gestures and titles go there). Windows, shelves, boards and wall objects go to the left and right thirds or high above y 180. Shelves with many small items (jars, books, bottles) are clutter: use at most one simple shelf with 2–3 large shapes, at the side.`
-        : `Canvas: a viewBox sized to the object (e.g. "0 0 400 400"), object centered horizontally, transparent background, its base resting exactly on the bottom edge (y = viewBox height) so code can put it on the floor or on a surface. Seen straight on (front view, like the room). Return realHeight in metres (the real size the viewBox height represents), grounded, and surface for furniture. Small story objects (notes, books, chips, tools) should be drawn filling the canvas at a readable angle, e.g. an open book tilted toward the viewer, not edge-on; code enlarges them to a readable size on screen.`;
+        : `Canvas: a viewBox sized to the object (e.g. "0 0 400 400"), object centered horizontally, transparent background, its base resting exactly on the bottom edge (y = viewBox height) so code can put it on the floor or on a surface. Seen straight on (front view, like the room); animals and vehicles in side view on all their legs/wheels. Return realHeight in metres (the real size the viewBox height represents), grounded, and surface for furniture. Small story objects (notes, books, chips, tools) should be drawn filling the canvas at a readable angle, e.g. an open book tilted toward the viewer, not edge-on; code enlarges them to a readable size on screen.`;
   const isolated =
     brief.kind === "background"
       ? ""
@@ -101,7 +196,7 @@ ${LINE_STYLE_RULES[brief.lineStyle ?? "outline"]}
 ${canvas}${isolated}
 ${SVG_RULES}${lessonsBlock(brief.lessons)}`,
       prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}
-${brief.description}${brief.variation ? `\nThis is variation #${brief.variation}: make a clearly different design while keeping the same identity.` : ""}${
+${brief.description}${brief.plan ? `\n\n${planBlock(brief.plan)}` : ""}${brief.variation ? `\nThis is variation #${brief.variation}: make a clearly different design while keeping the same identity.` : ""}${
         brief.references?.length
           ? `\n\nThe ${brief.references.length} attached image(s) show the REAL subject. Realism is mandatory: match its silhouette, proportions, colours, materials and the number and arrangement of its distinctive parts (pins, windows, arches, domes, buttons, stripes, headgear, beard, glasses). Simplify textures into flat vector shapes in the art style; do not copy readable text, logos or watermarks. If a reference shows extra things around the subject, draw only the subject.`
           : ""

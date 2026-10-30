@@ -42,6 +42,27 @@ export type VectorAssetKind = z.infer<typeof VectorAssetKind>;
  * Varlığın fiziksel bilgisi: sahne yerleşimi pikselle değil bunlarla hesaplanır (30 Eki: ayaklar masa üstünde
  * kalıyordu). Eski varlıklarda yoksa türe göre varsayılan kullanılır.
  */
+/**
+ * Çizim planı: tasarımcı çizmeden önce, referanslara bakan bir ajan tarifi varlık türüne uydurur ve somut bir plana
+ * çevirir (30 Eki: "atın üstündeki binici" ayakta duran iskelete çizilemediği için 3 denemede de reddedildi).
+ */
+export const AssetPlan = z.object({
+  /** Bu varlıkta tam olarak çizilecek tek özne (türün kısıtına uydurulmuş). */
+  subject: z.string(),
+  /** Tarifte olup bu varlığa girmeyenler (başka nesne/kişi, iskeletin yapamayacağı poz): ayrı çizilir ya da atlanır. */
+  moved: z.array(z.string()).default([]),
+  pose: z.string().default(""),
+  silhouette: z.string().default(""),
+  parts: z
+    .array(z.object({ name: z.string(), count: z.number().int().nullable().default(null), shape: z.string(), colour: z.string(), where: z.string() }))
+    .default([]),
+  /** Tanınması için mutlaka görünmesi gerekenler; kapı bunlara bakar. */
+  cues: z.array(z.string()).default([]),
+  /** Bu tür öznede sık yapılan hatalar ("at iki ayak üstünde"). */
+  avoid: z.array(z.string()).default([]),
+});
+export type AssetPlan = z.infer<typeof AssetPlan>;
+
 /** Kalite kapısının sonucu (her SVG kullanılmadan önce). Gerçek özneyse referans görseller ve kaynaklar da tutulur. */
 export const AssetCheck = z.object({
   kind: z.enum(["character", "prop", "background"]),
@@ -60,6 +81,8 @@ export const AssetCheck = z.object({
   refs: z.array(z.string()).default([]),
   /** Reddedildiyse en iyi denemenin SVG'si (Stüdyo'da göstermek için; insan kabul etmedikçe üretimde kullanılmaz). */
   rejectedKey: z.string().optional(),
+  /** Çizimden önce hazırlanan plan (Stüdyo'da gösterilir). */
+  plan: AssetPlan.optional(),
   /** Varlığın sahibi: kadro kimliği (c1, l2) ya da nesne kimliği (p-horse); insan kararı buna uygulanır. */
   entityId: z.string().optional(),
   /** İnsan kararı her zaman son sözdür: sistemin reddettiğini kabul edebilir, geçirdiğini reddedebilir. */

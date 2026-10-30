@@ -62,8 +62,9 @@ const VECTOR = { characterUsd: 0.15, backgroundUsd: 0.04, assetSec: 30, sceneUsd
  * geçemeyen kusurlarla yeniden çizilir (en çok 3 çizim). 30 Eki ölçümü (Pony Express, 11 varlık): denetim çizim başı
  * ~$0.002; 11 varlıkta 18 çizim (~0,6 ek çizim/varlık, kapı ayarı öncesi; sonra düşmesi beklenir).
  */
-const GATE = { checkUsd: 0.002, extraDraws: 0.6 };
-const withReality = (drawUsd: number) => drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
+// planUsd: çizimden önce plan (Sonnet, referans görselleriyle). Henüz ölçülmedi: kapı çağrısının görsel girdisinden tahmin.
+const GATE = { checkUsd: 0.002, extraDraws: 0.6, planUsd: 0.015 };
+const withReality = (drawUsd: number) => GATE.planUsd + drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
 
 /** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
 const REVIEW = { perBatch: 6, batchUsd: 0.006, batchSec: 8, stillSec: 0.8 };
@@ -173,7 +174,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       unit: "varlık",
       // Karakterin ilk çizimi Opus, düzeltmeleri Sonnet; mekânlar Sonnet.
       costUsd:
-        chars * (VECTOR.characterUsd + GATE.extraDraws * VECTOR.backgroundUsd * 2 + GATE.checkUsd * (1 + GATE.extraDraws)) +
+        chars * (GATE.planUsd + VECTOR.characterUsd + GATE.extraDraws * VECTOR.backgroundUsd * 2 + GATE.checkUsd * (1 + GATE.extraDraws)) +
         locs * withReality(VECTOR.backgroundUsd),
       seconds: (Math.ceil(assets / PARALLEL) * VECTOR.assetSec),
       basis: `ölçüm (30 Eki): karakter ~$${VECTOR.characterUsd}, mekân ~$${VECTOR.backgroundUsd}${castNote}; her çizim kalite kapısından geçer (~%${Math.round(GATE.extraDraws * 100)} ek çizim)`,
