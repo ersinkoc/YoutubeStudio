@@ -58,8 +58,19 @@ export const AssetCheck = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string(), license: z.string().optional() })).default([]),
   /** Depodaki referans görsel anahtarları. */
   refs: z.array(z.string()).default([]),
-  /** Reddedildiyse en iyi denemenin SVG'si (Stüdyo'da göstermek için; üretimde kullanılmaz). */
+  /** Reddedildiyse en iyi denemenin SVG'si (Stüdyo'da göstermek için; insan kabul etmedikçe üretimde kullanılmaz). */
   rejectedKey: z.string().optional(),
+  /** Varlığın sahibi: kadro kimliği (c1, l2) ya da nesne kimliği (p-horse); insan kararı buna uygulanır. */
+  entityId: z.string().optional(),
+  /** İnsan kararı her zaman son sözdür: sistemin reddettiğini kabul edebilir, geçirdiğini reddedebilir. */
+  override: z
+    .object({
+      decision: z.enum(["accepted", "rejected"]),
+      /** Reddederken tasarımcıya iletilen not. */
+      note: z.string().optional(),
+      at: z.string(),
+    })
+    .optional(),
 });
 export type AssetCheck = z.infer<typeof AssetCheck>;
 

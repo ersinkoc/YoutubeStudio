@@ -1,3 +1,4 @@
+import { VectorAssetMeta } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import { GATES, STAGES, type EpisodeInput, type EpisodeState, type Gate, type MotionMode } from "./state.ts";
 
@@ -137,4 +138,94 @@ export function changeVoice(state: EpisodeState, voiceId: string | undefined): v
   delete state.voiceProviderId;
   delete state.lastError;
   invalidateFrom(state, "voice");
+}
+// ---------------- kalite kapısında insan kararı ----------------
+
+/** Kaydın sahibi: kimlik; eski kayıtlarda (kimliksiz) kadro adı ya da nesne kimliği olan ad. */
+function ownerOf(state: EpisodeState, check: { entityId?: string; name: string }): string | undefined {
+  if (check.entityId) return check.entityId;
+  const cast = [...(state.cast?.characters ?? []), ...(state.cast?.locations ?? [])].find((e) => e.name === check.name);
+  return cast?.id ?? (state.vectorProps?.[check.name] ? check.name : undefined);
+}
+
+/** Varlığı sahibine bağlar: kadro varlığı konsepte aday ve seçim olur, nesne çekimlere girer. */
+function attach(state: EpisodeState, entityId: string | undefined, key: string): void {
+  if (!entityId) return;
+  const isCast = [...(state.cast?.characters ?? []), ...(state.cast?.locations ?? [])].some((e) => e.id === entityId);
+  if (isCast && state.concept) {
+    const ref = { key, mimeType: "image/svg+xml" };
+    const list = (state.concept.candidates[entityId] ??= []);
+    if (!list.some((r) => r.key === key)) list.push(ref);
+    state.concept.selected[entityId] = ref;
+    return;
+  }
+  const prop = state.vectorProps?.[entityId];
+  if (prop) {
+    prop.key = key;
+    // Nesne çizildiyse sahneler zaten onu kullanıyor; yalnız kurgu ve render yenilenir.
+    if (state.done.timeline) invalidateFrom(state, "timeline");
+  }
+}
+
+/** Varlığı sahibinden ayırır; yeniden çizilmesi için ilgili aşama açılır. */
+function detach(state: EpisodeState, entityId: string | undefined, key: string): void {
+  if (!entityId) return;
+  const isCast = [...(state.cast?.characters ?? []), ...(state.cast?.locations ?? [])].some((e) => e.id === entityId);
+  if (isCast && state.concept) {
+    state.concept.candidates[entityId] = (state.concept.candidates[entityId] ?? []).filter((r) => r.key !== key);
+    if (state.concept.selected[entityId]?.key === key) delete state.concept.selected[entityId];
+    if (state.approvals?.concept) delete state.approvals.concept;
+    if (state.done.concept) invalidateFrom(state, "concept");
+    return;
+  }
+  const prop = state.vectorProps?.[entityId];
+  if (prop?.key === key) {
+    delete prop.key;
+    if (state.done.keyframes) invalidateFrom(state, "keyframes");
+  }
+}
+
+/**
+ * İnsan, kalite kapısının reddettiği çizimi kabul eder: en iyi deneme kütüphaneye onaylı olarak yazılır ve varlık
+ * sahibine bağlanır (kadro → konsept seçimi, nesne → çekimler).
+ */
+export async function acceptAsset(store: AssetStore, state: EpisodeState, key: string): Promise<void> {
+  const check = state.assetChecks?.[key];
+  if (!check) throw new Error(`Kapı kaydı yok: ${key}`);
+  const override = { decision: "accepted" as const, at: new Date().toISOString() };
+  const next = { ...check, passed: true, override };
+  if (check.rejectedKey) {
+    const svg = await store.get(check.rejectedKey);
+    if (!svg) throw new Error("Reddedilen çizim depoda yok");
+    const meta = VectorAssetMeta.parse((await getJson(store, `${check.rejectedKey}.json`)) ?? {});
+    await store.put(key, svg, "image/svg+xml");
+    await putJson(store, `${key}.json`, { ...meta, check: next });
+  } else {
+    const meta = VectorAssetMeta.parse((await getJson(store, `${key}.json`)) ?? {});
+    await putJson(store, `${key}.json`, { ...meta, check: next });
+  }
+  (state.assetChecks ??= {})[key] = next;
+  attach(state, ownerOf(state, check), key);
+  // Kapı yüzünden duran aşama artık devam edebilir.
+  if (state.lastError?.message.includes("Kalite kapısı")) delete state.lastError;
+}
+
+/**
+ * İnsan bir çizimi (kapı geçirmiş olsa da) reddeder: kütüphanede kullanılmaz olarak işaretlenir, sahibinden ayrılır;
+ * sonraki çalıştırmada not tasarımcıya düzeltme olarak iletilip yeniden çizilir.
+ */
+export async function rejectAsset(store: AssetStore, state: EpisodeState, key: string, note?: string): Promise<void> {
+  const check = state.assetChecks?.[key];
+  if (!check) throw new Error(`Kapı kaydı yok: ${key}`);
+  const override = { decision: "rejected" as const, note: note?.trim() || undefined, at: new Date().toISOString() };
+  const next = { ...check, passed: false, override };
+  const meta = await getJson<VectorAssetMeta>(store, `${key}.json`);
+  if (meta) await putJson(store, `${key}.json`, { ...meta, check: next });
+  (state.assetChecks ??= {})[key] = next;
+  detach(state, ownerOf(state, check), key);
+}
+
+/** Gerçeklik (referansa sadakat) denetimini bölüm için açar/kapatır; tanınırlık denetimi her zaman açıktır. */
+export function setRealism(state: EpisodeState, enabled: boolean): void {
+  state.input.realism = enabled;
 }

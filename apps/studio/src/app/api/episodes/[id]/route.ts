@@ -34,6 +34,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       job,
       status,
       spentUsd: await episodeSpentUsd(id),
+      claudeUsd: entries.filter((e) => e.capability === "llm" && !e.cacheHit).reduce((n, e) => n + e.estimateMicros, 0) / 1_000_000,
       estimates,
       actual: {
         byStage: groupCosts(entries, (e) => e.stage ?? "—"),

@@ -90,8 +90,9 @@ Leave the stage band plain: between x 420–1500 and y 180–floorY the wall is 
   return runStructured(
     {
       name: `vector-designer:${brief.kind}`,
-      // Karakter bir kez çizilip her sahnede kullanılır; kalite burada en çok fark ettirir.
-      model: brief.kind === "character" ? models().creative : models().fast,
+      // İlk karakter çizimi Opus (her sahnede kullanılır, kalite en çok burada fark ettirir); kalite kapısının kusur
+      // listesiyle yapılan düzeltmeler Sonnet: 30 Eki denemesinde Opus yeniden çizimleri çizim başı $0.10–0.21 tuttu.
+      model: brief.kind === "character" && !brief.fix ? models().creative : models().fast,
       effort: "medium",
       schema: VectorAssetOut,
       system: `You are a vector illustrator for an animated explainer channel. You draw clean, consistent SVG assets that will be reused across many scenes and must look like they come from the same hand.

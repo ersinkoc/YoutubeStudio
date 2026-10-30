@@ -47,6 +47,11 @@ export interface EpisodeInput {
   lineStyle?: LineStyle;
   /** Kare kalite kontrolü (görsel model). Varsayılan açık; false ile kapatılır. */
   qa?: boolean;
+  /**
+   * Gerçeklik denetimi: gerçek bir özne referans görsellerine sadık mı. Varsayılan açık; false ile geçici kapatılır
+   * (tanınırlık denetimi her zaman açıktır).
+   */
+  realism?: boolean;
   width: number;
   height: number;
   fps: number;

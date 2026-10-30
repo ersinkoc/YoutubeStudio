@@ -137,7 +137,7 @@ export const AssetGateOut = z.object({
     .min(0)
     .max(10)
     .nullable()
-    .describe("Only when reference photos are attached: faithfulness to the real subject (shape, proportions, colours, distinctive parts). null without references"),
+    .describe("Faithfulness to ONE specific real subject (a named person, building, model, artifact) in the references that actually show it: shape, proportions, colours, distinctive parts. null without references, when no reference shows the subject, or when the subject is a generic kind (a desert, a horse, a desk) for which references are only inspiration"),
   defects: z
     .array(z.string())
     .max(6)
@@ -174,6 +174,9 @@ export function assetGate(
       effort: "low",
       schema: AssetGateOut,
       system: `You are a strict quality gate for vector assets of an animated explainer channel. Flat, simplified cartoon style is expected and is not a defect. Wrong subject, broken anatomy, missing or extra parts, disconnected pieces and unreadable shapes are defects.
+Anatomy and posture must be right for what the subject IS: an animal stands in its natural posture on its real number of legs (a horse on four legs, never upright like a person), a vehicle has its wheels on the ground, a person has human proportions. A subject drawn in an impossible pose or body plan scores recognizable ≤4 even if you can tell what it is meant to be.
+Judge recognisability at the level a general viewer can: a niche identity (a specific job, person, model or era) only has to read as its general category WITH the described distinguishing features (a Pony Express rider reads as a young 1860s western rider with a mail bag; the guess "cowboy" is fine if those features are there).
+References come from a web search and can be wrong: ignore any reference that does not show the subject (a book page, an unrelated scene). If none of them shows the subject, or the subject is a generic kind rather than one specific real thing, fidelity is null.
 The asset is ${what}.${refs.length ? ` The first ${refs.length} image(s) are real reference photos/paintings of the subject; the LAST image is the drawing.` : " The image is the drawing."}`,
       prompt: `Intended subject: ${input.name}
 Description: ${input.description}

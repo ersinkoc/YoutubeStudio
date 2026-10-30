@@ -85,7 +85,7 @@ export const levelOf = (message: string): ActivityEntry["level"] =>
  * mobilyasız oda kabuğu + zemin çizgisi (shell2: orta bant boş, raf kalabalığı yok); nesneler gerçek boy ve yüzey bilgisiyle.
  */
 /** Tasarım isteği: gerçek bir özneyse internetten referans görsel aranacak sorgu. */
-type AssetBrief = VectorAssetBrief & { reference?: string };
+type AssetBrief = VectorAssetBrief & { reference?: string; /** Kadro ya da nesne kimliği. */ id?: string };
 
 /** Harita/bayrak üreticisinin sürümü (kütüphane anahtarının parçası). */
 const GEO_VERSION = "geo1";
@@ -97,6 +97,11 @@ interface GateResult {
   /** Adı bilmeyen denetçinin tahmini. */
   guess: string;
   defects: string[];
+}
+
+/** Tasarımcı çıktısından yerleşim bilgisi (boy, yüzey, zemin çizgisi). */
+function metaOf(out: VectorAssetOut, kind: AssetBrief["kind"]): VectorAssetMeta {
+  return { realHeight: out.realHeight, grounded: out.grounded, surface: out.surface, floorY: kind === "background" ? out.floorY : undefined };
 }
 
 /** Kalite kapısını geçemeyen SVG: kullanılmaz (nesne çekimden düşer, karakter/mekân konsepti durdurur). */
@@ -403,7 +408,11 @@ export class EpisodePipeline {
       assetGate({ kind: brief.kind, name: brief.name, description: brief.description, guess, drawing, references }, this.deps.agentDeps),
     );
     return {
-      scores: { recognizable: gate.recognizable, fidelity: references ? (gate.fidelity ?? 0) : undefined },
+      // Referanslar konuyu göstermiyorsa denetçi sadakat vermez (null): yalnız tanınırlıkla karar verilir.
+      scores: {
+        recognizable: gate.recognizable,
+        fidelity: references && gate.fidelity !== null && state.input.realism !== false ? gate.fidelity : undefined,
+      },
       guess: guess.guess,
       defects: gate.defects,
     };
@@ -445,14 +454,18 @@ export class EpisodePipeline {
       query: refs?.images.length ? query : undefined,
       sources: refs?.sources ?? [],
       refs: refs?.keys ?? [],
+      entityId: brief.id,
     });
     const scoreText = (r: { scores: GateScores; guess: string }) =>
       `tanınırlık ${r.scores.recognizable}/10 ("${r.guess}")${r.scores.fidelity !== undefined ? `, gerçeğe sadakat ${r.scores.fidelity}/10` : ""}`;
 
     // Kütüphanedeki çizim de denetlenmeden kullanılmaz (kapıdan önce çizilmiş eski varlıklar ilk kullanımda denetlenir).
     const cached = await this.deps.store.get(key);
-    if (cached) {
-      const meta = VectorAssetMeta.parse((await getJson(this.deps.store, `${key}.json`)) ?? {});
+    const meta = cached ? VectorAssetMeta.parse((await getJson(this.deps.store, `${key}.json`)) ?? {}) : undefined;
+    const human = meta?.check?.override ?? state.assetChecks?.[key]?.override;
+    // İnsan reddettiyse kütüphanedeki çizim kullanılmaz; notu tasarımcıya düzeltme olarak gider.
+    let fix: string | undefined = human?.decision === "rejected" && human.note ? `- Human reviewer: ${human.note}` : undefined;
+    if (cached && meta && human?.decision !== "rejected") {
       if (meta.check?.passed) {
         record(meta.check);
         this.log(`  ${brief.name}: kütüphaneden (kapı ✓)`);
@@ -469,9 +482,25 @@ export class EpisodePipeline {
       this.log(`  ${brief.name}: kütüphanedeki çizim kapıdan geçemedi (${scoreText(res)}), yeniden çiziliyor`);
     }
 
+    // Daha önce reddedilen en iyi deneme, bugünkü kurala göre geçiyorsa (ör. gerçeklik denetimi kapatıldı) para
+    // harcamadan kullanılır.
+    const previous = state.assetChecks?.[key];
+    if (previous?.rejectedKey && human?.decision !== "rejected") {
+      const scores = { recognizable: previous.recognizable, fidelity: state.input.realism === false ? undefined : previous.fidelity };
+      const svg = await this.deps.store.get(previous.rejectedKey);
+      const rejectedMeta = await getJson<VectorAssetMeta>(this.deps.store, `${previous.rejectedKey}.json`);
+      if (svg && rejectedMeta && gatePasses(brief.kind, scores)) {
+        const check = { ...previous, passed: true, fidelity: scores.fidelity };
+        await this.deps.store.put(key, svg, ref.mimeType);
+        await putJson(this.deps.store, `${key}.json`, { ...rejectedMeta, check });
+        record(check);
+        this.log(`  ${brief.name}: önceki deneme bugünkü kurala göre geçiyor (gerçeklik denetimi kapalı), yeniden çizilmeden kullanılıyor`);
+        return ref;
+      }
+    }
+
     const references = await loadRefs();
     let best: { svg: string; out: VectorAssetOut; res: GateResult } | undefined;
-    let fix: string | undefined;
     let lastError: unknown;
     let draws = 0;
     for (let attempt = 1; attempt <= QUALITY_GATE.maxDraws; attempt++) {
@@ -506,6 +535,7 @@ export class EpisodePipeline {
       // En iyi deneme yalnız Stüdyo'da gösterilmek için saklanır; üretimde kullanılmaz.
       const rejectedKey = key.replace(/\.svg$/, ".rejected.svg");
       await this.deps.store.put(rejectedKey, new TextEncoder().encode(best.svg), ref.mimeType);
+      await putJson(this.deps.store, `${rejectedKey}.json`, metaOf(best.out, brief.kind));
       record({ ...check, rejectedKey });
       this.log(`  ✗ REDDEDİLDİ ${brief.name}: ${draws} denemede kalite kapısı geçilemedi (${scoreText(best.res)}): ${best.res.defects.join("; ")}`);
       throw new AssetRejectedError(`${brief.name}: kalite kapısı geçilemedi (${scoreText(best.res)})`);
@@ -513,24 +543,19 @@ export class EpisodePipeline {
 
     await this.deps.store.put(key, new TextEncoder().encode(best.svg), ref.mimeType);
     // Fiziksel bilgi SVG'nin yanında: yerleşim çözücüsü boy, yüzey ve zemin çizgisini buradan alır.
-    const meta: VectorAssetMeta = {
-      realHeight: best.out.realHeight,
-      grounded: best.out.grounded,
-      surface: best.out.surface,
-      floorY: brief.kind === "background" ? best.out.floorY : undefined,
-      check,
-    };
-    await putJson(this.deps.store, `${key}.json`, meta);
+    await putJson(this.deps.store, `${key}.json`, { ...metaOf(best.out, brief.kind), check });
     record(check);
     this.log(`  ${brief.name}: çizildi (${(best.svg.length / 1024).toFixed(1)} KB, ${draws} deneme)`);
     return ref;
   }
 
   /** Konsept: karakter ve mekânlar SVG olarak; her tur yeni bir çeşitleme ekler, eskiler seçilebilir kalır. */
-  private async vectorConcept(state: EpisodeState): Promise<void> {
+  private async vectorConcept(state: EpisodeState, regenerate = false): Promise<void> {
     const cast = state.cast!;
     const previous = state.concept;
-    const round = previous ? (previous.round ?? 0) + 1 : 0;
+    // "Yeni adaylar üret" yeni tur açar; kalite kapısında durmuş bir konsepte devam ise yalnız eksikleri çizer.
+    const resume = Boolean(previous) && !regenerate;
+    const round = previous ? (previous.round ?? 0) + (resume ? 0 : 1) : 0;
     const concept: NonNullable<EpisodeState["concept"]> = { candidates: {}, selected: {}, round };
     for (const [id, list] of Object.entries(previous?.candidates ?? {})) concept.candidates[id] = [...list];
     state.concept = concept;
@@ -538,15 +563,17 @@ export class EpisodePipeline {
     const jobs: { id: string; brief: VectorAssetBrief }[] = [
       ...cast.characters.map((c) => ({
         id: c.id,
-        brief: { kind: "character" as const, name: c.name, description: c.visualDescription, variation: round || undefined, reference: c.reference },
+        brief: { kind: "character" as const, id: c.id, name: c.name, description: c.visualDescription, variation: round || undefined, reference: c.reference },
       })),
       ...cast.locations.map((l) => ({
         id: l.id,
-        brief: { kind: "background" as const, name: l.name, description: l.visualDescription, variation: round || undefined, reference: l.reference },
+        brief: { kind: "background" as const, id: l.id, name: l.name, description: l.visualDescription, variation: round || undefined, reference: l.reference },
       })),
     ];
     const rejected: string[] = [];
-    await mapLimit(jobs, this.deps.concurrency ?? 3, async (job) => {
+    const todo = resume ? jobs.filter((j) => !concept.candidates[j.id]?.length) : jobs;
+    if (resume) this.log(`  devam: ${todo.length} eksik varlık çizilecek, ${jobs.length - todo.length} hazır`);
+    await mapLimit(todo, this.deps.concurrency ?? 3, async (job) => {
       try {
         const ref = await this.designAsset(state, "concept", job.brief);
         const list = (concept.candidates[job.id] ??= []);
@@ -558,7 +585,10 @@ export class EpisodePipeline {
       await this.save(state);
     });
     // Kapıyı geçemeyen karakter/mekânla üretim sürmez: Stüdyo'da reddedilen çizim ve kusurları görünür, karar insanın.
-    if (rejected.length) {
+    // Stüdyo bölümünde konsept zaten insan onayı bekler; seçimi eksik varlık onayı engeller (kabul et ya da yeniden çiz).
+    if (rejected.length && !state.input.autoApprove) {
+      this.log(`  ⏸ kalite kapısı: ${rejected.join(", ")} reddedildi; Stüdyo'da kabul et ya da notla yeniden çizdir`);
+    } else if (rejected.length) {
       throw new AssetRejectedError(
         `Kalite kapısı: ${rejected.join(", ")} kabul edilebilir çizilemedi. Konsept sekmesinde kusurları gör; "Yeni adaylar üret" ile yeniden çizdir.`,
       );
@@ -785,7 +815,7 @@ export class EpisodePipeline {
         p.key =
           p.map || p.flag
             ? await this.realWorldAsset(state, id, p)
-            : (await this.designAsset(state, "keyframes", { kind: p.kind ?? "prop", name: id, description: p.description, reference: p.reference })).key;
+            : (await this.designAsset(state, "keyframes", { kind: p.kind ?? "prop", id, name: id, description: p.description, reference: p.reference })).key;
         await this.save(state);
       } catch (e) {
         failed.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -921,13 +951,22 @@ export class EpisodePipeline {
     cast: async (state) => {
       if (!state.script || !state.style) throw new Error("script/style yok");
       state.cast = await this.agent(state, "cast", castingDirector(state.script, state.style, this.deps.agentDeps));
+      if (motionModeOf(state.input) === "vector") {
+        // Vektör karakteri insan iskeletli kukladır: at, köpek ya da çanta ona çizilirse iki ayaklı garip bir şey çıkar
+        // (30 Eki Pony Express denemesi). İnsan olmayanlar iskeletsiz nesne olarak çizilir ve kalite kapısından geçer.
+        const props = (state.vectorProps ??= {});
+        const others = state.cast.characters.filter((c) => c.kind !== "person");
+        for (const c of others) props[c.id] ??= { description: c.visualDescription, kind: "prop", reference: c.reference };
+        state.cast.characters = state.cast.characters.filter((c) => c.kind === "person");
+        if (others.length) this.log(`  insan olmayan ${others.length} oyuncu nesne olarak çizilecek: ${others.map((c) => c.name).join(", ")}`);
+      }
       this.log(`  ${state.cast.characters.length} karakter, ${state.cast.locations.length} mekân`);
     },
 
     concept: async (state, opts) => {
       const { cast } = state;
       if (!cast) throw new Error("cast yok");
-      if (motionModeOf(state.input) === "vector") return this.vectorConcept(state);
+      if (motionModeOf(state.input) === "vector") return this.vectorConcept(state, opts.only === "concept");
       const previous = state.concept;
       // Her yeniden üretim yeni bir tur: farklı seed → önbellek aynı görselleri döndürmez.
       const round = previous ? (previous.round ?? 0) + 1 : 0;

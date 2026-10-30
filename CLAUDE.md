@@ -27,4 +27,5 @@ Plan ve mimari: `docs/PROJE_PLANI.md`. Büyük kararları değiştirmeden önce 
 - Endpoint veya alan adlarından emin değilsen spec'i `verified: false` ekle.
 - Kod yorumları ve pipeline logları Türkçe; Stüdyo arayüzü Türkçe + İngilizce (sözlükten).
 - Her değişiklikten sonra: `pnpm typecheck && pnpm test`.
+- Bütçe tavanı yalnız ücretli görsel/ses/video API'leri içindir (`ledger.spent` "llm" kayıtlarını saymaz). Claude ajan çağrıları tavanı aşabilir (kullanıcı kararı, 30 Eki); maliyetleri Stüdyo'da ayrıca gösterilir. Bu yüzden Claude çağrısını tavanla durdurma.
 - Gerçek API çağrısı (para harcar) yapan komutları kullanıcı istemeden çalıştırma. Para harcamadan kontrol için `pnpm ys plan`.

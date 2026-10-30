@@ -38,7 +38,7 @@ const baseState = (): EpisodeState => ({
   agentCostUsd: 0,
   script: { scenes: [{ id: "s1", beatId: "b1", narration: "eski", visualIntent: "", emotion: "", location: "" }] },
   cast: {
-    characters: [{ id: "c1", name: "Murad", role: "", visualDescription: "", scenes: ["s1"] }],
+    characters: [{ id: "c1", name: "Murad", kind: "person", role: "", visualDescription: "", scenes: ["s1"] }],
     locations: [{ id: "l1", name: "Sokak", visualDescription: "", scenes: ["s1"] }],
   },
   concept: {

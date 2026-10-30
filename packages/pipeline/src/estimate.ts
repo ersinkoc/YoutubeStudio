@@ -52,16 +52,17 @@ const QA = { usd: 0.0012, ms: 3_000, redrawRate: 0.45 };
 /**
  * Vektör modu (yalnız Claude). İlk ölçüm (30 Eki, 1 dk): nesne ~$0.017; render ~1,9× video süresi; sahne başı ~2 nesne.
  * Sahneleme kuralları + Opus karakterlerden sonra ikinci ölçüm (30 Eki, 1 dk, 3 sahne, 5 varlık): varlık ~$0.07 / 62 sn,
- * sahne yönetmeni ~$0.14/sahne (10 dk bölümde ~$0.04); ikisinin arası alındı.
+ * sahne yönetmeni ~$0.14/sahne (10 dk bölümde ~$0.04); ikisinin arası alındı. Üçüncü ölçüm (30 Eki, Pony Express, referans
+ * görselli): karakter ilk çizimi (Opus) $0.10–0.21, ort. ~$0.15; mekân (Sonnet) ~$0.04; kapı denetimi çizim başı ~$0.002.
  */
-const VECTOR = { assetUsd: 0.065, assetSec: 30, sceneUsd: 0.1, sceneSec: 36, propUsd: 0.017, propSec: 12, propsPerScene: 2, renderX: 1.9, reviseRate: 0.4 };
+const VECTOR = { characterUsd: 0.15, backgroundUsd: 0.04, assetSec: 30, sceneUsd: 0.1, sceneSec: 36, propUsd: 0.017, propSec: 12, propsPerScene: 2, renderX: 1.9, reviseRate: 0.4 };
 
 /**
  * Kalite kapısı (30 Eki): her SVG kullanılmadan önce iki ucuz görsel çağrıyla (kör tahmin + kapı, Haiku) denetlenir;
- * geçemeyen kusurlarla yeniden çizilir (en çok 3 çizim). Henüz ölçülmedi: denetim ~$0.003, varlık başı ~0,45 ek
- * çizim varsayıldı (ilk bölümden sonra ölçümle güncellenecek).
+ * geçemeyen kusurlarla yeniden çizilir (en çok 3 çizim). 30 Eki ölçümü (Pony Express, 11 varlık): denetim çizim başı
+ * ~$0.002; 11 varlıkta 18 çizim (~0,6 ek çizim/varlık, kapı ayarı öncesi; sonra düşmesi beklenir).
  */
-const GATE = { checkUsd: 0.003, extraDraws: 0.45 };
+const GATE = { checkUsd: 0.002, extraDraws: 0.6 };
 const withReality = (drawUsd: number) => drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
 
 /** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
@@ -170,9 +171,12 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       providerId: "claude (SVG)",
       quantity: assets,
       unit: "varlık",
-      costUsd: assets * withReality(VECTOR.assetUsd),
+      // Karakterin ilk çizimi Opus, düzeltmeleri Sonnet; mekânlar Sonnet.
+      costUsd:
+        chars * (VECTOR.characterUsd + GATE.extraDraws * VECTOR.backgroundUsd * 2 + GATE.checkUsd * (1 + GATE.extraDraws)) +
+        locs * withReality(VECTOR.backgroundUsd),
       seconds: (Math.ceil(assets / PARALLEL) * VECTOR.assetSec),
-      basis: `tahmin: varlık başı ~$${VECTOR.assetUsd}${castNote}; her çizim kalite kapısından geçer (~%${Math.round(GATE.extraDraws * 100)} ek çizim)`,
+      basis: `ölçüm (30 Eki): karakter ~$${VECTOR.characterUsd}, mekân ~$${VECTOR.backgroundUsd}${castNote}; her çizim kalite kapısından geçer (~%${Math.round(GATE.extraDraws * 100)} ek çizim)`,
     });
   } else {
     add({

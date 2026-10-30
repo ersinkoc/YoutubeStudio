@@ -132,7 +132,7 @@ export function EpisodeView({ id }: { id: string }) {
 
 function Header({ data }: { data: EpisodeResponse }) {
   const { t, fmt } = useI18n();
-  const { state, spentUsd, status } = data;
+  const { state, spentUsd, claudeUsd, status } = data;
   const mode = state.input.motionMode ?? "mixed";
   const pct = Math.min(100, (spentUsd / state.input.budgetUsd) * 100);
   return (
@@ -155,6 +155,9 @@ function Header({ data }: { data: EpisodeResponse }) {
           <div className="text-xs text-muted">{t("ep.spentCap")}</div>
           <div className="font-semibold tabular-nums">
             {fmt.usd(spentUsd)} <span className="font-normal text-muted">/ {fmt.usd(state.input.budgetUsd)}</span>
+          </div>
+          <div className="text-[11px] text-muted" title={t("ep.claudeHint")}>
+            {t("ep.claude", { usd: fmt.usd(claudeUsd) })}
           </div>
           <Bar value={pct} tone={pct > 90 ? "bg-bad" : "bg-accent"} className="mt-1.5" />
         </div>

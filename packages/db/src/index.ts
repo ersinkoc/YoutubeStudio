@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { Capability, Micros } from "@ys/core";
@@ -24,7 +24,8 @@ export class DbCostLedger implements CostLedger {
     const [row] = await this.db
       .select({ total: sql<string>`coalesce(sum(${schema.costEntries.estimateMicros}), 0)` })
       .from(schema.costEntries)
-      .where(and(eq(schema.costEntries.episodeId, episodeId), eq(schema.costEntries.cacheHit, false)));
+      // Claude ajan çağrıları ("llm") bütçe tavanına sayılmaz.
+      .where(and(eq(schema.costEntries.episodeId, episodeId), eq(schema.costEntries.cacheHit, false), ne(schema.costEntries.capability, "llm")));
     return Number(row?.total ?? 0);
   }
 

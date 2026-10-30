@@ -29,6 +29,7 @@ interface CreateBody {
   budgetUsd: number;
   vertical?: boolean;
   qa?: boolean;
+  realism?: boolean;
   lineStyle?: string;
 }
 
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
     styleHint: body.styleHint?.trim() || undefined,
     autoApprove: false,
     qa: body.qa !== false,
+    realism: body.realism !== false,
     lineStyle: LineStyle.catch("outline").parse(body.lineStyle),
     width: body.vertical ? 1080 : 1920,
     height: body.vertical ? 1920 : 1080,

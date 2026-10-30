@@ -26,6 +26,7 @@ function estimateInput(form: HTMLFormElement) {
     budgetUsd: Number(f.get("budgetUsd")),
     vertical: f.get("vertical") === "on",
     qa: f.get("qa") === "on",
+    realism: f.get("realism") === "on",
   };
 }
 
@@ -79,6 +80,7 @@ export function NewEpisodeForm() {
         budgetUsd: Number(form.get("budgetUsd")),
         vertical: form.get("vertical") === "on",
         qa: form.get("qa") === "on",
+        realism: form.get("realism") === "on",
         lineStyle: form.get("lineStyle") ?? undefined,
       }),
     });
@@ -168,6 +170,13 @@ export function NewEpisodeForm() {
         <span>
           {t("form.qa")}
           <span className="block text-xs text-muted">{t("form.qa.hint")}</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="realism" defaultChecked className="mt-1" />
+        <span>
+          {t("form.realism")}
+          <span className="block text-xs text-muted">{t("form.realism.hint")}</span>
         </span>
       </label>
 

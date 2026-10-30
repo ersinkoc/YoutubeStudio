@@ -1,5 +1,8 @@
 import {
+  acceptAsset,
   approve,
+  rejectAsset,
+  setRealism,
   changeVoice,
   editNarration,
   redrawShots,
@@ -8,7 +11,7 @@ import {
   setMotion,
   type MotionMode,
 } from "@ys/pipeline/light";
-import { cancelJob, getJob, repo, startJob } from "../../../../../lib/server";
+import { cancelJob, getJob, repo, startJob, store } from "../../../../../lib/server";
 
 export type StudioAction =
   | { type: "generate-script" }
@@ -23,6 +26,9 @@ export type StudioAction =
   | { type: "change-voice"; voiceId: string }
   | { type: "redraw"; shotIds: string[] }
   | { type: "resume" }
+  | { type: "accept-asset"; key: string }
+  | { type: "reject-asset"; key: string; note?: string }
+  | { type: "set-realism"; enabled: boolean }
   | { type: "cancel" };
 
 /** Stüdyodaki her insan kararı ve iş başlatma buradan geçer. */
@@ -70,6 +76,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         if (getJob(id)?.status === "running") throw new Error("Önce çalışan iş bitmeli");
         await episodes.update(id, (s) => redrawShots(s, action.shotIds));
         startJob(id, `${action.shotIds.length} kare yeniden çiziliyor`, ["episode", "run", id]);
+        break;
+      case "accept-asset":
+      case "reject-asset": {
+        // Çalışan iş durum dosyasına yazarken insan kararı araya girmesin.
+        if (getJob(id)?.status === "running") throw new Error("Önce çalışan iş bitmeli");
+        const s = await episodes.load(id);
+        if (action.type === "accept-asset") await acceptAsset(store(), s, action.key);
+        else await rejectAsset(store(), s, action.key, action.note);
+        await episodes.save(s);
+        break;
+      }
+      case "set-realism":
+        await episodes.update(id, (s) => setRealism(s, action.enabled));
         break;
       case "resume":
         startJob(id, "Kaldığı yerden devam", ["episode", "run", id]);

@@ -21,7 +21,10 @@ export interface QuotaView {
 export interface EpisodeResponse {
   state: EpisodeState;
   job: JobView | null;
+  /** Ücretli API harcaması (bütçe tavanına sayılan). */
   spentUsd: number;
+  /** Claude ajan çağrıları: tavana sayılmaz, ayrıca gösterilir. */
+  claudeUsd: number;
   estimates: Record<MotionMode, EpisodeEstimate>;
   /** Defterden aşama ve sağlayıcı bazında gerçekleşen. */
   actual: { byStage: CostGroup[]; byProvider: CostGroup[] };

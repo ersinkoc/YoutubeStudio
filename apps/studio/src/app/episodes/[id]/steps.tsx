@@ -245,7 +245,7 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
         </div>
       )}
 
-      <QualityGate state={state} />
+      <QualityGate state={state} busy={busy} act={act} />
 
       {concept.previews && concept.previews.length > 0 && (
         <div>
@@ -327,9 +327,10 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
  * Her SVG'nin kapı sonucu: reddedilenler önce. Çizim (reddedildiyse en iyi deneme) ve internetten bulunan referanslar
  * yan yana; adı bilmeyen denetçinin tahmini, puanlar, kusurlar ve kaynaklar.
  */
-function QualityGate({ state }: { state: EpisodeState }) {
+function QualityGate({ state, busy, act }: { state: EpisodeState; busy: boolean; act: Act }) {
   const { t } = useI18n();
   const [all, setAll] = useState(false);
+  const realism = state.input.realism !== false;
   const checks = Object.entries(state.assetChecks ?? {}).sort(([, a], [, b]) => Number(a.passed) - Number(b.passed));
   if (!checks.length) return null;
   const rejected = checks.filter(([, c]) => !c.passed).length;
@@ -341,8 +342,15 @@ function QualityGate({ state }: { state: EpisodeState }) {
           <div className="label">{t("gate.title")}</div>
           <p className="text-xs text-muted">{t("gate.intro")}</p>
         </div>
-        <span className={`text-xs font-medium ${rejected ? "text-bad" : "text-ok"}`}>{t("gate.summary", { passed: checks.length - rejected, rejected })}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs" title={t("form.realism.hint")}>
+            <input type="checkbox" checked={realism} disabled={busy} onChange={(e) => act({ type: "set-realism", enabled: e.target.checked })} />
+            {t("gate.realismToggle")}
+          </label>
+          <span className={`text-xs font-medium ${rejected ? "text-bad" : "text-ok"}`}>{t("gate.summary", { passed: checks.length - rejected, rejected })}</span>
+        </div>
       </div>
+      {!realism && <p className="rounded-lg bg-accent/10 px-3 py-2 text-xs text-accent">{t("gate.realismOff")}</p>}
       <div className="grid gap-3 lg:grid-cols-2">
         {shown.map(([key, c]) => {
           const tone = (v: number, min: number) => (v >= min ? "text-ok" : "text-bad");
@@ -353,7 +361,7 @@ function QualityGate({ state }: { state: EpisodeState }) {
                   {c.name} <span className="text-xs font-normal text-muted">· {t(`gate.kind.${c.kind}` as MessageKey)}</span>
                 </span>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${c.passed ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}>
-                  {c.passed ? t("gate.passed") : t("gate.rejected")}
+                  {c.override ? t(c.override.decision === "accepted" ? "gate.humanAccepted" : "gate.humanRejected") : c.passed ? t("gate.passed") : t("gate.rejected")}
                 </span>
               </div>
               <div className="flex flex-wrap gap-x-3 text-xs tabular-nums">
@@ -383,6 +391,8 @@ function QualityGate({ state }: { state: EpisodeState }) {
                   ))}
                 </ul>
               )}
+              {c.override?.note && <div className="text-xs text-accent">{t("gate.note", { note: c.override.note })}</div>}
+              <HumanDecision checkKey={key} passed={c.passed} human={c.override?.decision} busy={busy} act={act} />
               {c.sources.length > 0 && (
                 <div className="text-[11px] text-muted">
                   {t("gate.sources")}
@@ -405,6 +415,61 @@ function QualityGate({ state }: { state: EpisodeState }) {
       {checks.length > shown.length && (
         <button className="justify-self-start text-xs text-muted hover:text-white" onClick={() => setAll(true)}>
           {t("gate.showAll", { n: checks.length })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Kalite kapısı kartında insan kararı: reddedileni kabul et, ya da (geçmiş olsa da) notla reddet ve yeniden çizdir. */
+function HumanDecision({
+  checkKey,
+  passed,
+  human,
+  busy,
+  act,
+}: {
+  checkKey: string;
+  passed: boolean;
+  human?: "accepted" | "rejected";
+  busy: boolean;
+  act: Act;
+}) {
+  const { t } = useI18n();
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState("");
+  if (rejecting) {
+    return (
+      <div className="grid gap-2">
+        <textarea className="field min-h-16 text-xs" placeholder={t("gate.notePlaceholder")} value={note} onChange={(e) => setNote(e.target.value)} />
+        <div className="flex gap-2">
+          <button
+            className="btn-primary py-1 text-xs"
+            disabled={busy}
+            onClick={async () => {
+              await act({ type: "reject-asset", key: checkKey, note });
+              setRejecting(false);
+            }}
+          >
+            {t("gate.rejectConfirm")}
+          </button>
+          <button className="btn-ghost py-1 text-xs" onClick={() => setRejecting(false)}>
+            {t("gate.cancel")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {!passed && human !== "rejected" && (
+        <button className="btn-primary py-1 text-xs" disabled={busy} onClick={() => act({ type: "accept-asset", key: checkKey })}>
+          <Check size={14} /> {t("gate.accept")}
+        </button>
+      )}
+      {human !== "rejected" && (
+        <button className="btn-ghost py-1 text-xs" disabled={busy} onClick={() => setRejecting(true)}>
+          <X size={14} /> {passed ? t("gate.rejectPassed") : t("gate.redrawWithNote")}
         </button>
       )}
     </div>

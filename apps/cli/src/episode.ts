@@ -34,6 +34,7 @@ export interface EpisodeArgs {
   motion?: string;
   manual?: boolean;
   noQa?: boolean;
+  noRealism?: boolean;
   line?: string;
   gate?: string;
   pick?: string;
@@ -67,6 +68,7 @@ export async function episodeCommand(
         voiceId: args.voice,
         autoApprove: !args.manual,
         qa: !args.noQa,
+        realism: !args.noRealism,
         lineStyle: args.line ? LineStyle.parse(args.line) : undefined,
         width: args.vertical ? 1080 : 1920,
         height: args.vertical ? 1920 : 1080,

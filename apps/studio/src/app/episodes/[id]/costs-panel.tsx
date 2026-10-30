@@ -23,7 +23,7 @@ export function CostsTab({ data }: { data: EpisodeResponse }) {
         <Stat label={t("ct.col.estUsd")} value={usd(est.totalUsd)} sub={`~${duration(est.totalSeconds)}`} />
         <Stat label={t("ct.col.actUsd")} value={usd(actualUsd)} sub={actualSec > 0 ? duration(actualSec) : "—"} />
         <Stat label={t("ct.remaining")} value={`~${usd(est.remainingUsd)}`} sub={`~${duration(est.remainingSeconds)}`} />
-        <Stat label={t("ep.spentCap")} value={`${usd(data.spentUsd)} / ${usd(state.input.budgetUsd)}`} />
+        <Stat label={t("ep.spentCap")} value={`${usd(data.spentUsd)} / ${usd(state.input.budgetUsd)}`} sub={t("ep.claude", { usd: usd(data.claudeUsd) })} />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-line">

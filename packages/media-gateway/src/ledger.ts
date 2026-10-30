@@ -24,6 +24,10 @@ export interface CostEntry {
 
 export interface CostLedger {
   record(entry: CostEntry): Promise<void>;
+  /**
+   * Bölümün ücretli API harcaması (bütçe tavanına sayılan). Claude ajan çağrıları (capability "llm") dahil değildir:
+   * tavanı aşabilirler, maliyetleri ayrıca gösterilir (30 Eki kararı).
+   */
   spent(episodeId: string): Promise<Micros>;
   /** Bölümün (verilmezse tümünün) kayıtları, eskiden yeniye. */
   list(episodeId?: string): Promise<CostEntry[]>;
@@ -79,7 +83,7 @@ export class JsonlLedger implements CostLedger {
 
 function sumFor(entries: readonly CostEntry[], episodeId: string): Micros {
   return entries
-    .filter((e) => e.episodeId === episodeId && !e.cacheHit)
+    .filter((e) => e.episodeId === episodeId && !e.cacheHit && e.capability !== "llm")
     .reduce((sum, e) => sum + e.estimateMicros, 0);
 }
 

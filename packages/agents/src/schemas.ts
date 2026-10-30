@@ -50,6 +50,10 @@ export const REFERENCE_QUERY_HINT = "For a REAL person, place, building, object,
 export const CastCharacter = z.object({
   id: z.string().describe("c1, c2, ..."),
   name: z.string(),
+  kind: z
+    .enum(["person", "animal", "object"])
+    .default("person")
+    .describe("person: a human; animal: a horse, dog, bird…; object: a bag, machine, vehicle that recurs in the story"),
   role: z.string(),
   visualDescription: z
     .string()

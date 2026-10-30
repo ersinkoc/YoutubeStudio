@@ -43,7 +43,7 @@ Komutlar:
   episode approve <id> script|concept
   episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
   episode preview <id>              seçilen referanslarla deneme kareleri
-              new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--line outline|flat|sketch|ink]
+              new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--no-realism: gerçeklik denetimi kapalı] [--line outline|flat|sketch|ink]
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
   lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir
 
@@ -113,6 +113,7 @@ async function main(): Promise<void> {
       motion: { type: "string" },
       manual: { type: "boolean", default: false },
       "no-qa": { type: "boolean", default: false },
+      "no-realism": { type: "boolean", default: false },
       curate: { type: "boolean", default: false },
       line: { type: "string" },
       vertical: { type: "boolean", default: false },
@@ -205,6 +206,7 @@ async function main(): Promise<void> {
     return episodeCommand(pipeline, positionals[1], positionals[2], {
       ...values,
       noQa: values["no-qa"],
+      noRealism: values["no-realism"],
       gate: positionals[3],
       pick: positionals[3],
       minutes: values.minutes,
