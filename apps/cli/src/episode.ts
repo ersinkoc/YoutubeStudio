@@ -58,8 +58,6 @@ export async function episodeCommand(
   switch (sub) {
     case "new": {
       if (!args.topic) throw new Error("--topic gerekli");
-      // Vektör sahneleri 1920×1080 tuvalde çizilir; 9:16'da kırpılırdı.
-      if (args.vertical && args.motion === "vector") throw new Error("--vertical vektör modunda henüz desteklenmiyor");
       const minutes = positive("--minutes", args.minutes ?? 3);
       const budget = positive("--budget", args.budget ?? 10);
       const clips = Number(args.clips ?? 0);

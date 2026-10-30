@@ -4,7 +4,7 @@ import { getJson, putJson, type AssetStore } from "@ys/storage";
 import type { CostLedger } from "./ledger.ts";
 import { billing } from "./pricing.ts";
 import { HealthTracker, rankProviders, type RankedProvider, type RoutePolicy } from "./router.ts";
-import { ContentRejectedError, type GenerationRequest, type ProviderAdapter, type Quota } from "./types.ts";
+import { ContentRejectedError, SubmittedJobError, type GenerationRequest, type ProviderAdapter, type Quota } from "./types.ts";
 
 export class NoProviderError extends Error {}
 export class BudgetExceededError extends Error {}
@@ -221,6 +221,27 @@ export class MediaGateway {
         this.health.recordSuccess(adapter.id);
       } catch (error) {
         release();
+        // İş kabul edildikten sonra düştü: sağlayıcı büyük olasılıkla ücretlendirdi. Tahmin deftere yazılır (tavan doğru
+        // kalsın) ve başka sağlayıcıya geçilmez (aynı varlık ikinci kez ödenmesin); hata yukarı çıkar.
+        if (error instanceof SubmittedJobError) {
+          this.health.recordFailure(adapter.id);
+          const message = error.message;
+          this.log(`hata (ücretlendirilmiş olabilir): ${adapter.id}: ${message}`);
+          await ledger.record({
+            at: new Date().toISOString(),
+            episodeId: run.episodeId,
+            stage: run.stage,
+            refId: run.refId,
+            providerId: adapter.id,
+            capability: req.capability,
+            estimateMicros,
+            cacheHit: false,
+            requestHash,
+            durationMs: Date.now() - startedAt,
+            error: message.slice(0, 300),
+          });
+          throw error;
+        }
         if (run.signal?.aborted) throw error;
         // İçerik reddi sağlayıcı arızası değildir; sayılırsa birkaç ret tüm sağlayıcıyı kapatır (30 Eki).
         if (!(error instanceof ContentRejectedError)) this.health.recordFailure(adapter.id);

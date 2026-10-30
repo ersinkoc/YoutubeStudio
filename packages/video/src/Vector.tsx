@@ -595,7 +595,7 @@ export function VectorScene({
   lineStyle?: LineStyle;
 }) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
   const spec = visual.vector!;
   const p = Math.min(1, frame / Math.max(1, visual.durationInFrames));
   const t = frame / fps;
@@ -624,7 +624,7 @@ export function VectorScene({
   const bg = spec.background ? safe[spec.background] : undefined;
   const [c0 = "#1d2433", c1 = "#3a4a66", accent = "#ffd84d"] = palette;
 
-  return (
+  const stage = (
     <AbsoluteFill style={{ overflow: "hidden", background: `linear-gradient(160deg, ${c0}, ${c1})` }}>
       {lineStyle === "sketch" && (
         // El çizimi titreşimi: sabit gürültüyle konturlar hafifçe dalgalanır.
@@ -691,6 +691,36 @@ export function VectorScene({
         {texts.map((placed, i) => (
           <Text key={i} placed={placed} p={p} t={t} seed={`${visual.shotId}-t${i}`} accent={accent} />
         ))}
+      </div>
+    </AbsoluteFill>
+  );
+
+  if (width === W && height === H) return stage;
+  // Başka en-boy oranı (9:16 Shorts): sahne 1920×1080 tuvalde çizilir ve kırpılmadan ortaya sığdırılır; boşluğu aynı
+  // arka planın bulanık, büyütülmüş kopyası doldurur. Yerleşim, yazı ve harita koordinatları değişmez.
+  // Dikeyde tam sığdırma sahneyi çok küçültür: 1,3 kat yakın çekim (kenarlardan ~%12 kırpılır). İçerik zaten orta
+  // bantta (x 420–1500, arka plan kuralı) yerleşir; yatay/kareye yakın oranlarda büyütme yapılmaz.
+  const fit = Math.min(height / H, (width / W) * (width < height ? 1.3 : 1));
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", background: `linear-gradient(160deg, ${c0}, ${c1})` }}>
+      {bg && (
+        <AbsoluteFill
+          style={{ filter: "blur(28px) brightness(0.7) saturate(0.9)", transform: "scale(1.15)" }}
+          dangerouslySetInnerHTML={{ __html: prefixSvgIds(fitSvg(bg.svg, "slice"), `${visual.shotId}-bd-`) }}
+        />
+      )}
+      <div
+        style={{
+          position: "absolute",
+          width: W,
+          height: H,
+          left: (width - W * fit) / 2,
+          top: (height - H * fit) / 2,
+          transform: `scale(${fit})`,
+          transformOrigin: "0 0",
+        }}
+      >
+        {stage}
       </div>
     </AbsoluteFill>
   );

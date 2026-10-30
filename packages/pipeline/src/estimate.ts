@@ -63,7 +63,9 @@ const VECTOR = { characterUsd: 0.15, backgroundUsd: 0.04, assetSec: 30, sceneUsd
  * ~$0.002; 11 varlıkta 18 çizim (~0,6 ek çizim/varlık, kapı ayarı öncesi; sonra düşmesi beklenir).
  */
 // planUsd: çizimden önce plan (Sonnet, referans görselleriyle). Henüz ölçülmedi: kapı çağrısının görsel girdisinden tahmin.
-const GATE = { checkUsd: 0.002, extraDraws: 0.6, planUsd: 0.015 };
+// readyMadeUsd: nesne için Commons'taki hazır SVG adaylarının denetimi (en çok 2 × kapı + boy ajanı). Bulunursa çizim
+// parası hiç harcanmaz; bulunma oranı ölçülmediği için tasarruf düşülmez (tahmin üstten).
+const GATE = { checkUsd: 0.002, extraDraws: 0.6, planUsd: 0.015, readyMadeUsd: 0.005 };
 const withReality = (drawUsd: number) => GATE.planUsd + drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
 
 /** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
@@ -233,7 +235,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       providerId: "claude (SVG)",
       quantity: props,
       unit: "nesne",
-      costUsd: props * withReality(VECTOR.propUsd),
+      costUsd: props * (withReality(VECTOR.propUsd) + GATE.readyMadeUsd),
       seconds: Math.ceil(props / PARALLEL) * VECTOR.propSec,
       basis: "tahmin: yeni nesneler; kütüphanede olanlar ücretsiz",
     });

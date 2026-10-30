@@ -1,5 +1,6 @@
 import type { Capability } from "@ys/core";
 import { toWav } from "../audio.ts";
+import { afterSubmit } from "../types.ts";
 import { fromBase64, pollUntil, requestBytes, requestJson, toBase64 } from "../http.ts";
 import {
   ContentRejectedError,
@@ -197,19 +198,22 @@ export class VeoAdapter implements ProviderAdapter {
     });
     ctx.onProgress?.(`işlem başladı (${op.name})`);
 
-    const done = await pollUntil(
-      async () => {
-        const o = await requestJson<VeoOperation>(ctx.fetch, `${BASE}/${op.name}`, { headers, signal: ctx.signal });
-        return o.done ? o : undefined;
-      },
-      { intervalMs: 10_000, signal: ctx.signal },
-    );
-    if (done.error) throw new Error(`Veo: ${done.error.message}`);
-    const res = done.response?.generateVideoResponse;
-    const uri = res?.generatedSamples?.[0]?.video?.uri;
-    if (!uri) throw new Error(`Veo video döndürmedi: ${res?.raiMediaFilteredReasons?.join(", ") ?? "bilinmiyor"}`);
+    // Gönderildi: bundan sonraki hata ücretlendirilmiş bir işin hatasıdır.
+    return afterSubmit(op.name, async () => {
+      const done = await pollUntil(
+        async () => {
+          const o = await requestJson<VeoOperation>(ctx.fetch, `${BASE}/${op.name}`, { headers, signal: ctx.signal });
+          return o.done ? o : undefined;
+        },
+        { intervalMs: 10_000, signal: ctx.signal },
+      );
+      if (done.error) throw new Error(`Veo: ${done.error.message}`);
+      const res = done.response?.generateVideoResponse;
+      const uri = res?.generatedSamples?.[0]?.video?.uri;
+      if (!uri) throw new Error(`Veo video döndürmedi: ${res?.raiMediaFilteredReasons?.join(", ") ?? "bilinmiyor"}`);
 
-    const video = await requestBytes(ctx.fetch, uri, { headers: { "x-goog-api-key": this.cfg.apiKey } });
-    return { files: [{ bytes: video.bytes, mimeType: "video/mp4" }] };
+      const video = await requestBytes(ctx.fetch, uri, { headers: { "x-goog-api-key": this.cfg.apiKey } });
+      return { files: [{ bytes: video.bytes, mimeType: "video/mp4" }] };
+    });
   }
 }

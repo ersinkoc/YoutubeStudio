@@ -44,7 +44,6 @@ export async function POST(req: Request) {
   if (!Number.isFinite(minutes) || minutes < 0.5 || minutes > 30) return Response.json({ error: "Süre 0,5–30 dk olmalı" }, { status: 400 });
   if (!Number.isFinite(budget) || budget <= 0) return Response.json({ error: "Bütçe pozitif olmalı" }, { status: 400 });
   const motionMode = (["animated", "mixed", "still", "vector"] as const).find((m) => m === body.motionMode) ?? "animated";
-  if (body.vertical && motionMode === "vector") return Response.json({ error: "Dikey (9:16) vektör modunda henüz desteklenmiyor" }, { status: 400 });
   const lang = typeof body.lang === "string" && /^[a-z]{2,3}(-[A-Z]{2})?$/.test(body.lang) ? body.lang : "tr";
   const state = newEpisodeState({
     topic: body.topic.trim(),

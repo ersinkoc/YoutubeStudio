@@ -23,7 +23,6 @@ const KNOWN: [RegExp, MessageKey, string[]?][] = [
   [/^Konu gerekli/, "err.topic"],
   [/^Süre 0,5–30 dk/, "err.minutes"],
   [/^Bütçe pozitif/, "err.budget"],
-  [/^Dikey \(9:16\) vektör/, "err.verticalVector"],
 ];
 
 export function errorKey(message: string): { key: MessageKey; vars: Record<string, string> } | undefined {

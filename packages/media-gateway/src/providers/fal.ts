@@ -1,5 +1,6 @@
 import type { Capability } from "@ys/core";
 import { pollUntil, requestBytes, requestJson } from "../http.ts";
+import { afterSubmit } from "../types.ts";
 import type {
   GenerateContext,
   PriceSource,
@@ -75,22 +76,25 @@ export class FalAdapter implements ProviderAdapter {
     });
     ctx.onProgress?.(`kuyrukta (${submit.request_id})`);
 
-    await pollUntil(
-      async () => {
-        const s = await requestJson<QueueStatus>(ctx.fetch, submit.status_url, { headers, signal: ctx.signal });
-        if (s.status === "IN_QUEUE" && s.queue_position !== undefined) ctx.onProgress?.(`sıra: ${s.queue_position}`);
-        return s.status === "COMPLETED" ? true : undefined;
-      },
-      { signal: ctx.signal },
-    );
+    // Gönderildi: bundan sonraki hata ücretlendirilmiş bir işin hatasıdır.
+    return afterSubmit(submit.request_id, async () => {
+      await pollUntil(
+        async () => {
+          const s = await requestJson<QueueStatus>(ctx.fetch, submit.status_url, { headers, signal: ctx.signal });
+          if (s.status === "IN_QUEUE" && s.queue_position !== undefined) ctx.onProgress?.(`sıra: ${s.queue_position}`);
+          return s.status === "COMPLETED" ? true : undefined;
+        },
+        { signal: ctx.signal },
+      );
 
-    const response = await requestJson<Record<string, unknown>>(ctx.fetch, submit.response_url, {
-      headers,
-      signal: ctx.signal,
+      const response = await requestJson<Record<string, unknown>>(ctx.fetch, submit.response_url, {
+        headers,
+        signal: ctx.signal,
+      });
+      const files = await Promise.all(
+        this.spec.outputUrls(response).map((url) => requestBytes(ctx.fetch, url, { signal: ctx.signal })),
+      );
+      return { files, providerMeta: { requestId: submit.request_id, seed: response.seed } };
     });
-    const files = await Promise.all(
-      this.spec.outputUrls(response).map((url) => requestBytes(ctx.fetch, url, { signal: ctx.signal })),
-    );
-    return { files, providerMeta: { requestId: submit.request_id, seed: response.seed } };
   }
 }

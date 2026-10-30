@@ -818,7 +818,11 @@ export class EpisodePipeline {
     const out = await this.agent(
       state,
       "shots",
-      vectorDirector({ scene, durationSec, cast: cast!, props: known, lang: state.input.lang, lessons, feedback }, style!, this.agentDeps),
+      vectorDirector(
+        { scene, durationSec, cast: cast!, props: known, lang: state.input.lang, lessons, feedback, vertical: state.input.height > state.input.width },
+        style!,
+        this.agentDeps,
+      ),
     );
     for (const np of out.newProps) props[np.id] ??= { description: np.description, kind: "prop", flag: np.flag, reference: np.reference };
     for (const nb of out.newBackgrounds) props[nb.id] ??= { description: nb.description, kind: "background", map: nb.map, reference: nb.reference };

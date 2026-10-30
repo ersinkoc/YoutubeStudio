@@ -258,6 +258,8 @@ export interface VectorSceneInput {
   lessons?: string[];
   /** Taslak karelerin incelemesinden gelen, bu sahneye özel düzeltme istekleri. */
   feedback?: string;
+  /** Dikey (9:16) video: sahne ortadan kırpılır, kenarlar görünmez. */
+  vertical?: boolean;
 }
 
 export const STAGING_RULES = `Staging (code does the physics — do not give pixel y or height for things on the floor):
@@ -304,7 +306,12 @@ ${STAGING_RULES}
 - On-screen texts: at most 2 per shot, ≤ 5 words each, in language "${input.lang}". Only dates, numbers, names or one key term; never repeat the narration sentence (subtitles already show it). Place them in the top half (y 100–500), not over faces. style: title | subtitle | label | number | quote. Many shots need no text at all.
 - Show what the narration says: every concrete object, document, device or action named in a shot must be visible in that shot. Reuse listed assets; if one is missing, use a new id starting with "p-" and describe it in newProps (front view, no text on it). Up to 6 new props per scene.
 - Avoid repetition: consecutive shots must differ in background, framing or layout. Mix wide shots (whole room), medium shots (zoom ~1.3 on people) and close-ups (zoom 1.6–2.2 with focusX/focusY on a face or object). New places: id "b-…" in newBackgrounds (up to 2 per scene).
-- mood sets the colour grade: day, warm (nostalgia, success), cool (tension, technology), night, dramatic (twist, crisis), neutral. Follow the emotional arc.
+${
+        input.vertical
+          ? `- VERTICAL VIDEO (9:16): the 1920×1080 canvas is shown centre-cropped, only about x 240–1680 is visible. Keep every character, prop and text inside x 360–1560; stack instead of spreading side by side; at most 2 characters per shot; prefer medium shots and close-ups.
+`
+          : ""
+      }- mood sets the colour grade: day, warm (nostalgia, success), cool (tension, technology), night, dramatic (twist, crisis), neutral. Follow the emotional arc.
 - ambience must fit the place: rain/snow outdoors, dust in old rooms, flicker for lamp light, rays for sunlight, fog for night or mystery, else none.
 Visual style: ${style.artStyle}.${lessonsBlock(input.lessons)}${input.feedback ? `\n\nA reviewer looked at the rendered draft of this scene. Fix these problems in your new plan:\n${input.feedback}` : ""}`,
       prompt: `Assets:

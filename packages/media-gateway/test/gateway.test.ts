@@ -298,3 +298,23 @@ describe("MediaGateway", () => {
     expect(hashRequest({ prompt: "kedi", quality: "standard", capability: "t2i" })).toBe(hashRequest(img));
   });
 });
+
+describe("gönderilmiş iş düşerse", () => {
+  it("tahmin deftere yazılır ve başka sağlayıcıya ikinci kez ödetilmez", async () => {
+    const { SubmittedJobError } = await import("../src/index.ts");
+    const calls: string[] = [];
+    const lost: ProviderAdapter = {
+      ...fakeProvider("fal:video", { quality: 0.9, price: { unit: "per_output", usd: 0.5 }, calls }),
+      async generate() {
+        calls.push("fal:video");
+        throw new SubmittedJobError("bekleme süresi doldu", "req-1");
+      },
+    };
+    const backup = fakeProvider("gemini:video", { quality: 0.8, price: { unit: "per_output", usd: 0.4 }, calls });
+    const ledger = new InMemoryLedger();
+    const gateway = new MediaGateway({ providers: [lost, backup], store: new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-sub-"))), ledger });
+    await expect(gateway.generate(img, { policy: { tier: "premium" }, episodeId: "e1", budgetCapMicros: usd(10) })).rejects.toThrow("bekleme");
+    expect(calls).toEqual(["fal:video"]);
+    expect(await ledger.spent("e1")).toBe(usd(0.5));
+  });
+});

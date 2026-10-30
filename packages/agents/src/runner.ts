@@ -97,10 +97,49 @@ async function* withImages(text: string, images: AgentImage[]): AsyncIterable<SD
 }
 
 /**
+ * Aynı anda çalışan Claude Code alt süreci sınırı (süreç başına). Her ajan çağrısı ayrı bir Claude Code süreci açar;
+ * iki bölüm × 3 paralel iş Windows'ta alt süreçlerin çökmesine (0xC0000409) yol açtı (30 Eki).
+ */
+const MAX_CLAUDE = Math.max(1, Number(process.env.YS_CLAUDE_CONCURRENCY) || 4);
+let active = 0;
+const waiting: (() => void)[] = [];
+async function slot<R>(fn: () => Promise<R>): Promise<R> {
+  if (active >= MAX_CLAUDE) await new Promise<void>((r) => waiting.push(r));
+  active++;
+  try {
+    return await fn();
+  } finally {
+    active--;
+    waiting.shift()?.();
+  }
+}
+
+/** Alt süreç düzeyinde geçici hata (çökme, bağlantı kopması): sonuç gelmeden olur, tekrar denemek güvenlidir. */
+export const isTransientAgentFailure = (e: unknown) =>
+  !(e instanceof AgentError) && e instanceof Error && /process exited with code|process terminated|ECONNRESET|EPIPE|spawn .*E[A-Z]+/i.test(e.message);
+
+const RETRY_DELAYS_MS = [2000, 5000];
+
+/**
  * Araçsız, tek amaçlı bir Claude çağrısı: şemaya uyan JSON döner.
  * Claude Code harness'ı üzerinden çalıştığı için abonelik (Agent SDK kredisi) veya API anahtarı kullanılır.
+ * Alt süreç çökerse (sonuç mesajı gelmeden) iki kez daha denenir; modelin kendi hataları (tur sınırı, şema) denenmez.
  */
 export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {}): Promise<AgentResult<T>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await slot(() => runOnce(call, deps));
+    } catch (e) {
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isTransientAgentFailure(e)) throw e;
+      const reason = (e as Error).message.split("\n")[0];
+      deps.log?.(`ajan: ${call.name} alt süreci düştü (${reason}), ${delay / 1000} sn sonra yeniden deneniyor`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
+async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentResult<T>> {
   const queryFn = deps.queryFn ?? query;
   const model = modelFor(call.name, call.model, deps.models);
   deps.log?.(`ajan: ${call.name} (${model})`);

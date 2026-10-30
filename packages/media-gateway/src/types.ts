@@ -111,3 +111,26 @@ export interface ProviderAdapter {
  * aynı sağlayıcının başka istekleri çalışmaya devam eder, bu yüzden sağlık sayacına yazılmaz.
  */
 export class ContentRejectedError extends Error {}
+
+/**
+ * İş sağlayıcıya kabul edildikten sonra başarısız oldu (bekleme süresi doldu, indirme hatası, iptal). Sağlayıcı
+ * çoğunlukla ücretlendirmiştir: gateway tahmini deftere yazar ve başka sağlayıcıya geçip ikinci kez ödetmez.
+ */
+export class SubmittedJobError extends Error {
+  constructor(
+    message: string,
+    readonly jobId?: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Gönderimden sonraki adımları sarar: içerik reddi olduğu gibi, diğer hatalar SubmittedJobError olur. */
+export async function afterSubmit<T>(jobId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ContentRejectedError || e instanceof SubmittedJobError) throw e;
+    throw new SubmittedJobError(`gönderilmiş iş başarısız (${jobId ?? "?"}): ${e instanceof Error ? e.message : String(e)}`, jobId);
+  }
+}

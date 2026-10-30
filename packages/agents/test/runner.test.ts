@@ -81,3 +81,29 @@ describe("indexWords", () => {
     expect(indexWords("Bir  gün\norman").annotated).toBe("[0]Bir [1]gün [2]orman");
   });
 });
+
+describe("alt süreç çökmesi", () => {
+  it("Claude Code süreci düşerse yeniden denenir; model hatası denenmez", async () => {
+    let calls = 0;
+    const flaky = (() => {
+      calls++;
+      return (async function* () {
+        if (calls === 1) throw new Error("Claude Code process exited with code 3221226505");
+        yield { type: "result", subtype: "success", duration_ms: 1, total_cost_usd: 0.001, structured_output: { ok: true } };
+      })();
+    }) as unknown as QueryFn;
+    const res = await runStructured({ name: "t", model: "m", system: "", prompt: "", schema: z.object({ ok: z.boolean() }) }, { queryFn: flaky });
+    expect(res.data.ok).toBe(true);
+    expect(calls).toBe(2);
+
+    let modelCalls = 0;
+    const turns = (() => {
+      modelCalls++;
+      return (async function* () {
+        yield { type: "result", subtype: "error_max_turns", duration_ms: 1, total_cost_usd: 0.01 };
+      })();
+    }) as unknown as QueryFn;
+    await expect(runStructured({ name: "t", model: "m", system: "", prompt: "", schema: z.object({}) }, { queryFn: turns })).rejects.toThrow(AgentError);
+    expect(modelCalls).toBe(1);
+  }, 15_000);
+});
