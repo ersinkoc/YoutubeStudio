@@ -927,7 +927,13 @@ export class EpisodePipeline {
     );
     const outDir = join(dir, "stills");
     await mkdir(outDir, { recursive: true });
-    return renderStills({ timeline, publicDir: join(dir, "public"), frames, outDir });
+    return renderStills({
+      timeline,
+      publicDir: join(dir, "public"),
+      frames,
+      outDir,
+      onWait: (pid) => this.log(`  başka bir render sürüyor (süreç ${pid}); kareler için sıra bekleniyor`),
+    });
   }
 
   /**
@@ -1576,6 +1582,7 @@ export class EpisodePipeline {
           // İlerleme Stüdyo'da görünsün; kayıt hatası render'ı durdurmaz.
           void this.save(state).catch(() => {});
         },
+        onWait: (pid) => this.log(`  başka bir render sürüyor (süreç ${pid}); sıra bekleniyor`),
         onRetry: (reason) => {
           lastPct = -1;
           this.log(`⚠ render geçici bir hatayla düştü (${reason}); baştan bir kez daha deneniyor`);

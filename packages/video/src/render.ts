@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
-import { availableParallelism } from "node:os";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { availableParallelism, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,8 @@ export interface RenderOptions {
   publicDir: string;
   outputPath: string;
   onProgress?: (fraction: number) => void;
+  /** Başka bir süreç render ederken sıra beklenmeye başlanınca bir kez çağrılır. */
+  onWait?: (holderPid: number) => void;
   /** Geçici hatadan sonra render baştan alınırken çağrılır (neden). */
   onRetry?: (reason: string) => void;
   concurrency?: number;
@@ -63,17 +66,69 @@ async function withTempDir<R>(dir: string, fn: () => Promise<R>): Promise<R> {
   }
 }
 
+/** Makinedeki render kilidi; yol modül yüklenirken alınır (render sırasında TEMP yönlendirilir). */
+const RENDER_LOCK = process.env.YS_RENDER_LOCK ?? join(tmpdir(), "ys-render.lock");
+const LOCK_POLL_MS = 5000;
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Makinede aynı anda tek Remotion işi (render ya da kare çıkarma). İki bölüm aynı anda render'a girince yeni başlayan
+ * süreç ilk saniyelerde düşüyordu ("write EOF" ya da sessizce; 30 Eki): iki Remotion aynı webpack önbelleğini, port
+ * aralığını ve 8'er Chrome sekmesini paylaşıyor. Kilidin sahibi ölmüşse kilit bayattır.
+ */
+export async function withRenderLock<R>(fn: () => Promise<R>, onWait?: (holderPid: number) => void): Promise<R> {
+  const token = `${process.pid}:${randomUUID()}`;
+  let waiting = false;
+  let empty = 0;
+  for (;;) {
+    try {
+      const fh = await open(RENDER_LOCK, "wx");
+      await fh.writeFile(token);
+      await fh.close();
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      const holder = Number((await readFile(RENDER_LOCK, "utf8").catch(() => "")).split(":")[0]);
+      // Boş dosya: sahibi henüz yazmadı, kısa beklenir; uzun süre boş kaldıysa sahibi yazamadan öldü.
+      empty = holder ? 0 : empty + 1;
+      if ((holder && !alive(holder)) || empty > 50) {
+        empty = 0;
+        await rm(RENDER_LOCK, { force: true });
+        continue;
+      }
+      if (!waiting && holder) onWait?.(holder);
+      waiting ||= Boolean(holder);
+      await new Promise((r) => setTimeout(r, holder ? LOCK_POLL_MS : 200));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    if ((await readFile(RENDER_LOCK, "utf8").catch(() => "")) === token) await rm(RENDER_LOCK, { force: true });
+  }
+}
+
 /** Timeline'ı yerelde MP4'e render eder (Remotion; ≤3 kişilik ekipte lisans ücretsiz). Geçici hatada bir kez yeniden dener. */
 export async function renderEpisode(opts: RenderOptions): Promise<string> {
   const tempDir = join(dirname(resolve(opts.outputPath)), ".render-tmp");
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await withTempDir(tempDir, () => renderOnce(opts));
-    } catch (e) {
-      if (attempt >= 1 || !isTransientRenderFailure(e)) throw e;
-      opts.onRetry?.((e as Error).message.split("\n").at(-1) ?? "");
+  return withRenderLock(async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await withTempDir(tempDir, () => renderOnce(opts));
+      } catch (e) {
+        if (attempt >= 1 || !isTransientRenderFailure(e)) throw e;
+        opts.onRetry?.((e as Error).message.split("\n").at(-1) ?? "");
+      }
     }
-  }
+  }, opts.onWait);
 }
 
 async function renderOnce(opts: RenderOptions): Promise<string> {
@@ -135,13 +190,18 @@ export interface StillsOptions {
   /** Çıkarılacak kareler: dosya adı → kare numarası. */
   frames: Record<string, number>;
   outDir: string;
+  onWait?: (holderPid: number) => void;
 }
 
 /**
  * Timeline'dan tek tek kareler (JPEG) çıkarır; inceleme aşaması ve stüdyo küçük resimleri için.
  * Bundle bir kez yapılır, kareler sırayla alınır (render'a göre çok hafif).
  */
-export async function renderStills(opts: StillsOptions): Promise<Record<string, string>> {
+export function renderStills(opts: StillsOptions): Promise<Record<string, string>> {
+  return withRenderLock(() => stillsOnce(opts), opts.onWait);
+}
+
+async function stillsOnce(opts: StillsOptions): Promise<Record<string, string>> {
   const serveUrl = await bundle({ entryPoint: ENTRY, publicDir: resolve(opts.publicDir) });
   const inputProps = { timeline: opts.timeline };
   // Tek tarayıcı bütün kareler için: önceden her kare ayrı Chrome açıyordu (30+ açılış); yükte biri zaman aşımına düşünce

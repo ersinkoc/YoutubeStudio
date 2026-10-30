@@ -3,7 +3,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FsAssetStore, putJson, type AssetStore } from "@ys/storage";
-import { acquireLock, liveLock } from "../src/light.ts";
+import { acquireLock, deadLock, liveLock } from "../src/light.ts";
 
 const store = (): AssetStore => new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-lock-")));
 const key = "episodes/e1/run.lock.json";
@@ -25,6 +25,11 @@ describe("çalışma kilidi", () => {
     const s = store();
     await putJson(s, key, { pid: 2 ** 22 + 12345, host: hostname(), startedAt: "t" });
     expect(await liveLock(s, "e1")).toBeUndefined();
+    expect(await deadLock(s, "e1")).toBe(true);
     await (await acquireLock(s, "e1"))();
+    // Bırakılmış (boş) ya da canlı kilit "ölü" değildir.
+    expect(await deadLock(s, "e1")).toBe(false);
+    await putJson(s, key, { pid: process.ppid, host: hostname(), startedAt: "t" });
+    expect(await deadLock(s, "e1")).toBe(false);
   });
 });

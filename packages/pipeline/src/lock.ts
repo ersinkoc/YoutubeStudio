@@ -33,6 +33,15 @@ export async function liveLock(store: AssetStore, id: string): Promise<RunLock |
   return alive(lock.pid) ? lock : undefined;
 }
 
+/**
+ * Bu makinede sahibi ölmüş kilit var mı: pipeline çökmüş ya da öldürülmüş, durum dosyasındaki "sürüyor" kesin bayattır.
+ * Kilit hiç yoksa false (kilitsiz işler, ör. önizleme, için bir şey söylenemez).
+ */
+export async function deadLock(store: AssetStore, id: string): Promise<boolean> {
+  const lock = await getJson<RunLock | null>(store, lockKey(id)).catch(() => null);
+  return Boolean(lock?.pid) && lock!.host === hostname() && !alive(lock!.pid);
+}
+
 /** Kilidi alır; başka canlı süreç tutuyorsa hata. Dönen fonksiyon kilidi bırakır (yalnız kendi kilidiyse). */
 export async function acquireLock(store: AssetStore, id: string): Promise<() => Promise<void>> {
   const held = await liveLock(store, id);

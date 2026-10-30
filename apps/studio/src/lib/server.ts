@@ -14,7 +14,7 @@ import {
   type ProviderAdapter,
   type Quota,
 } from "@ys/media-gateway";
-import { EpisodeRepo, liveLock, type EstimateContext } from "@ys/pipeline/light";
+import { deadLock, EpisodeRepo, liveLock, type EstimateContext } from "@ys/pipeline/light";
 import { createStoreFromEnv, type AssetStore } from "@ys/storage";
 
 /** Monorepo kökü: stüdyo apps/studio içinden çalışır, veriler kökteki .data altındadır. */
@@ -123,9 +123,11 @@ export function startJob(episodeId: string, label: string, args: string[]): JobV
   child.stderr.on("data", push);
   // "exit": süreç bitince. "close" ise stdout'u devralan torun süreçler (Chrome) kapanana kadar gecikebiliyor ve iş
   // sonsuza dek "çalışıyor" görünüyordu (30 Eki).
-  const finish = (code: number | null) => {
+  const finish = (code: number | null, signal?: NodeJS.Signals | null) => {
     if (job.status !== "running") return;
     job.status = code === 0 ? "done" : "error";
+    // Sessiz çöküşler (yerel modül, bellek) kayıtta hiçbir satır bırakmıyordu; çıkış kodu Windows'ta onaltılık okunur.
+    if (code !== 0) job.log.push(`Süreç çıkış kodu: ${code === null ? signal : `${code} (0x${(code >>> 0).toString(16).toUpperCase()})`}`);
     job.endedAt = new Date().toISOString();
     delete job.child;
   };
@@ -171,6 +173,8 @@ export async function episodeBusy(episodeId: string, state: { heartbeatAt?: stri
   }
   if (locked) return true;
   if (fileStatus !== "running") return false;
+  // Kilidin sahibi öldüyse (çökme, öldürülme) dosyadaki "sürüyor" kesin bayattır.
+  if (await deadLock(init().store, episodeId)) return false;
   return !(job?.endedAt && job.endedAt >= (state.heartbeatAt ?? ""));
 }
 
