@@ -1,0 +1,365 @@
+import { z } from "zod";
+import { MapLabel } from "./geo.ts";
+
+/**
+ * Vektör modu: Claude sahneyi kısa bir JSON olarak tarif eder, Remotion deterministik bileşenlerle çizer.
+ * Tekrar eden her şey (iskelet animasyonu, yazı efektleri, kamera) koddadır; token harcanmaz.
+ */
+
+/**
+ * Karakter iskeleti: Claude her karakteri bu sabit tuvale ve parça kimlikleriyle çizer. Sürüm 2 (30 Eki):
+ * dirsek (forearm), diz (shin) ve kaş eklendi; iç içe gruplar ebeveynle birlikte döner.
+ */
+export const RIG = {
+  version: 2,
+  width: 400,
+  height: 800,
+  /** Parça kimliği → dönme noktası (tuval koordinatı). */
+  pivots: {
+    head: [200, 250],
+    body: [200, 520],
+    "arm-l": [140, 300],
+    "arm-r": [260, 300],
+    "forearm-l": [140, 400],
+    "forearm-r": [260, 400],
+    "leg-l": [175, 520],
+    "leg-r": [225, 520],
+    "shin-l": [175, 630],
+    "shin-r": [225, 630],
+    brows: [200, 140],
+    eyes: [200, 170],
+    mouth: [200, 215],
+  },
+  /** Olmazsa karakter reddedilir; diğer parçalar isteğe bağlı (yoksa o hareket görünmez). */
+  required: ["head", "body", "arm-l", "arm-r", "leg-l", "leg-r"],
+} as const;
+export type RigPart = keyof typeof RIG.pivots;
+
+export const VectorAssetKind = z.enum(["character", "background", "prop"]);
+export type VectorAssetKind = z.infer<typeof VectorAssetKind>;
+
+/**
+ * Varlığın fiziksel bilgisi: sahne yerleşimi pikselle değil bunlarla hesaplanır (30 Eki: ayaklar masa üstünde
+ * kalıyordu). Eski varlıklarda yoksa türe göre varsayılan kullanılır.
+ */
+export const VectorAssetMeta = z.object({
+  /** Gerçek yükseklik (metre): insan ~1,7, masa ~0,75, sandalye ~0,9, kitap ~0,25. */
+  realHeight: z.number().positive().optional(),
+  /** Üstüne bir şey konabilen yüzeyin yüksekliği, varlık boyunun oranı (masa ~0,95, sandalye oturağı ~0,5). */
+  surface: z.number().min(0).max(1).optional(),
+  /** Yerde durur mu (masa, sandalye, insan) yoksa duvarda/havada mı (saat, pano, lamba). */
+  grounded: z.boolean().optional(),
+  /** Arka planda duvar ile zeminin birleştiği y (px, 1080 tuval). */
+  floorY: z.number().optional(),
+  /** Koddan üretilen haritada: varlık koordinatlarında etiketler ve sırayla çizilen rota sayısı. */
+  labels: z.array(MapLabel).optional(),
+  routes: z.number().int().nonnegative().optional(),
+  /** Gerçek veriden üretildi (harita, bayrak): çizgi stili ve zemin temizliği uygulanmaz, olduğu gibi gösterilir. */
+  exact: z.boolean().optional(),
+});
+export type VectorAssetMeta = z.infer<typeof VectorAssetMeta>;
+
+export const VectorAsset = z.object({
+  id: z.string(),
+  kind: VectorAssetKind,
+  /** Temizlenmiş SVG (script, olay, dış bağlantı yok). */
+  svg: z.string(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  meta: VectorAssetMeta.default({}),
+});
+export type VectorAsset = z.infer<typeof VectorAsset>;
+
+/** Katman ve yazı animasyonları; zaman aralığı çekim süresinin oranı (0–1). */
+export const VectorAnimType = z.enum([
+  // tüm katman
+  "fade_in",
+  "fade_out",
+  "slide_in",
+  "pop",
+  "float",
+  "sway",
+  "pulse",
+  "spin",
+  "shake",
+  "move",
+  // karakter iskeleti
+  "walk",
+  "wave",
+  "nod",
+  "talk",
+  "point",
+  "shrug",
+  "explain",
+  "think",
+  "cheer",
+  "surprised",
+  "sit",
+  // yazı
+  "typewriter",
+  "count_up",
+]);
+export type VectorAnimType = z.infer<typeof VectorAnimType>;
+
+export const VectorAnim = z.object({
+  type: VectorAnimType,
+  start: z.number().min(0).max(1).default(0),
+  end: z.number().min(0).max(1).default(1),
+  /** slide_in yönü. */
+  from: z.enum(["left", "right", "top", "bottom"]).optional(),
+  /** move/walk hedefi (1920×1080 tuval). */
+  toX: z.number().optional(),
+  toY: z.number().optional(),
+});
+export type VectorAnim = z.infer<typeof VectorAnim>;
+
+/** Karakterin yüz ifadesi ve duruşu; kaş, göz, ağız ve baş koddan ayarlanır (jestlerle birlikte çalışır). */
+export const VectorExpression = z.enum(["neutral", "happy", "sad", "angry", "worried", "surprised", "thinking"]);
+export type VectorExpression = z.infer<typeof VectorExpression>;
+
+export const VectorLayer = z.object({
+  asset: z.string(),
+  /** Katmanın alt-orta noktası (x), 1920×1080 tuvalde. */
+  x: z.number(),
+  /**
+   * Sahnedeki derinlik: 0 kameraya en yakın, 1 odanın dibi. Verilirse ayağın bastığı y, perspektif ölçeği ve boy
+   * koddan hesaplanır; yerdeki her şey (insan, mobilya) böyle yerleştirilir.
+   */
+  depth: z.number().min(0).max(1).optional(),
+  /** Başka bir katmanın (indeks) üstünde: nesne masanın yüzeyinde, karakter sandalyede oturur. */
+  on: z.number().int().nonnegative().optional(),
+  /** Bu nesneyi elinde tutan karakter katmanı (indeks); nesne eli takip eder. */
+  heldBy: z.number().int().nonnegative().optional(),
+  /** Duvardaki/havadaki öğeler için alt-orta y ve boy (px). Yerdeki öğelerde kullanılmaz. */
+  y: z.number().optional(),
+  height: z.number().positive().optional(),
+  /** Çizim sırasını elle belirlemek için; yoksa derinlikten. */
+  z: z.number().optional(),
+  flip: z.boolean().default(false),
+  rotate: z.number().default(0),
+  opacity: z.number().min(0).max(1).default(1),
+  anims: z.array(VectorAnim).default([]),
+  /** Sadece karakterler: çekim boyunca yüz ifadesi (anlatımın duygusu). */
+  expression: VectorExpression.optional(),
+});
+export type VectorLayer = z.infer<typeof VectorLayer>;
+
+export const VectorTextStyle = z.enum(["title", "subtitle", "label", "number", "quote"]);
+
+export const VectorText = z.object({
+  text: z.string(),
+  /** Yazının merkezi, 1920×1080 tuvalde. */
+  x: z.number(),
+  y: z.number(),
+  style: VectorTextStyle.default("label"),
+  color: z.string().optional(),
+  anims: z.array(VectorAnim).default([]),
+});
+export type VectorText = z.infer<typeof VectorText>;
+
+/** Bölümün çizgi stili: tasarımcıya verilir ve render'da tüm varlıklarda kontur eşitlenir. */
+export const LineStyle = z.enum(["outline", "flat", "sketch", "ink"]);
+export type LineStyle = z.infer<typeof LineStyle>;
+
+/** Çekimin ışık havası: aynı palet bütün videoda göz yormasın diye sahneye göre renk tonu. */
+export const VectorMood = z.enum(["neutral", "day", "warm", "cool", "night", "dramatic"]);
+export type VectorMood = z.infer<typeof VectorMood>;
+
+export const VectorShot = z.object({
+  /** Arka plan varlığı; yoksa paletten degrade. */
+  background: z.string().optional(),
+  mood: VectorMood.default("neutral"),
+  layers: z.array(VectorLayer).default([]),
+  texts: z.array(VectorText).default([]),
+  camera: z
+    .object({
+      zoomFrom: z.number().default(1),
+      zoomTo: z.number().default(1.06),
+      panX: z.number().min(-1).max(1).default(0),
+      /** Yakın çekimde odak noktası (1920×1080 tuval); yoksa kadraj merkezi. */
+      focusX: z.number().optional(),
+      focusY: z.number().optional(),
+    })
+    .default({ zoomFrom: 1, zoomTo: 1.06, panX: 0 }),
+});
+export type VectorShot = z.infer<typeof VectorShot>;
+
+/** İzin verilen SVG öğeleri: çizim, degrade, kırpma ve birkaç yumuşak filtre. Geri kalan her şey atılır. */
+const ALLOWED_TAGS = new Set(
+  [
+    "svg", "g", "defs", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "use", "symbol",
+    "lineargradient", "radialgradient", "stop", "clippath", "mask", "pattern", "marker", "title", "desc",
+    "filter", "fegaussianblur", "feoffset", "feblend", "fecolormatrix", "femerge", "femergenode", "feflood",
+    "fecomposite", "fedropshadow",
+  ],
+);
+
+const ALLOWED_ATTRS = new Set(
+  [
+    "id", "xmlns", "xmlns:xlink", "viewbox", "preserveaspectratio", "width", "height", "x", "y", "x1", "y1", "x2", "y2",
+    "cx", "cy", "r", "rx", "ry", "fx", "fy", "d", "points", "transform", "fill", "fill-opacity", "fill-rule",
+    "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset",
+    "stroke-opacity", "stroke-miterlimit", "opacity", "clip-path", "clip-rule", "mask", "filter", "offset",
+    "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "spreadmethod", "href", "xlink:href",
+    "patternunits", "patterntransform", "maskunits", "clippathunits", "stddeviation", "in", "in2", "result",
+    "mode", "values", "type", "dx", "dy", "flood-color", "flood-opacity", "operator", "k1", "k2", "k3", "k4",
+    "visibility", "display", "style",
+    // Bayraklarda yıldız dizileri (ABD) ve harita rotalarının çizilerek ilerlemesi için.
+    "marker-start", "marker-mid", "marker-end", "markerwidth", "markerheight", "markerunits", "refx", "refy", "orient",
+    "pathlength",
+  ],
+);
+
+/** Öznitelik değeri yalnız iç başvuru (#id) kullanabilir; betik, data: ve dış URL yasak. */
+function safeValue(name: string, value: string): boolean {
+  const v = value.toLowerCase().replace(/\s+/g, "");
+  if (/javascript:|vbscript:|data:|expression\(|@import|behavior:/.test(v)) return false;
+  if (/url\((?!['"]?#)/.test(v)) return false;
+  if ((name === "href" || name === "xlink:href") && !value.trim().startsWith("#")) return false;
+  return true;
+}
+
+/**
+ * Model çıktısı SVG'yi izin listesiyle yeniden kurar: yalnız bilinen öğe ve öznitelikler kalır; yorum,
+ * CDATA, <style>, <script>, <foreignObject>, <image> ve metin düğümleri atılır. Sonuç innerHTML ile
+ * gömülebilir. Yalnız ilk <svg>…</svg> bloğu işlenir.
+ */
+export function sanitizeSvg(raw: string): string {
+  const start = raw.search(/<svg[\s>]/i);
+  const end = raw.toLowerCase().lastIndexOf("</svg>");
+  if (start < 0 || end < start) throw new Error("SVG bulunamadı");
+  const body = raw
+    .slice(start, end + "</svg>".length)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    // İçeriği olan tehlikeli öğeler içerikleriyle birlikte atılır.
+    .replace(/<(script|style|foreignObject|text|textPath|iframe|object|embed|audio|video|animate\w*|set)\b[\s\S]*?<\/\1\s*>/gi, "");
+
+  const out: string[] = [];
+  const tag = /<(\/?)([a-zA-Z][\w:-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+))?)*)\s*(\/?)>/g;
+  const attr = /([^\s=>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>]+)))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = tag.exec(body))) {
+    const [, closing, rawName, rawAttrs, selfClosing] = m;
+    const name = rawName!.toLowerCase();
+    if (!ALLOWED_TAGS.has(name)) continue;
+    if (closing) {
+      out.push(`</${rawName}>`);
+      continue;
+    }
+    const attrs: string[] = [];
+    let a: RegExpExecArray | null;
+    attr.lastIndex = 0;
+    while ((a = attr.exec(rawAttrs ?? ""))) {
+      const attrName = a[1]!.toLowerCase();
+      const value = a[2] ?? a[3] ?? a[4] ?? "";
+      if (!ALLOWED_ATTRS.has(attrName) || !safeValue(attrName, value)) continue;
+      attrs.push(`${a[1]}="${value.replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`);
+    }
+    out.push(`<${rawName}${attrs.length ? ` ${attrs.join(" ")}` : ""}${selfClosing ? "/" : ""}>`);
+  }
+  const svg = out.join("");
+  if (!/^<svg[\s>]/i.test(svg)) throw new Error("SVG bulunamadı");
+  return svg;
+}
+const num = (attrs: string, name: string): number | undefined => {
+  const m = new RegExp(`\\s${name}="([-\\d.]+)(%?)"`).exec(attrs);
+  if (!m) return undefined;
+  return m[2] ? Number.NaN : Number(m[1]);
+};
+
+/**
+ * Karakter ve nesnelerin arkasına çizilmiş zemini atar: tuvali kaplayan dikdörtgen ya da öznenin arkasındaki
+ * büyük daire/elips (30 Eki: sahneye "kutu içinde" giriyorlardı). Yere düşen ince gölge elipsi korunur.
+ * Yalnız <defs> sonrası en baştaki üst düzey öğelere bakılır; temizlenmiş (sanitizeSvg) SVG bekler.
+ */
+export function stripBackdrop(svg: string, size: { width: number; height: number }): string {
+  const { width: W, height: H } = size;
+  const open = /^<svg[^>]*>/.exec(svg);
+  if (!open) return svg;
+  let rest = svg.slice(open[0].length);
+  let head = open[0];
+  const defs = /^<defs\b[\s\S]*?<\/defs>/.exec(rest);
+  if (defs) {
+    head += defs[0];
+    rest = rest.slice(defs[0].length);
+  }
+  const kept: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const el = /^<(rect|circle|ellipse)\b([^>]*)\/>/.exec(rest);
+    if (!el) break;
+    const [whole, tag, attrs = ""] = el;
+    const w = num(attrs, "width");
+    const h = num(attrs, "height");
+    const r = num(attrs, "r");
+    const rx = num(attrs, "rx");
+    const ry = num(attrs, "ry");
+    const fullRect = tag === "rect" && (Number.isNaN(w) || (w ?? 0) >= W * 0.9) && (Number.isNaN(h) || (h ?? 0) >= H * 0.9);
+    const bigCircle = tag === "circle" && (r ?? 0) >= Math.min(W, H) * 0.35;
+    const bigEllipse = tag === "ellipse" && (rx ?? 0) >= W * 0.35 && (ry ?? 0) >= H * 0.2;
+    const shadow = tag === "ellipse" && (ry ?? 0) < H * 0.06;
+    if (fullRect || bigCircle || bigEllipse) {
+      rest = rest.slice(whole.length);
+      continue;
+    }
+    if (!shadow) break;
+    kept.push(whole);
+    rest = rest.slice(whole.length);
+  }
+  return head + kept.join("") + rest;
+}
+/**
+ * Aynı SVG bir karede birden çok kez gömülünce kimlikler çakışır; her örneğin kimlik ve
+ * başvurularına önek eklenir (url(#x), href="#x").
+ */
+export function prefixSvgIds(svg: string, prefix: string): string {
+  return svg
+    .replace(/\bid="([^"]+)"/g, `id="${prefix}$1"`)
+    .replace(/url\(#([^)]+)\)/g, `url(#${prefix}$1)`)
+    .replace(/(href|xlink:href)="#([^"]+)"/g, `$1="#${prefix}$2"`);
+}
+
+/** viewBox'tan boyut; yoksa width/height özniteliklerinden. */
+export function svgSize(svg: string): { width: number; height: number } {
+  const vb = /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)\s*"/.exec(svg);
+  if (vb) return { width: Number(vb[1]), height: Number(vb[2]) };
+  const w = /\bwidth="([\d.]+)/.exec(svg);
+  const h = /\bheight="([\d.]+)/.exec(svg);
+  if (w && h) return { width: Number(w[1]), height: Number(h[1]) };
+  throw new Error("SVG boyutu yok (viewBox gerekli)");
+}
+
+const darkColor = (value: string): boolean => {
+  const m = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value.trim());
+  if (!m) return /^(black|#000)$/i.test(value.trim());
+  const hex = m[1]!.length === 3 ? [...m[1]!].map((ch) => ch + ch).join("") : m[1]!;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r! + 0.587 * g! + 0.114 * b! < 90;
+};
+
+/**
+ * Çizgi stilini tüm varlıklarda eşitler (farklı çağrılarda çizilen karakterler aynı elden çıkmış gibi dursun).
+ * Temizlenmiş SVG bekler. outline/sketch: koyu konturlar tek renge; ink: koyu konturlar siyah ve kalın;
+ * flat: dolgulu şekillerin konturu atılır (yalnız fill="none" çizgiler — ağız, kaş gibi — kalır).
+ */
+export function applyLineStyle(svg: string, style: LineStyle): string {
+  return svg.replace(/<(path|rect|circle|ellipse|polygon|polyline|line|g)\b([^>]*?)(\/?)>/g, (whole, tag: string, attrs: string, close: string) => {
+    const stroke = /\sstroke="([^"]*)"/.exec(attrs)?.[1];
+    if (!stroke || stroke === "none") return whole;
+    const fillNone = /\sfill="none"/.test(attrs);
+    let next = attrs;
+    if (style === "flat") {
+      if (fillNone || !darkColor(stroke)) return whole;
+      next = next.replace(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g, "");
+    } else if (darkColor(stroke)) {
+      const color = style === "ink" ? "#111014" : "#1d1a24";
+      next = next.replace(/\sstroke="[^"]*"/, ` stroke="${color}"`);
+      if (style === "ink") {
+        next = next.replace(/\sstroke-width="([\d.]+)"/, (_m, w: string) => ` stroke-width="${(Number(w) * 1.5).toFixed(1)}"`);
+        if (!/stroke-linecap/.test(next)) next += ' stroke-linecap="round"';
+        if (!/stroke-linejoin/.test(next)) next += ' stroke-linejoin="round"';
+      }
+    }
+    return `<${tag}${next}${close}>`;
+  });
+}

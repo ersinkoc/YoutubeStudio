@@ -1,5 +1,5 @@
 import type { ShotPlanOut } from "@ys/agents";
-import type { Timeline, WordTiming } from "@ys/core";
+import type { Timeline, VectorAsset, VectorShot, WordTiming } from "@ys/core";
 import type { EpisodeState, PlannedShotState, SceneVoice } from "./state.ts";
 
 /** Sahneler arasında bırakılan nefes payı. */
@@ -74,6 +74,8 @@ export function resolveShotTimes(
         motionPrompt: shot.motionPrompt,
         camera: shot.camera,
         ambience: shot.ambience,
+        // Vektör modunda yönetmen sahne tarifini çekimle birlikte verir.
+        ...("vector" in shot && shot.vector ? { vector: shot.vector as VectorShot } : {}),
         characterIds: shot.characterIds?.slice(0, 3),
         locationId: shot.locationId || undefined,
       });
@@ -91,7 +93,11 @@ const CAMERA_MOTION: Record<PlannedShotState["camera"], { zoomFrom: number; zoom
 };
 
 /** Remotion'ın göreceği timeline. Varlık yolları render klasörünün public/ dizinine göreli. */
-export function buildTimeline(state: EpisodeState, assetPath: (key: string) => string): Timeline {
+export function buildTimeline(
+  state: EpisodeState,
+  assetPath: (key: string) => string,
+  vectorAssets: Record<string, VectorAsset> = {},
+): Timeline {
   const { input, script, voice, shots, keyframes } = state;
   if (!script || !voice || !shots || !keyframes) throw new Error("Timeline için script, voice, shots, keyframes gerekli");
 
@@ -101,7 +107,22 @@ export function buildTimeline(state: EpisodeState, assetPath: (key: string) => s
   const offsets = sceneOffsets(sceneIds, voice);
   const totalMs = shots.reduce((m, s) => Math.max(m, s.endMs), 0);
 
-  const visuals: Timeline["visuals"] = shots.flatMap((shot) => {
+  const visuals: Timeline["visuals"] = shots.flatMap((shot): Timeline["visuals"] => {
+    if (shot.vector) {
+      const fromFrame = toFrame(shot.startMs);
+      return [
+        {
+          shotId: shot.id,
+          assetUrl: "",
+          kind: "motion_graphic" as const,
+          fromFrame,
+          durationInFrames: Math.max(1, toFrame(shot.endMs) - fromFrame),
+          ambience: shot.ambience ?? "none",
+          vector: shot.vector,
+          playbackRate: 1,
+        },
+      ];
+    }
     const clip = state.clips?.[shot.id];
     const still = keyframes[shot.id];
     const asset = clip ?? still;
@@ -156,5 +177,8 @@ export function buildTimeline(state: EpisodeState, assetPath: (key: string) => s
     visuals,
     audio,
     captions,
+    vectorAssets,
+    palette: state.style?.palette ?? [],
+    lineStyle: input.lineStyle ?? "outline",
   };
 }

@@ -12,6 +12,9 @@ const PLACEHOLDER: Timeline = {
   visuals: [],
   audio: [],
   captions: [],
+  vectorAssets: {},
+  palette: [],
+  lineStyle: "outline",
 };
 
 export function Root() {

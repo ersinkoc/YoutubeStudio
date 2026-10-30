@@ -9,6 +9,7 @@ import {
   EpisodeRepo,
   changeVoice,
   gateBefore,
+  redrawShots,
   isApproved,
   missingSelections,
   revokeApproval,
@@ -115,6 +116,27 @@ describe("changeVoice", () => {
     expect(() => changeVoice(s, "v2")).toThrow(/render/);
   });
 });
+describe("redrawShots", () => {
+  it("kareyi ve klibi siler, seed sayacını artırır, kareden sonrasını geçersiz kılar", () => {
+    const s = baseState();
+    const shot = { id: "a", sceneId: "s1", kind: "still_motion" as const, startMs: 0, endMs: 1000, description: "", imagePrompt: "", motionPrompt: "", camera: "static" as const };
+    s.shots = [shot, { ...shot, id: "b" }];
+    s.keyframes = { a: { key: "a.png", mimeType: "image/png" }, b: { key: "b.png", mimeType: "image/png" } };
+    s.qa = { a: { score: 4, issues: [], attempts: 2, passed: false } };
+    s.done = { ...s.done, shots: "x", keyframes: "x", timeline: "x", render: "x" };
+
+    redrawShots(s, ["a", "yok"]);
+    redrawShots(s, ["a"]);
+    expect(s.redraws).toEqual({ a: 2 });
+    expect(Object.keys(s.keyframes)).toEqual(["b"]);
+    expect(s.qa).toEqual({});
+    expect(s.done).toMatchObject({ shots: "x" });
+    expect(s.done.keyframes).toBeUndefined();
+    expect(s.done.render).toBeUndefined();
+    expect(() => redrawShots(s, ["yok"])).toThrow(/çekim yok/);
+  });
+});
+
 describe("EpisodeRepo", () => {
   it("bölümleri yeniden eskiye listeler", async () => {
     const repo = new EpisodeRepo(new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-repo-"))));

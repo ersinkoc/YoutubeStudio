@@ -105,3 +105,9 @@ export interface ProviderAdapter {
   /** Kalan hesap kotası; işe başlamadan önce yetip yetmeyeceği kontrol edilir. */
   quota?(ctx: GenerateContext): Promise<Quota>;
 }
+
+/**
+ * Sağlayıcı isteği içerik nedeniyle reddetti (güvenlik filtresi, gerçek kişi vb.). Sağlayıcı sağlıklıdır;
+ * aynı sağlayıcının başka istekleri çalışmaya devam eder, bu yüzden sağlık sayacına yazılmaz.
+ */
+export class ContentRejectedError extends Error {}

@@ -1,3 +1,4 @@
+import { LineStyle } from "@ys/core";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,6 +34,7 @@ export interface EpisodeArgs {
   motion?: string;
   manual?: boolean;
   noQa?: boolean;
+  line?: string;
   gate?: string;
   pick?: string;
   vertical?: boolean;
@@ -65,6 +67,7 @@ export async function episodeCommand(
         voiceId: args.voice,
         autoApprove: !args.manual,
         qa: !args.noQa,
+        lineStyle: args.line ? LineStyle.parse(args.line) : undefined,
         width: args.vertical ? 1080 : 1920,
         height: args.vertical ? 1920 : 1080,
         fps: 30,
@@ -116,7 +119,7 @@ export async function episodeCommand(
 
 function parseMotion(m: string | undefined): MotionMode | undefined {
   if (m === undefined) return undefined;
-  if (m !== "animated" && m !== "mixed" && m !== "still") throw new Error("--motion animated|mixed|still");
+  if (m !== "animated" && m !== "mixed" && m !== "still" && m !== "vector") throw new Error("--motion animated|mixed|still|vector");
   return m;
 }
 

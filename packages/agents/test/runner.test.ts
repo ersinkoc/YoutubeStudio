@@ -22,7 +22,7 @@ describe("runStructured", () => {
     const res = await runStructured(call, {
       queryFn: fakeQuery({ subtype: "success", structured_output: { title: "x", n: 3 } }, seen),
     });
-    expect(res).toEqual({ data: { title: "x", n: 3 }, costUsd: 0.0123, model: "m", durationMs: 1200 });
+    expect(res).toEqual({ data: { title: "x", n: 3 }, name: "test", costUsd: 0.0123, model: "m", durationMs: 1200 });
     expect(seen.options).toMatchObject({
       tools: [],
       settingSources: [],

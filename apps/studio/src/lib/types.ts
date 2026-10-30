@@ -1,5 +1,5 @@
 import type { CostGroup, Quota } from "@ys/media-gateway";
-import type { EpisodeEstimate, EpisodeState, MotionMode, Progress } from "@ys/pipeline/light";
+import type { EpisodeEstimate, EpisodeState, MotionMode, Progress, RunStatus, Stage } from "@ys/pipeline/light";
 
 /** Sunucu ile istemci arasında paylaşılan yanıt tipleri (sadece tip; çalışma anı kodu yok). */
 
@@ -26,5 +26,7 @@ export interface EpisodeResponse {
   /** Defterden aşama ve sağlayıcı bazında gerçekleşen. */
   actual: { byStage: CostGroup[]; byProvider: CostGroup[] };
   progress: Progress | null;
+  /** Tek bakışta durum; Stüdyo'nun kendi işi sürüyorsa her zaman "running". */
+  status: { status: RunStatus; stage?: Stage };
   quota: QuotaView | null;
 }

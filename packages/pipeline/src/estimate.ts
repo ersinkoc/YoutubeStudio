@@ -1,6 +1,6 @@
 import type { Capability } from "@ys/core";
 import { billing, rankProviders, type GenerationRequest, type ProviderAdapter } from "@ys/media-gateway";
-import { motionModeOf, STAGES, type EpisodeState, type MotionMode, type Stage } from "./state.ts";
+import { gateBefore, isApproved, motionModeOf, STAGES, type EpisodeState, type MotionMode, type Stage } from "./state.ts";
 
 /*
  * Bölüm maliyet ve süre tahmini. Para harcamaz, ağır bağımlılık yüklemez (stüdyo sunucusu çağırır).
@@ -21,6 +21,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   clips: "Animasyon",
   timeline: "Kurgu",
   render: "Render",
+  review: "İnceleme",
 };
 
 /** Ölçüm yokken çağrı başı süre (ms). 29 Eki çalıştırmalarından. */
@@ -36,16 +37,27 @@ const DEFAULT_LATENCY_MS: Partial<Record<Capability, number>> = {
 const AGENT_MODEL: Partial<Record<Stage, { usd: number; usdPerMin: number; sec: number; secPerMin: number }>> = {
   style: { usd: 0.015, usdPerMin: 0, sec: 12, secPerMin: 0 },
   story: { usd: 0.06, usdPerMin: 0.004, sec: 40, secPerMin: 3 },
-  script: { usd: 0.08, usdPerMin: 0.02, sec: 30, secPerMin: 6 },
+  // Yazar + senaryo doktoru, iki Opus geçişi. 30 Eki ölçümü: 1 dk $0.36/140 sn, 10 dk $1.08/376 sn.
+  script: { usd: 0.28, usdPerMin: 0.08, sec: 114, secPerMin: 26 },
   cast: { usd: 0.02, usdPerMin: 0.002, sec: 20, secPerMin: 2 },
   shots: { usd: 0.04, usdPerMin: 0.015, sec: 20, secPerMin: 8 },
 };
 
 /**
- * Kare denetimi (Haiku, 1 kare + en fazla 3 referans görsel). Henüz ölçülmedi: ~6k girdi token'ından
- * kaba tahmin. İlk gerçek bölümden sonra defterdeki "keyframes" aşaması ajan kayıtlarıyla güncellenmeli.
+ * Kare denetimi (Haiku, 1 kare + en fazla 3 referans görsel). 30 Eki ölçümü (10 dk bölüm, 101 kare):
+ * kontrol başı ~$0.001 ve ~3 sn; karelerin %49'u yeniden çizildi (çoğu "yazı" ve "konu eksik").
  */
-const QA = { usd: 0.008, ms: 6_000, redrawRate: 0.2 };
+const QA = { usd: 0.0012, ms: 3_000, redrawRate: 0.45 };
+
+/**
+ * Vektör modu (yalnız Claude). İlk ölçüm (30 Eki, 1 dk): nesne ~$0.017; render ~1,9× video süresi; sahne başı ~2 nesne.
+ * Sahneleme kuralları + Opus karakterlerden sonra ikinci ölçüm (30 Eki, 1 dk, 3 sahne, 5 varlık): varlık ~$0.07 / 62 sn,
+ * sahne yönetmeni ~$0.14/sahne (10 dk bölümde ~$0.04); ikisinin arası alındı.
+ */
+const VECTOR = { assetUsd: 0.065, assetSec: 30, sceneUsd: 0.1, sceneSec: 36, propUsd: 0.017, propSec: 12, propsPerScene: 2, renderX: 1.9, reviseRate: 0.4 };
+
+/** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
+const REVIEW = { perBatch: 6, batchUsd: 0.006, batchSec: 8, stillSec: 0.8 };
 
 /** Aynı anda kaç görsel/klip üretiliyor (pipeline concurrency). */
 const PARALLEL = 3;
@@ -123,7 +135,8 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     rows.push({ ...row, label: STAGE_LABELS[row.stage], done: Boolean(state.done[row.stage]) });
 
   // --- ajanlar
-  for (const stage of ["style", "story", "script", "cast", "shots"] as const) {
+  const vector = mode === "vector";
+  for (const stage of vector ? (["style", "story", "script", "cast"] as const) : (["style", "story", "script", "cast", "shots"] as const)) {
     const m = AGENT_MODEL[stage]!;
     add({
       stage,
@@ -141,15 +154,29 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const locs = state.cast?.locations.length ?? 3;
   const conceptImages = chars * 3 + locs * 2 + 3;
   const ci = price({ capability: "t2i", quality, aspectRatio });
-  add({
-    stage: "concept",
-    providerId: ci.providerId,
-    quantity: conceptImages,
-    unit: "görsel",
-    costUsd: ci.usd * conceptImages,
-    seconds: (Math.ceil(conceptImages / PARALLEL) * ci.ms) / 1000,
-    basis: state.cast ? ci.basis : `${ci.basis}; kadro tahmini (${chars} karakter, ${locs} mekân)`,
-  });
+  const castNote = state.cast ? "" : `; kadro tahmini (${chars} karakter, ${locs} mekân)`;
+  if (vector) {
+    const assets = chars + locs;
+    add({
+      stage: "concept",
+      providerId: "claude (SVG)",
+      quantity: assets,
+      unit: "varlık",
+      costUsd: assets * VECTOR.assetUsd,
+      seconds: (Math.ceil(assets / PARALLEL) * VECTOR.assetSec),
+      basis: `tahmin: varlık başı ~$${VECTOR.assetUsd}${castNote}`,
+    });
+  } else {
+    add({
+      stage: "concept",
+      providerId: ci.providerId,
+      quantity: conceptImages,
+      unit: "görsel",
+      costUsd: ci.usd * conceptImages,
+      seconds: (Math.ceil(conceptImages / PARALLEL) * ci.ms) / 1000,
+      basis: `${ci.basis}${castNote}`,
+    });
+  }
 
   // --- ses
   const lang = input.lang.split("-")[0]!;
@@ -177,6 +204,40 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     basis: state.script ? v.basis : `${v.basis}; metin tahmini`,
   });
 
+  if (vector) {
+    add({
+      stage: "shots",
+      providerId: "claude",
+      quantity: scenes,
+      unit: "sahne",
+      costUsd: scenes * VECTOR.sceneUsd,
+      seconds: Math.ceil(scenes / PARALLEL) * VECTOR.sceneSec,
+      basis: `tahmin: sahne başı ~$${VECTOR.sceneUsd} (kısa JSON)`,
+    });
+    const props = Math.round(scenes * VECTOR.propsPerScene);
+    add({
+      stage: "keyframes",
+      providerId: "claude (SVG)",
+      quantity: props,
+      unit: "nesne",
+      costUsd: props * VECTOR.propUsd,
+      seconds: Math.ceil(props / PARALLEL) * VECTOR.propSec,
+      basis: "tahmin: yeni nesneler; kütüphanede olanlar ücretsiz",
+    });
+    // Render öncesi taslak denetimi: her çekime bir kare + ucuz eleştiri, sorunlu sahneler bir kez yeniden planlanır.
+    const draftBatches = Math.ceil(shotCount / REVIEW.perBatch);
+    const replans = Math.ceil(scenes * VECTOR.reviseRate);
+    add({
+      stage: "keyframes",
+      providerId: "claude (taslak denetimi)",
+      quantity: shotCount,
+      unit: "kare",
+      costUsd: draftBatches * REVIEW.batchUsd + replans * VECTOR.sceneUsd,
+      seconds: shotCount * REVIEW.stillSec + Math.ceil(draftBatches / PARALLEL) * REVIEW.batchSec + Math.ceil(replans / PARALLEL) * VECTOR.sceneSec,
+      basis: `tahmin: taslak kare eleştirisi + sahnelerin ~%${Math.round(VECTOR.reviseRate * 100)}'i yeniden planlanır`,
+    });
+  }
+
   // --- kareler (referanslı)
   const kf = price({
     capability: "i2i_multiref",
@@ -188,7 +249,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const qaOn = state.input.qa !== false;
   const draws = shotCount * (qaOn ? 1 + QA.redrawRate : 1);
   const checks = qaOn ? draws : 0;
-  add({
+  if (!vector) add({
     stage: "keyframes",
     providerId: kf.providerId,
     quantity: Math.round(draws),
@@ -197,7 +258,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     seconds: (Math.ceil(shotCount / PARALLEL) * (kf.ms * (draws / Math.max(1, shotCount)) + (qaOn ? QA.ms : 0))) / 1000,
     basis: [
       shotList ? kf.basis : `${kf.basis}; çekim sayısı tahmini`,
-      qaOn ? `kare kontrolü ~${Math.round(QA.redrawRate * 100)}% yeniden çizim, ~$${QA.usd}/kontrol (tahmin)` : "",
+      qaOn ? `kare kontrolü: ~%${Math.round(QA.redrawRate * 100)} yeniden çizim, ~$${QA.usd}/kontrol (ölçüm 30 Eki)` : "",
     ]
       .filter(Boolean)
       .join("; "),
@@ -247,8 +308,20 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     quantity: Math.round(videoSec),
     unit: "sn video",
     costUsd: 0,
-    seconds: 30 + videoSec * 1.1,
-    basis: "ölçüm (29 Eki): ~1,1× video süresi",
+    seconds: 30 + videoSec * (vector ? VECTOR.renderX : 1.1),
+    basis: vector ? `tahmin: ~${VECTOR.renderX}× video süresi (vektör sahneler)` : "ölçüm (29 Eki): ~1,1× video süresi",
+  });
+
+  // --- inceleme: çekim başına bir kare (yerel), 6 karelik gruplar halinde ucuz görsel model
+  const batches = Math.ceil(shotCount / REVIEW.perBatch);
+  add({
+    stage: "review",
+    providerId: "claude (görsel)",
+    quantity: shotCount,
+    unit: "kare",
+    costUsd: batches * REVIEW.batchUsd,
+    seconds: shotCount * REVIEW.stillSec + Math.ceil(batches / PARALLEL) * REVIEW.batchSec,
+    basis: `tahmin: ${REVIEW.perBatch} kare/çağrı, ~$${REVIEW.batchUsd}/çağrı; dersler sonraki bölümlere aktarılır`,
   });
 
   rows.sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage));
@@ -291,7 +364,14 @@ export function progressOf(state: EpisodeState, now = Date.now()): Progress | un
       (state.cast?.characters.length ?? 0) * 3 + (state.cast?.locations.length ?? 0) * 2,
     ],
     voice: [Object.keys(state.voice ?? {}).length, state.script?.scenes.length ?? 0],
-    keyframes: [Object.keys(state.keyframes ?? {}).length, state.shots?.length ?? 0],
+    keyframes: motionModeOf(state.input) === "vector"
+      ? [
+          Object.values(state.vectorProps ?? {}).filter((p) => p.key).length,
+          Object.keys(state.vectorProps ?? {}).length,
+        ]
+      : [Object.keys(state.keyframes ?? {}).length, state.shots?.length ?? 0],
+    review: [Object.keys(state.stills ?? {}).length, state.shots?.length ?? 0],
+    render: [state.renderPct ?? 0, 100],
     clips: [
       Object.keys(state.clips ?? {}).length,
       (state.shots ?? []).filter((s) => s.kind === "ai_clip").length,
@@ -302,4 +382,31 @@ export function progressOf(state: EpisodeState, now = Date.now()): Progress | un
   const elapsed = (now - startedAt) / 1000;
   const etaSec = done > 0 && total > done ? (elapsed / done) * (total - done) : undefined;
   return { stage: running, label: STAGE_LABELS[running], done, total, etaSec };
+}
+
+// ---------------- bölüm durumu ----------------
+
+/** Çalışan aşama bu kadar süre durum kaydı yapmazsa süreç düşmüş (kapatılmış/çökmüş) sayılır. */
+export const STALL_AFTER_MS = 15 * 60_000;
+
+export type RunStatus = "running" | "stalled" | "waiting" | "error" | "done" | "idle";
+
+/**
+ * Bölümün tek bakışta durumu. CLI'dan başlatılmış işler de görünsün diye iş kaydına değil, pipeline'ın
+ * durum dosyasına (aşama zamanları, son kayıt zamanı) bakar.
+ */
+export function runStatusOf(state: EpisodeState, now = Date.now()): { status: RunStatus; stage?: Stage } {
+  const running = STAGES.find((s) => !state.done[s] && state.stats?.[s] && !state.stats[s]!.endedAt);
+  if (running) {
+    const last = Date.parse(state.heartbeatAt ?? state.stats![running]!.startedAt);
+    return { status: now - last > STALL_AFTER_MS ? "stalled" : "running", stage: running };
+  }
+  if (state.lastError) return { status: "error", stage: state.lastError.stage };
+  // İnceleme aşaması sonradan eklendi; videosu olan eski bölümler de bitmiş sayılır.
+  if (state.render || STAGES.every((s) => state.done[s])) return { status: "done" };
+  const next = STAGES.find((s) => !state.done[s])!;
+  // "--until script" gibi kısmi çalıştırmalar kapıya varmadan durur; bekleme yine de sıradaki aşamanın kapısından anlaşılır.
+  const gate = gateBefore(next);
+  if (gate && !isApproved(state, gate)) return { status: "waiting", stage: next };
+  return { status: "idle", stage: next };
 }

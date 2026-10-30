@@ -32,6 +32,6 @@ export async function POST(req: Request) {
   });
   const ctx = await estimateContext();
   return Response.json(
-    Object.fromEntries((["animated", "mixed", "still"] as const).map((m) => [m, estimateEpisode(state, ctx, m)])),
+    Object.fromEntries((["animated", "mixed", "still", "vector"] as const).map((m) => [m, estimateEpisode(state, ctx, m)])),
   );
 }

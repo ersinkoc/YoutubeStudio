@@ -1,11 +1,11 @@
-/** ElevenLabs hazır sesleri (v3 ile çok dilli). Boş kimlik = Gemini TTS (en ucuz, zamanlama tahmini). */
-export const VOICES = [
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George — sıcak hikâye anlatıcısı", provider: "ElevenLabs" },
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian — derin, sakin", provider: "ElevenLabs" },
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel — haber spikeri", provider: "ElevenLabs" },
-  { id: "Xb7hH8MSUJpSbSDYk0k2", name: "Alice — eğitmen", provider: "ElevenLabs" },
-  { id: "XrExE9yKIg1WjnnlVkGX", name: "Matilda — profesyonel", provider: "ElevenLabs" },
-  { id: "", name: "Gemini TTS — en ucuz, kota yok", provider: "Gemini" },
-] as const;
+import type { MessageKey } from "./i18n";
 
-export const voiceName = (id: string | undefined) => VOICES.find((v) => v.id === (id ?? ""))?.name ?? id ?? "—";
+/** ElevenLabs hazır sesleri (v3 ile çok dilli). Boş kimlik = Gemini TTS (en ucuz, zamanlama tahmini). */
+export const VOICES: readonly { id: string; label: MessageKey }[] = [
+  { id: "JBFqnCBsd6RMkjVDRZzb", label: "voice.george" },
+  { id: "nPczCjzI2devNBz1zQrb", label: "voice.brian" },
+  { id: "onwK4e9ZLuTAKqWW03F9", label: "voice.daniel" },
+  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "voice.alice" },
+  { id: "XrExE9yKIg1WjnnlVkGX", label: "voice.matilda" },
+  { id: "", label: "voice.gemini" },
+];

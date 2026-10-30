@@ -1,5 +1,5 @@
-import type { CastOut, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
-import type { Ambience, BudgetTier, Timeline, WordTiming } from "@ys/core";
+import type { CastOut, LessonTarget, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
+import type { Ambience, BudgetTier, FlagSpec, LineStyle, MapSpec, Timeline, VectorShot, WordTiming } from "@ys/core";
 
 export type { MotionMode };
 
@@ -15,6 +15,8 @@ export const STAGES = [
   "clips",
   "timeline",
   "render",
+  /** Render sonrası inceleme: kareler denetlenir, dersler kalıcı deftere yazılır. */
+  "review",
 ] as const;
 export type Stage = (typeof STAGES)[number];
 
@@ -41,6 +43,8 @@ export interface EpisodeInput {
   voiceId?: string;
   /** true: onay kapılarında durma (CLI varsayılanı). Stüdyo false kullanır. */
   autoApprove?: boolean;
+  /** Vektör modunda çizgi stili (kalın kontur, konturksuz, el çizimi, mürekkep). */
+  lineStyle?: LineStyle;
   /** Kare kalite kontrolü (görsel model). Varsayılan açık; false ile kapatılır. */
   qa?: boolean;
   width: number;
@@ -71,8 +75,17 @@ export interface PlannedShotState {
   camera: "push_in" | "pull_out" | "pan_left" | "pan_right" | "static";
   /** Eski planlarda yok; yoksa "none". */
   ambience?: Ambience;
+  /** Vektör modunda sahne tarifi; varsa kare/klip üretilmez. */
+  vector?: VectorShot;
   characterIds?: string[];
   locationId?: string;
+}
+
+export interface EpisodeReview {
+  at: string;
+  shots: Record<string, { score: number; issues: { type: string; detail: string }[] }>;
+  /** Bu incelemede çıkan genel kurallar (deftere de yazılır). */
+  lessons: { target: LessonTarget; rule: string }[];
 }
 
 export interface FrameQa {
@@ -110,6 +123,17 @@ export interface StageStat {
   durationMs?: number;
 }
 
+/** Bölüm günlüğünün bir satırı; CLI'dan da Stüdyo'dan da çalışsa kalıcıdır. */
+export interface ActivityEntry {
+  at: string;
+  stage?: Stage;
+  level: "stage" | "info" | "warn" | "error";
+  msg: string;
+}
+
+/** Durumda tutulan günlük satırı sınırı (state.json büyümesin). */
+export const ACTIVITY_LIMIT = 400;
+
 export interface EpisodeError {
   stage: Stage;
   message: string;
@@ -122,6 +146,12 @@ export interface EpisodeState {
   input: EpisodeInput;
   done: Partial<Record<Stage, string>>;
   stats?: Partial<Record<Stage, StageStat>>;
+  /** Pipeline'ın son kaydı; çalışan bir aşama uzun süre güncellenmezse süreç düşmüş demektir. */
+  heartbeatAt?: string;
+  /** Son günlük satırları (en yeni sonda). */
+  activity?: ActivityEntry[];
+  /** Render ilerlemesi (0–100); sadece render sürerken anlamlı. */
+  renderPct?: number;
   /** Son başarısız aşama; stüdyo sunucusu yeniden başlasa da görünür kalsın diye durumda tutulur. */
   lastError?: EpisodeError;
   /** Bölümün anlatıcı sesini üreten sağlayıcı; sahneler arasında ses karışmasın diye sabitlenir. */
@@ -139,6 +169,18 @@ export interface EpisodeState {
   shotPlan?: ShotPlanOut;
   shots?: PlannedShotState[];
   keyframes?: Record<string, AssetRef>;
+  /** İnceleme aşamasının çekim kareleri (stüdyo küçük resmi de bunlar). */
+  stills?: Record<string, AssetRef>;
+  /** Render sonrası inceleme sonucu. */
+  review?: EpisodeReview;
+  /** Render öncesi taslak kontrolü: ortalama puan ve yeniden planlanan sahneler. */
+  draftReview?: EpisodeReview & { avg: number; revisedScenes: string[] };
+  /** Senaryo doktorunun düzelttiği sorunlar (bölümler arası öğrenme için saklanır). */
+  scriptNotes?: string[];
+  /** Vektör modunda çekimlerin kullandığı nesneler: kimlik → tarif ve çizildiyse SVG anahtarı. */
+  vectorProps?: Record<string, { description: string; key?: string; kind?: "prop" | "background"; map?: MapSpec; flag?: FlagSpec }>;
+  /** Elle istenen yeniden çizim sayısı (çekim başına); seed olarak kullanılır. */
+  redraws?: Record<string, number>;
   /** Çekim başına kare denetimi sonucu. */
   qa?: Record<string, FrameQa>;
   clips?: Record<string, AssetRef & { durationSec: number }>;

@@ -1,15 +1,16 @@
 import type { Capability } from "@ys/core";
-import { pcm16ToWav } from "../audio.ts";
+import { toWav } from "../audio.ts";
 import { fromBase64, pollUntil, requestBytes, requestJson, toBase64 } from "../http.ts";
-import type {
-  GenerateContext,
-  GenerationRequest,
-  GenerationResult,
-  OutputFile,
-  PriceRule,
-  PriceSource,
-  ProviderAdapter,
-  ProviderLimits,
+import {
+  ContentRejectedError,
+  type GenerateContext,
+  type GenerationRequest,
+  type GenerationResult,
+  type OutputFile,
+  type PriceRule,
+  type PriceSource,
+  type ProviderAdapter,
+  type ProviderLimits,
 } from "../types.ts";
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -20,7 +21,7 @@ interface InlineData {
 }
 
 interface GenerateContentResponse {
-  candidates?: { content?: { parts?: { text?: string; inlineData?: InlineData }[] } }[];
+  candidates?: { content?: { parts?: { text?: string; inlineData?: InlineData }[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
 }
 
@@ -34,8 +35,18 @@ interface GeminiModelConfig {
 }
 
 function inlineParts(res: GenerateContentResponse): InlineData[] {
-  if (res.promptFeedback?.blockReason) throw new Error(`Gemini engelledi: ${res.promptFeedback.blockReason}`);
-  return (res.candidates?.[0]?.content?.parts ?? []).flatMap((p) => (p.inlineData ? [p.inlineData] : []));
+  if (res.promptFeedback?.blockReason) throw new ContentRejectedError(`Gemini engelledi: ${res.promptFeedback.blockReason}`);
+  const candidate = res.candidates?.[0];
+  const parts = candidate?.content?.parts ?? [];
+  const data = parts.flatMap((p) => (p.inlineData ? [p.inlineData] : []));
+  if (data.length === 0) {
+    // Görsel yerine metin ya da güvenlik sonlandırması: nedeni hata mesajına taşı ki prompt düzeltilebilsin.
+    const text = parts.map((p) => p.text ?? "").join(" ").trim();
+    throw new ContentRejectedError(
+      `Gemini görsel döndürmedi (${candidate?.finishReason ?? "neden yok"})${text ? `: ${text.slice(0, 200)}` : ""}`,
+    );
+  }
+  return data;
 }
 
 /** Nano Banana ailesi (Gemini görsel modelleri): metinden ve çok referanstan görsel. */
@@ -121,7 +132,7 @@ export class GeminiTtsAdapter implements ProviderAdapter {
     const audio = inlineParts(res)[0];
     if (!audio) throw new Error("Gemini TTS ses döndürmedi");
     const rate = Number(/rate=(\d+)/.exec(audio.mimeType)?.[1] ?? 24_000);
-    return { files: [{ bytes: pcm16ToWav(fromBase64(audio.data), rate), mimeType: "audio/wav" }] };
+    return { files: [{ bytes: toWav(fromBase64(audio.data), rate), mimeType: "audio/wav" }] };
   }
 }
 

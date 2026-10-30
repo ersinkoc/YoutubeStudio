@@ -14,6 +14,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import { Ambience } from "./Ambience.tsx";
+import { VectorScene } from "./Vector.tsx";
 
 export type EpisodeProps = { timeline: Timeline };
 
@@ -129,7 +130,16 @@ export function Episode({ timeline }: EpisodeProps) {
         return (
           <Sequence key={v.shotId} from={v.fromFrame} durationInFrames={duration} name={v.shotId}>
             <FadeIn>
-              {v.kind === "still_motion" ? <StillMotion visual={v} /> : <Clip visual={v} />}
+              {v.kind === "motion_graphic" && v.vector ? (
+                <AbsoluteFill>
+                  <VectorScene visual={v} assets={timeline.vectorAssets} palette={timeline.palette} lineStyle={timeline.lineStyle} />
+                  <Ambience kind={v.ambience} seed={v.shotId} />
+                </AbsoluteFill>
+              ) : v.kind === "still_motion" ? (
+                <StillMotion visual={v} />
+              ) : (
+                <Clip visual={v} />
+              )}
             </FadeIn>
           </Sequence>
         );

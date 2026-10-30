@@ -97,8 +97,33 @@ export function editNarration(state: EpisodeState, sceneId: string, narration: s
 
 export function setMotion(state: EpisodeState, motionMode: MotionMode, aiClipRatio?: number): void {
   if (state.approvals?.concept) throw new Error("Konsept onaylandı; hareket modu değiştirilemez");
+  // Görsel ve vektör modlarının konsept varlıkları farklıdır (PNG/JPEG ↔ SVG); geçişte konsept yeniden üretilir.
+  const wasVector = state.input.motionMode === "vector";
+  if (wasVector !== (motionMode === "vector") && state.concept) {
+    delete state.concept;
+    invalidateFrom(state, "concept");
+  }
   state.input.motionMode = motionMode;
   if (aiClipRatio !== undefined) state.input.aiClipRatio = aiClipRatio;
+}
+
+/**
+ * Seçilen çekimlerin karelerini (ve varsa kliplerini) siler; sonraki çalıştırmada yeniden çizilir.
+ * Her yeniden çizim yeni bir seed alır, yoksa aynı istek önbellekten aynı kareyi döndürürdü.
+ */
+export function redrawShots(state: EpisodeState, shotIds: string[]): void {
+  const known = new Set(state.shots?.map((s) => s.id));
+  const ids = shotIds.filter((id) => known.has(id));
+  if (ids.length === 0) throw new Error("Yeniden çizilecek çekim yok");
+  state.redraws ??= {};
+  for (const id of ids) {
+    state.redraws[id] = (state.redraws[id] ?? 0) + 1;
+    delete state.keyframes?.[id];
+    delete state.qa?.[id];
+    delete state.clips?.[id];
+  }
+  delete state.lastError;
+  invalidateFrom(state, "keyframes");
 }
 
 /**

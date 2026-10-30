@@ -31,6 +31,8 @@ export interface AgentCall<T> {
 
 export interface AgentResult<T> {
   data: T;
+  /** Çağrıyı yapan ajan (günlük ve maliyet dökümü için). */
+  name: string;
   costUsd: number;
   model: string;
   durationMs: number;
@@ -50,6 +52,11 @@ export class AgentError extends Error {}
 export function toOutputSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
   return rest;
+}
+
+/** Önceki bölümlerden öğrenilen kurallar talimatın sonuna eklenir (boşsa hiçbir şey). */
+export function lessonsBlock(lessons: readonly string[] | undefined): string {
+  return lessons?.length ? `\nLessons from previous episodes (follow them):\n${lessons.map((l) => `- ${l}`).join("\n")}` : "";
 }
 
 /** Görselli istek: SDK görsel bloklarını yalnız akış girdisiyle kabul ediyor. */
@@ -110,6 +117,7 @@ export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {})
     deps.log?.(`ajan: ${call.name} bitti, $${message.total_cost_usd.toFixed(4)}`);
     return {
       data: parsed.data,
+      name: call.name,
       costUsd: message.total_cost_usd,
       model: call.model,
       durationMs: message.duration_ms,

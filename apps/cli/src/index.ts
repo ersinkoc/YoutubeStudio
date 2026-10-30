@@ -14,7 +14,7 @@ import {
   type RefInput,
   type RunOptions,
 } from "@ys/media-gateway";
-import { EpisodePipeline } from "@ys/pipeline";
+import { curateLessons, EpisodePipeline, loadLessons, saveLessons } from "@ys/pipeline";
 import { createStoreFromEnv } from "@ys/storage";
 import { episodeCommand, renderDemo } from "./episode.ts";
 
@@ -43,8 +43,9 @@ Komutlar:
   episode approve <id> script|concept
   episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
   episode preview <id>              seçilen referanslarla deneme kareleri
-              new için: [--motion animated|mixed|still] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı]
+              new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--line outline|flat|sketch|ink]
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
+  lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir
 
 Ortak seçenekler:
   --tier ultra|economy|standard|premium   (varsayılan: economy)
@@ -112,6 +113,8 @@ async function main(): Promise<void> {
       motion: { type: "string" },
       manual: { type: "boolean", default: false },
       "no-qa": { type: "boolean", default: false },
+      curate: { type: "boolean", default: false },
+      line: { type: "string" },
       vertical: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -157,6 +160,39 @@ async function main(): Promise<void> {
       console.log(`  ${id.padEnd(28)} ${String(r.n).padStart(4)} çağrı  ${String(r.hits).padStart(4)} önbellek  ${formatUsd(r.micros)}`);
     }
     console.log(`  ${"TOPLAM".padEnd(28)} ${formatUsd(total)}`);
+    return;
+  }
+
+  if (command === "lessons") {
+    // Orkestratörün ders defteri: listele; --curate ile benzer kuralları birleştir (ucuz model, ~$0.01).
+    const store = createStoreFromEnv(process.env);
+    const book = await loadLessons(store);
+    if (values.curate) {
+      await curateLessons(book, {
+        force: true,
+        deps: { log: (m: string) => console.error(m) },
+        onCall: async (target, res, before) => {
+          await ledger.record({
+          at: new Date().toISOString(),
+          stage: "review",
+          providerId: `claude:${res.model}`,
+          capability: "llm",
+          estimateMicros: usd(res.costUsd),
+          cacheHit: false,
+            requestHash: `lessons:${target}`,
+            durationMs: res.durationMs,
+          });
+          console.error(`${target}: ${before} → ${res.data.rules.length} kural`);
+        },
+      });
+      await saveLessons(store, book);
+    }
+    for (const target of ["director", "designer", "script"] as const) {
+      console.log(`\n${target}:`);
+      for (const l of book.lessons.filter((x) => x.target === target).sort((a, b) => b.count - a.count)) {
+        console.log(`  [${l.count}] ${l.rule}`);
+      }
+    }
     return;
   }
 

@@ -2,12 +2,13 @@ import {
   approve,
   changeVoice,
   editNarration,
+  redrawShots,
   revokeApproval,
   selectCandidate,
   setMotion,
   type MotionMode,
 } from "@ys/pipeline/light";
-import { cancelJob, repo, startJob } from "../../../../../lib/server";
+import { cancelJob, getJob, repo, startJob } from "../../../../../lib/server";
 
 export type StudioAction =
   | { type: "generate-script" }
@@ -20,6 +21,7 @@ export type StudioAction =
   | { type: "set-motion"; motionMode: MotionMode; aiClipRatio?: number }
   | { type: "approve-concept" }
   | { type: "change-voice"; voiceId: string }
+  | { type: "redraw"; shotIds: string[] }
   | { type: "resume" }
   | { type: "cancel" };
 
@@ -62,6 +64,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         break;
       case "change-voice":
         await episodes.update(id, (s) => changeVoice(s, action.voiceId));
+        break;
+      case "redraw":
+        // Çalışan iş durumu dosyasına yazarken araya girilmesin.
+        if (getJob(id)?.status === "running") throw new Error("Önce çalışan iş bitmeli");
+        await episodes.update(id, (s) => redrawShots(s, action.shotIds));
+        startJob(id, `${action.shotIds.length} kare yeniden çiziliyor`, ["episode", "run", id]);
         break;
       case "resume":
         startJob(id, "Kaldığı yerden devam", ["episode", "run", id]);

@@ -2,10 +2,10 @@ import { execFile } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { promisify } from "node:util";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import type { Timeline } from "@ys/core";
 
 const run = promisify(execFile);
@@ -80,4 +80,29 @@ export async function normalizeLoudness(input: string, output: string): Promise<
     "+faststart",
     output,
   ]);
+}
+
+export interface StillsOptions {
+  timeline: Timeline;
+  publicDir: string;
+  /** Çıkarılacak kareler: dosya adı → kare numarası. */
+  frames: Record<string, number>;
+  outDir: string;
+}
+
+/**
+ * Timeline'dan tek tek kareler (JPEG) çıkarır; inceleme aşaması ve stüdyo küçük resimleri için.
+ * Bundle bir kez yapılır, kareler sırayla alınır (render'a göre çok hafif).
+ */
+export async function renderStills(opts: StillsOptions): Promise<Record<string, string>> {
+  const serveUrl = await bundle({ entryPoint: ENTRY, publicDir: resolve(opts.publicDir) });
+  const inputProps = { timeline: opts.timeline };
+  const composition = await selectComposition({ serveUrl, id: "Episode", inputProps });
+  const out: Record<string, string> = {};
+  for (const [name, frame] of Object.entries(opts.frames)) {
+    const output = join(opts.outDir, `${name}.jpg`);
+    await renderStill({ serveUrl, composition, inputProps, frame, output, imageFormat: "jpeg", jpegQuality: 80, scale: 0.5 });
+    out[name] = output;
+  }
+  return out;
 }

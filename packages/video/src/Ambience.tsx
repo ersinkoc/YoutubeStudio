@@ -114,9 +114,9 @@ function Fog({ seed }: { seed: string }) {
     width: "200%",
     height: "70%",
     opacity,
-    filter: "blur(28px)",
+    // Blur filtresi yok: render'ı 4–5 kat yavaşlatıyordu (30 Eki ölçümü). Yumuşaklık çok duraklı gradyandan geliyor.
     background:
-      "radial-gradient(ellipse 30% 45% at 20% 50%, rgba(235,240,245,0.9), transparent 70%), radial-gradient(ellipse 25% 40% at 55% 45%, rgba(235,240,245,0.8), transparent 70%), radial-gradient(ellipse 30% 50% at 85% 55%, rgba(235,240,245,0.85), transparent 70%)",
+      "radial-gradient(ellipse 30% 45% at 20% 50%, rgba(235,240,245,0.75), rgba(235,240,245,0.35) 40%, transparent 72%), radial-gradient(ellipse 25% 40% at 55% 45%, rgba(235,240,245,0.65), rgba(235,240,245,0.3) 40%, transparent 72%), radial-gradient(ellipse 30% 50% at 85% 55%, rgba(235,240,245,0.7), rgba(235,240,245,0.32) 40%, transparent 72%)",
     transform: `translateX(${Math.sin((t + offset) * speed) * 12}%)`,
   });
   return (
@@ -196,47 +196,35 @@ function Flicker({ seed }: { seed: string }) {
   );
 }
 
-/** Pencereden ya da ağaçlardan süzülen ışık huzmeleri. */
+/**
+ * Pencereden ya da ağaçlardan süzülen ışık huzmeleri. Konik gradyanla çizilir: huzme kenarları gradyan
+ * duraklarından yumuşar, blur filtresi gerekmez (filtreli sürüm kare başına ~280 ms'ydi).
+ */
 function Rays({ seed }: { seed: string }) {
   const frame = useCurrentFrame();
-  const { width, height, fps } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const t = frame / fps;
   const fromLeft = random(`${seed}-rays`) < 0.5;
   const beams = useParticles(`${seed}-beams`, 6);
-  const ox = fromLeft ? -0.1 * width : 1.1 * width;
-  const oy = -0.15 * height;
+  // Işık kaynağı kadrajın üst köşesinin dışında; huzmeler aşağı doğru yelpaze gibi açılır.
+  const origin = fromLeft ? "-10% -15%" : "110% -15%";
+  const start = fromLeft ? 100 : 170; // derece; konik gradyan tepeden saat yönünde
+  const stops = beams
+    .map((b, i) => {
+      const center = start + 6 + i * 14 + b.x * 6;
+      const half = 1.5 + b.size * 3;
+      const a = 0.18 + 0.3 * (0.5 + 0.5 * Math.sin(t * (0.4 + b.speed * 0.6) + b.phase));
+      const color = `rgba(255,238,195,${a.toFixed(3)})`;
+      return `transparent ${(center - half * 2).toFixed(1)}deg, ${color} ${center.toFixed(1)}deg, transparent ${(center + half * 2).toFixed(1)}deg`;
+    })
+    .join(", ");
   return (
-    <AbsoluteFill style={{ mixBlendMode: "screen" }}>
-      <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
-        <defs>
-          <radialGradient id={`ray-${seed}`} cx={ox} cy={oy} r={Math.hypot(width, height)} gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="rgb(255,238,195)" stopOpacity="0.8" />
-            <stop offset="0.75" stopColor="rgb(255,238,195)" stopOpacity="0" />
-          </radialGradient>
-          <filter id={`rayblur-${seed}`}>
-            <feGaussianBlur stdDeviation="14" />
-          </filter>
-        </defs>
-        {beams.map((b, i) => {
-          // Huzmeler ışık kaynağından yelpaze gibi açılır; her biri kendi hızında yavaşça nefes alır.
-          const angle = (fromLeft ? 0.35 : Math.PI - 0.35 - 0.9) + (i / beams.length) * 0.9 + b.x * 0.08;
-          const spread = 0.025 + b.size * 0.05;
-          const len = Math.hypot(width, height) * 1.2;
-          const pts = [angle - spread, angle + spread]
-            .map((a) => `${ox + Math.cos(a) * len},${oy + Math.sin(a) * len}`)
-            .join(" ");
-          const opacity = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(t * (0.4 + b.speed * 0.6) + b.phase));
-          return (
-            <polygon
-              key={i}
-              points={`${ox},${oy} ${pts}`}
-              fill={`url(#ray-${seed})`}
-              opacity={opacity}
-              filter={`url(#rayblur-${seed})`}
-            />
-          );
-        })}
-      </svg>
-    </AbsoluteFill>
+    <AbsoluteFill
+      style={{
+        mixBlendMode: "screen",
+        background: `conic-gradient(at ${origin}, transparent 0deg, ${stops}, transparent 360deg)`,
+        maskImage: `radial-gradient(circle at ${fromLeft ? "0% 0%" : "100% 0%"}, black 10%, transparent 95%)`,
+      }}
+    />
   );
 }

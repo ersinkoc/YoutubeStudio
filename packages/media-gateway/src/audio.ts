@@ -1,6 +1,32 @@
 import type { WordTiming } from "@ys/core";
 
-/** Ham 16-bit little-endian PCM'i WAV kabına sarar (Gemini TTS ham PCM döndürür). */
+/** Bayt dizisi bir RIFF/WAVE dosyası mı? */
+export function isWav(bytes: Uint8Array): boolean {
+  return bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" && String.fromCharCode(...bytes.subarray(8, 12)) === "WAVE";
+}
+
+/**
+ * Gemini TTS ses verisini WAV olarak döndürür: hazır WAV gelirse olduğu gibi, ham PCM gelirse sarılmış.
+ * 30 Eki: model WAV döndürmeye başlamıştı, biz yine sarıyorduk; içteki başlık ve metadata ses gibi çalınıp
+ * her sahne geçişinde çıtırtı yapıyordu.
+ */
+export function toWav(bytes: Uint8Array, sampleRate = 24_000): Uint8Array {
+  return isWav(bytes) ? bytes : pcm16ToWav(bytes, sampleRate);
+}
+
+/**
+ * İç içe sarılmış WAV'ı (dış 44 baytlık başlık + içte tam bir WAV) düzeltir; sorun yoksa undefined.
+ * Önbellekteki eski bozuk dosyaları yeniden üretmeden onarmak için.
+ */
+export function unwrapNestedWav(bytes: Uint8Array): Uint8Array | undefined {
+  if (!isWav(bytes) || bytes.length < 56) return undefined;
+  const inner = bytes.subarray(44);
+  if (!isWav(inner)) return undefined;
+  const size = new DataView(inner.buffer, inner.byteOffset, inner.byteLength).getUint32(4, true) + 8;
+  return inner.slice(0, Math.min(size, inner.length));
+}
+
+/** Ham 16-bit little-endian PCM'i WAV kabına sarar. */
 export function pcm16ToWav(pcm: Uint8Array, sampleRate = 24_000, channels = 1): Uint8Array {
   const header = new DataView(new ArrayBuffer(44));
   const byteRate = sampleRate * channels * 2;

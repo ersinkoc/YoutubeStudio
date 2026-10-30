@@ -45,10 +45,10 @@ describe("estimateEpisode", () => {
     const e = estimateEpisode(state(), { providers, latency: {} });
     const row = (s: string) => e.rows.find((r) => r.stage === s)!;
     expect(e.shots).toBe(13); // 60 sn / 4,5 sn
-    // Kare kontrolü: %20 yeniden çizim + her çizime bir denetim.
-    const draws = 13 * 1.2;
+    // Kare kontrolü: %45 yeniden çizim + her çizime bir denetim.
+    const draws = 13 * 1.45;
     expect(row("keyframes")).toMatchObject({ providerId: "img", quantity: Math.round(draws) });
-    expect(row("keyframes").costUsd).toBeCloseTo(draws * 0.03 + draws * 0.008);
+    expect(row("keyframes").costUsd).toBeCloseTo(draws * 0.03 + draws * 0.0012);
     const noQa = estimateEpisode(state({ input: { ...state().input, qa: false } }), { providers, latency: {} });
     expect(noQa.rows.find((r) => r.stage === "keyframes")).toMatchObject({ quantity: 13, costUsd: 13 * 0.03 });
     // Animasyonda çekimler ~4,5 sn → her klip 5 sn faturalanır.

@@ -1,9 +1,9 @@
 import { groupCosts } from "@ys/media-gateway";
-import { estimateEpisode, motionModeOf, progressOf, type MotionMode } from "@ys/pipeline/light";
+import { estimateEpisode, motionModeOf, progressOf, runStatusOf, type MotionMode } from "@ys/pipeline/light";
 import { episodeSpentUsd, estimateContext, getJob, ledgerEntries, quotaOf, repo } from "../../../../lib/server";
 import type { EpisodeResponse, QuotaView } from "../../../../lib/types";
 
-const MODES: MotionMode[] = ["animated", "mixed", "still"];
+const MODES: MotionMode[] = ["animated", "mixed", "still", "vector"];
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -25,9 +25,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
 
+    const job = getJob(id) ?? null;
+    const status = runStatusOf(state);
+    // Stüdyo'nun başlattığı süreç yaşıyorsa (ör. uzun bir ajan çağrısında) takılmış sayılmaz.
+    if (job?.status === "running" && status.status === "stalled") status.status = "running";
     const body: EpisodeResponse = {
       state,
-      job: getJob(id) ?? null,
+      job,
+      status,
       spentUsd: await episodeSpentUsd(id),
       estimates,
       actual: {

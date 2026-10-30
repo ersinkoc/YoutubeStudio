@@ -4,7 +4,7 @@ import { getJson, putJson, type AssetStore } from "@ys/storage";
 import type { CostLedger } from "./ledger.ts";
 import { billing } from "./pricing.ts";
 import { HealthTracker, rankProviders, type RankedProvider, type RoutePolicy } from "./router.ts";
-import type { GenerationRequest, ProviderAdapter, Quota } from "./types.ts";
+import { ContentRejectedError, type GenerationRequest, type ProviderAdapter, type Quota } from "./types.ts";
 
 export class NoProviderError extends Error {}
 export class BudgetExceededError extends Error {}
@@ -235,7 +235,8 @@ export class MediaGateway {
         return { requestHash, ...entry, costMicros: estimateMicros, cacheHit: false };
       } catch (error) {
         if (run.signal?.aborted) throw error;
-        this.health.recordFailure(adapter.id);
+        // İçerik reddi sağlayıcı arızası değildir; sayılırsa birkaç ret tüm sağlayıcıyı kapatır (30 Eki).
+        if (!(error instanceof ContentRejectedError)) this.health.recordFailure(adapter.id);
         const message = error instanceof Error ? error.message : String(error);
         this.log(`hata: ${adapter.id}: ${message}`);
         failures.push({ providerId: adapter.id, error });

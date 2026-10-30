@@ -14,3 +14,4 @@ apps/studio/next-env.d.ts
 .playwright-mcp/
 
 .dfmt/
+.claude/

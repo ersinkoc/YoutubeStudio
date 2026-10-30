@@ -8,6 +8,7 @@ import {
   AllProvidersFailedError,
   BudgetExceededError,
   billing,
+  ContentRejectedError,
   describePrice,
   groupCosts,
   HealthTracker,
@@ -181,6 +182,30 @@ describe("MediaGateway", () => {
     const res = await gateway.generate(img, { policy: { tier: "economy" } });
     expect(calls).toEqual(["a", "b"]);
     expect(res.providerId).toBe("b");
+  });
+
+  it("içerik reddi sağlayıcıyı devre dışı bırakmaz; gerçek arıza bırakır", async () => {
+    let reject = true;
+    const picky: ProviderAdapter = {
+      ...fakeProvider("picky", { quality: 0.6, price: { unit: "per_output", usd: 0.01 } }),
+      async generate(req) {
+        if (reject && req.prompt?.includes("ünlü")) throw new ContentRejectedError("IMAGE_OTHER");
+        return { files: [{ bytes: new TextEncoder().encode(req.prompt ?? ""), mimeType: "image/png" }] };
+      },
+    };
+    const { gateway } = setup([picky]);
+    const run = { policy: { tier: "economy" as const } };
+    // 30 Eki: gerçek kişili çekimlerdeki retler sağlık sayacını doldurdu, sonraki tüm kareler "uygun sağlayıcı yok" oldu.
+    for (let i = 0; i < 4; i++) {
+      await expect(gateway.generate({ ...img, prompt: `ünlü ${i}` }, run)).rejects.toBeInstanceOf(AllProvidersFailedError);
+    }
+    expect((await gateway.generate({ ...img, prompt: "kedi" }, run)).providerId).toBe("picky");
+
+    reject = false;
+    const broken = fakeProvider("broken", { quality: 0.6, price: { unit: "per_output", usd: 0.01 }, fail: true });
+    const { gateway: g2 } = setup([broken]);
+    for (let i = 0; i < 3; i++) await expect(g2.generate({ ...img, prompt: `x${i}` }, run)).rejects.toThrow();
+    await expect(g2.generate({ ...img, prompt: "x9" }, run)).rejects.toThrow(/uygun sağlayıcı yok/);
   });
 
   it("başarılı çağrının süresini/birimini, başarısız denemenin hatasını kaydeder", async () => {

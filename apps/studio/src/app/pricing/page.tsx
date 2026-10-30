@@ -1,31 +1,14 @@
 import { describePrice, measuredLatency, type ProviderAdapter, type Quota } from "@ys/media-gateway";
-import { duration, number } from "../../lib/format";
+import type { MessageKey } from "../../lib/i18n";
+import { getI18n } from "../../lib/locale";
 import { catalog, ledgerEntries, quotaOf } from "../../lib/server";
 
 export const dynamic = "force-dynamic";
 
-const CAPABILITY_LABELS: Record<string, string> = {
-  t2i: "Metinden görsel",
-  i2i_multiref: "Referanslı görsel",
-  t2v: "Metinden video",
-  i2v: "Görselden video",
-  first_last_frame: "İlk/son kareden video",
-  ref2v: "Referanslardan video",
-  extend: "Video uzatma",
-  lipsync: "Dudak senkronu",
-  tts: "Seslendirme",
-  tts_timestamps: "Zamanlamalı seslendirme",
-  sfx: "Ses efekti",
-  music: "Müzik",
-  upscale_image: "Görsel büyütme",
-  upscale_video: "Video büyütme",
-  interpolate: "Kare ara değerleme",
-  depth: "Derinlik haritası",
-  llm: "Dil modeli",
-};
-
 export default async function PricingPage() {
   const { providers, skipped } = catalog();
+  const { t, fmt } = await getI18n();
+  const { duration, number } = fmt;
   const latency = measuredLatency(await ledgerEntries());
   const quotas = new Map<string, Quota | undefined>(
     await Promise.all(
@@ -43,26 +26,23 @@ export default async function PricingPage() {
   return (
     <div className="grid gap-6">
       <div>
-        <h1 className="text-2xl font-semibold">Fiyat kataloğu</h1>
-        <p className="mt-1 text-sm text-muted">
-          Etkin sağlayıcılar, birim fiyatları, kalite ön tahmini, ölçülen ortalama süre ve fiyatın kaynağı. Router her çağrıda
-          kalite<sup>k</sup> / maliyet puanıyla seçer; tahminler bu tablodan hesaplanır.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("pricing.title")}</h1>
+        <p className="mt-1 text-sm text-muted">{t("pricing.intro")}</p>
       </div>
 
       {[...groups.entries()].map(([cap, list]) => (
         <section key={cap} className="card overflow-x-auto">
-          <h2 className="mb-3 text-lg font-semibold">{CAPABILITY_LABELS[cap] ?? cap}</h2>
+          <h2 className="mb-3 text-lg font-semibold">{t(`cap.${cap}` as MessageKey)}</h2>
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted uppercase">
               <tr className="border-b border-line">
-                <th className="py-2 pr-3 font-medium">Sağlayıcı</th>
-                <th className="py-2 pr-3 font-medium">Yetenekler</th>
-                <th className="py-2 pr-3 font-medium">Fiyat</th>
-                <th className="py-2 pr-3 text-right font-medium">Kalite</th>
-                <th className="py-2 pr-3 text-right font-medium">Ölçülen süre</th>
-                <th className="py-2 pr-3 font-medium">Kota</th>
-                <th className="py-2 font-medium">Kaynak</th>
+                <th className="py-2 pr-3 font-medium">{t("pricing.col.provider")}</th>
+                <th className="py-2 pr-3 font-medium">{t("pricing.col.caps")}</th>
+                <th className="py-2 pr-3 font-medium">{t("pricing.col.price")}</th>
+                <th className="py-2 pr-3 text-right font-medium">{t("pricing.col.quality")}</th>
+                <th className="py-2 pr-3 text-right font-medium">{t("pricing.col.latency")}</th>
+                <th className="py-2 pr-3 font-medium">{t("pricing.col.quota")}</th>
+                <th className="py-2 font-medium">{t("pricing.col.source")}</th>
               </tr>
             </thead>
             <tbody>
@@ -73,7 +53,7 @@ export default async function PricingPage() {
                   <tr key={p.id} className="border-b border-line/50 align-top">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{p.id}</div>
-                      {p.local && <span className="text-xs text-ok">yerel</span>}
+                      {p.local && <span className="text-xs text-ok">{t("pricing.local")}</span>}
                     </td>
                     <td className="py-2 pr-3 text-xs text-muted">{p.capabilities.join(", ")}</td>
                     <td className="py-2 pr-3">{describePrice(p.price)}</td>
@@ -82,7 +62,7 @@ export default async function PricingPage() {
                     </td>
                     <td className="py-2 pr-3 text-right text-muted">
                       {lat ? (
-                        <span title={`${lat.n} ölçüm`}>
+                        <span title={t("pricing.measurements", { n: lat.n })}>
                           {duration(lat.avgMs / 1000)} <span className="text-xs">({lat.n})</span>
                         </span>
                       ) : (
@@ -122,8 +102,8 @@ export default async function PricingPage() {
 
       {skipped.length > 0 && (
         <section className="card">
-          <h2 className="mb-2 text-lg font-semibold">Devre dışı</h2>
-          <p className="mb-2 text-sm text-muted">Anahtarı girilmemiş ya da yapılandırılmamış sağlayıcılar (.env).</p>
+          <h2 className="mb-2 text-lg font-semibold">{t("pricing.disabled")}</h2>
+          <p className="mb-2 text-sm text-muted">{t("pricing.disabled.hint")}</p>
           <ul className="grid gap-1 text-sm text-muted">
             {skipped.map((s) => (
               <li key={s}>{s}</li>

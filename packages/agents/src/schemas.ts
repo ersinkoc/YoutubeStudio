@@ -111,3 +111,9 @@ export const FrameReviewOut = z.object({
   fix: z.string().describe("English instruction to add to the image prompt to fix the issues, or empty string"),
 });
 export type FrameReviewOut = z.infer<typeof FrameReviewOut>;
+
+export const ScriptDoctorOut = z.object({
+  notes: z.array(z.string()).describe("Most important problems fixed, one line each"),
+  script: ScriptOut,
+});
+export type ScriptDoctorOut = z.infer<typeof ScriptDoctorOut>;

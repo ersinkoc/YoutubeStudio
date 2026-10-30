@@ -6,6 +6,8 @@ import {
   charAlignmentToWords,
   fillPlaceholders,
   pcm16ToWav,
+  toWav,
+  unwrapNestedWav,
   type GenerateContext,
 } from "../src/index.ts";
 
@@ -41,6 +43,18 @@ describe("audio", () => {
     expect(view.getUint32(24, true)).toBe(24_000);
     expect(view.getUint32(40, true)).toBe(480);
     expect(wav.length).toBe(524);
+  });
+
+  it("hazır WAV'ı yeniden sarmaz; iç içe sarılmış WAV'ı onarır", () => {
+    // 30 Eki: Gemini WAV döndürünce ikinci başlık ses gibi çalınıp sahne geçişlerinde çıtırtı yapıyordu.
+    const pcm = new Uint8Array([1, 0, 2, 0, 3, 0]);
+    const wav = pcm16ToWav(pcm, 24_000);
+    expect(toWav(wav)).toBe(wav);
+    expect(toWav(pcm).length).toBe(44 + pcm.length);
+
+    const nested = pcm16ToWav(wav, 24_000);
+    expect(unwrapNestedWav(nested)).toEqual(wav);
+    expect(unwrapNestedWav(wav)).toBeUndefined();
   });
 });
 

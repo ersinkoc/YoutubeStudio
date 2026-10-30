@@ -1,3 +1,4 @@
+import { LineStyle, VectorAsset, VectorShot } from "./vector.ts";
 import { z } from "zod";
 
 // ---------- Temel sözlük ----------
@@ -142,6 +143,8 @@ export const TimelineVisual = z.object({
     })
     .optional(),
   ambience: Ambience.default("none"),
+  /** kind = "motion_graphic": vektör sahne tarifi (assetUrl kullanılmaz). */
+  vector: VectorShot.optional(),
   playbackRate: z.number().min(0.5).max(2).default(1),
 });
 
@@ -163,5 +166,10 @@ export const Timeline = z.object({
   visuals: z.array(TimelineVisual),
   audio: z.array(TimelineAudio),
   captions: z.array(WordTiming).default([]),
+  /** Vektör sahnelerin kullandığı SVG varlıkları (kimlik → varlık). */
+  vectorAssets: z.record(z.string(), VectorAsset).default({}),
+  /** Vektör sahnelerde arka plan yoksa kullanılan palet. */
+  palette: z.array(z.string()).default([]),
+  lineStyle: LineStyle.default("outline"),
 });
 export type Timeline = z.infer<typeof Timeline>;

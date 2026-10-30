@@ -1,5 +1,5 @@
-import { models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
-import { CastOut, FrameReviewOut, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "./schemas.ts";
+import { lessonsBlock, models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
+import { CastOut, FrameReviewOut, ScriptDoctorOut, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "./schemas.ts";
 
 /*
  * Model'e giden talimatlar İngilizce (görsel modeller de İngilizce prompt bekliyor);
@@ -14,6 +14,8 @@ export interface EpisodeBrief {
   audience?: string;
   /** Kanalın ses kimliği için ölçülmüş konuşma hızı; yoksa dil varsayılanı. */
   wordsPerMinute?: number;
+  /** Önceki bölümlerin incelemesinden çıkan senaryo kuralları. */
+  lessons?: string[];
 }
 
 /**
@@ -64,11 +66,15 @@ export function storyArchitect(brief: EpisodeBrief, deps?: AgentDeps): Promise<A
       model: models().creative,
       effort: "high",
       schema: StoryOut,
-      system: `You design long-form YouTube stories built for retention.
+      system: `You design long-form YouTube stories built for retention, like the best narrative explainer channels.
 Rules:
-- Hook in the first 15 seconds; re-hook every 60–90 seconds with an open loop.
+- Cold open in the middle of a concrete, surprising moment (a person, a place, a decision) — not a definition or a date list. The hook must state a question the viewer needs answered.
+- Give the story a human spine: someone who wants something, an obstacle, rising stakes, a turn. Facts serve the story, not the other way round.
+- Structure: hook → setup → escalation → midpoint twist → crisis → payoff → short reflection that reframes the hook. Re-hook every 60–90 seconds with an open loop the next beat pays off.
+- Be specific: real names, dates, numbers and places that are well established. Never invent facts; if a detail is uncertain, leave it out.
+- Avoid clichés ("in a world", "little did they know", "changed everything forever"), listicles and calls to subscribe.
+- Every beat names one visual set-piece that a simple flat illustration can show.
 - Beat durations must sum to the target duration (±10%).
-- Original angle; no generic listicle structure; no real-person impersonation.
 - Write title, logline, premise, hook and beat summaries in the episode language (${brief.lang}).`,
       prompt: `Topic: ${brief.topic}\nEpisode language: ${brief.lang}\nTarget duration: ${brief.targetSec} seconds\nAudience: ${brief.audience ?? "general"}`,
     },
@@ -87,11 +93,41 @@ export function screenwriter(brief: EpisodeBrief, story: StoryOut, deps?: AgentD
       schema: ScriptOut,
       system: `You write voice-over narration for animated YouTube videos.
 Rules:
-- Narration language: ${brief.lang}. Natural spoken rhythm, short sentences, vivid concrete images.
+- Narration language: ${brief.lang}. Write for the ear: one idea per sentence, varied sentence length, concrete nouns and verbs, show don't tell.
 - Total narration ≈ ${targetWords} words (${wpm} wpm for this voice/language). This is a hard length budget: stay within ±10%. Scenes 20–60 seconds each.
+- Open with the story's hook moment, not a greeting. End every scene with a forward pull (a question, a consequence, a "but") that the next scene answers. Use callbacks to earlier details.
+- No filler ("as we all know", "interestingly"), no repetition of the same fact, rhetorical questions at most once per scene, no calls to subscribe.
 - Narration must be speakable: no brackets, emojis, stage directions or URLs. Spell out numbers.
-- visualIntent and location are in English for the image pipeline. Reuse location names exactly.`,
+- visualIntent (English) lists 2–3 concrete visual moments for a simple flat illustration (who is there, what they do, which object matters). location is in English; reuse location names exactly.${lessonsBlock(brief.lessons)}`,
       prompt: `Story:\n${JSON.stringify(story, null, 2)}`,
+    },
+    deps,
+  );
+}
+
+/**
+ * Senaryo doktoru: taslağı izlenme ve anlaşılırlık açısından eleştirip yeniden yazar. Notlar saklanır;
+ * bölümler arası hangi kusurların tekrarlandığını görmek için.
+ */
+export function scriptDoctor(brief: EpisodeBrief, story: StoryOut, draft: ScriptOut, deps?: AgentDeps): Promise<AgentResult<ScriptDoctorOut>> {
+  const wpm = wordsPerMinute(brief);
+  const targetWords = Math.round((brief.targetSec / 60) * wpm);
+  return runStructured(
+    {
+      name: "script-doctor",
+      model: models().creative,
+      effort: "high",
+      schema: ScriptDoctorOut,
+      system: `You are a script doctor for narrative YouTube explainers. Critique the draft, then return an improved full script.
+Check and fix:
+- Hook: do the first two sentences drop the viewer into a concrete moment and pose a question? If not, rewrite them.
+- Clarity: could a curious 15-year-old follow every step? Define jargon in passing with an image, not a lecture.
+- Pacing: cut repetition and filler; every scene must move the story; each scene ends with a forward pull.
+- Accuracy: remove or soften any claim that is not well established. Never add new facts you are unsure of.
+- Speakability in ${brief.lang}: short sentences, numbers spelled out, no tongue-twisters.
+- Length: keep total narration ≈ ${targetWords} words (±10%).
+Keep scene ids, beatIds and location names unchanged; you may rewrite narration, emotion and visualIntent. notes: the most important problems you fixed, in English, one line each, phrased as general rules a writer should follow next time.${lessonsBlock(brief.lessons)}`,
+      prompt: `Story:\n${JSON.stringify(story, null, 2)}\n\nDraft script:\n${JSON.stringify(draft, null, 2)}`,
     },
     deps,
   );
@@ -129,7 +165,8 @@ Art style: ${style.artStyle}.`,
   );
 }
 
-export type MotionMode = "animated" | "mixed" | "still";
+/** vector: görsel/video API'si yok; Claude SVG varlık + sahne JSON'u üretir, Remotion canlandırır. */
+export type MotionMode = "animated" | "mixed" | "still" | "vector";
 
 const MOTION_RULES: Record<MotionMode, (ratio: number) => string> = {
   animated: () =>
@@ -137,6 +174,7 @@ const MOTION_RULES: Record<MotionMode, (ratio: number) => string> = {
   mixed: (ratio) =>
     `- About ${Math.round(ratio * 100)}% of shots should be "ai_clip" (real motion needed: action, transformation). All others "still_motion" (parallax/Ken Burns on a still). Shots last 3–8 seconds.`,
   still: () => `- Every shot is "still_motion" (parallax/Ken Burns on a still). Shots last 3–8 seconds.`,
+  vector: () => `- Every shot is "still_motion". Shots last 4–9 seconds.`,
 };
 
 export function director(

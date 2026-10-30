@@ -8,12 +8,16 @@ const TYPES: Record<string, string> = {
   mp4: "video/mp4",
   mp3: "audio/mpeg",
   wav: "audio/wav",
+  svg: "image/svg+xml",
 };
+
+/** Üretilmiş varlıkların bulunduğu kökler: görsel/ses üretimleri ve vektör kütüphanesi. */
+const ROOTS = new Set(["assets", "library"]);
 
 /** Depodaki üretilmiş varlıkları sunar. Anahtarlar içerik hash'li olduğu için kalıcı önbelleklenebilir. */
 export async function GET(_req: Request, ctx: { params: Promise<{ key: string[] }> }) {
   const { key } = await ctx.params;
-  if (key[0] !== "assets" || key.some((k) => k === ".." || k.includes("\\"))) {
+  if (!ROOTS.has(key[0] ?? "") || key.some((k) => k === ".." || k.includes("\\"))) {
     return new Response("Yasak", { status: 403 });
   }
   const bytes = await store().get(key.join("/"));
@@ -23,6 +27,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ key: string[] 
     headers: {
       "content-type": TYPES[ext] ?? "application/octet-stream",
       "cache-control": "public, max-age=31536000, immutable",
+      // Model üretimi SVG doğrudan açılsa bile betik çalışmasın: belge kum havuzunda, dış kaynak yok.
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "x-content-type-options": "nosniff",
     },
   });
 }
