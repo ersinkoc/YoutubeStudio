@@ -121,11 +121,16 @@ export function startJob(episodeId: string, label: string, args: string[]): JobV
   };
   child.stdout.on("data", push);
   child.stderr.on("data", push);
-  child.on("close", (code) => {
+  // "exit": süreç bitince. "close" ise stdout'u devralan torun süreçler (Chrome) kapanana kadar gecikebiliyor ve iş
+  // sonsuza dek "çalışıyor" görünüyordu (30 Eki).
+  const finish = (code: number | null) => {
+    if (job.status !== "running") return;
     job.status = code === 0 ? "done" : "error";
     job.endedAt = new Date().toISOString();
     delete job.child;
-  });
+  };
+  child.on("exit", finish);
+  child.on("close", finish);
   jobs.set(episodeId, job);
   return view(job);
 }
@@ -138,16 +143,33 @@ export function cancelJob(episodeId: string): void {
   }
 }
 
+const ZOMBIE_GRACE_MS = 60_000;
+
 /**
  * Bölümde iş sürüyor mu: Stüdyo'nun işi ya da durum dosyasına göre (CLI'dan başlayanlar). Stüdyo'nun işi durum dosyasının
  * son kaydından sonra bittiyse (iptal, çökme) dosyadaki "sürüyor" bayattır: süreç aşamayı kapatamadan öldü.
  */
 export async function episodeBusy(episodeId: string, state: { heartbeatAt?: string }, fileStatus: string): Promise<boolean> {
   const job = init().jobs.get(episodeId);
-  if (job?.status === "running") return true;
   // Kesin bilgi: çalışma kilidi (CLI süreçleri dahil). Sahibi canlıysa "takıldı" görünse de iş sürüyor; ölmüşse
   // dosyadaki "sürüyor" bayattır (iptal, çökme).
-  if (await liveLock(init().store, episodeId)) return true;
+  const locked = Boolean(await liveLock(init().store, episodeId));
+  if (job?.status === "running") {
+    if (locked || fileStatus === "running") return true;
+    // Pipeline bitti (kilit bırakıldı, aşama kapandı) ama süreç kapanmadı (açık kalan tarayıcı vb.): ölü iş. Kapatılır ki
+    // kullanıcı devam ettirebilsin. Yalnız bu iş başladıktan sonra pipeline gerçekten çalışıp en az ZOMBIE_GRACE_MS önce
+    // durduysa: yeni başlayan süreç ilk saniyelerde kilidi henüz almamıştır, onu öldürmek "devam"ı bozuyordu (30 Eki).
+    const heartbeat = state.heartbeatAt ? Date.parse(state.heartbeatAt) : NaN;
+    const ranAfterStart = heartbeat > Date.parse(job.startedAt);
+    if (!ranAfterStart || Date.now() - heartbeat < ZOMBIE_GRACE_MS) return true;
+    job.child?.kill();
+    job.status = "error";
+    job.endedAt = new Date().toISOString();
+    job.log.push("Süreç pipeline bittikten sonra kapanmadı; sonlandırıldı.");
+    delete job.child;
+    return false;
+  }
+  if (locked) return true;
   if (fileStatus !== "running") return false;
   return !(job?.endedAt && job.endedAt >= (state.heartbeatAt ?? ""));
 }

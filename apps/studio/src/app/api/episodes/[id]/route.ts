@@ -26,10 +26,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
 
-    const job = getJob(id) ?? null;
     const status = runStatusOf(state);
+    // Pipeline'ı bitmiş ama süreci kapanmamış iş (ölü iş) burada da temizlenir: aksi halde "devam" düğmesi kilitli kalır.
+    if (getJob(id)?.status === "running") await episodeBusy(id, state, status.status);
+    const job = getJob(id) ?? null;
     // Stüdyo'nun başlattığı süreç yaşıyorsa (ör. uzun bir ajan çağrısında) takılmış sayılmaz.
-    if (job?.status === "running" && status.status === "stalled") status.status = "running";
+    if (job?.status === "running" && status.status === "stalled" && (await episodeBusy(id, state, "stalled"))) status.status = "running";
     // İptal edilen/çöken Stüdyo işi aşamayı kapatamadı: dosyadaki "sürüyor" bayat, kullanıcı devam ettirebilsin.
     // Kilidin sahibi yaşıyorsa (uzun bir ajan çağrısı) "takıldı" değil; ölmüşse "sürüyor" bayat (iptal, çökme).
     if (status.status === "stalled" && (await episodeBusy(id, state, "stalled"))) status.status = "running";

@@ -980,7 +980,16 @@ export class EpisodePipeline {
     const assets = await this.vectorAssets(state);
     const timeline = buildTimeline(state, (key) => key, assets);
     const book = await loadLessons(this.deps.store);
-    const { files, review } = await this.critiqueShots(state, "keyframes", timeline, dir, book.lessons.map((l) => l.rule));
+    // Taslak denetimi bir kalite adımıdır: kareler çıkarılamazsa (tarayıcı açılamadı vb.) aşama durmaz, denetimsiz sürer.
+    let critique: Awaited<ReturnType<typeof this.critiqueShots>>;
+    try {
+      critique = await this.critiqueShots(state, "keyframes", timeline, dir, book.lessons.map((l) => l.rule));
+    } catch (e) {
+      const reason = e instanceof Error ? e.message.split("\n")[0] : String(e);
+      this.log(`  ⚠ taslak kareler çıkarılamadı, taslak denetimi atlandı: ${reason}`);
+      return;
+    }
+    const { files, review } = critique;
     // Taslak kareler Çekimler sekmesinde hemen görünür (render beklenmez).
     state.stills = {};
     await this.storeStills(state, files);
@@ -1566,6 +1575,10 @@ export class EpisodePipeline {
           state.renderPct = pct;
           // İlerleme Stüdyo'da görünsün; kayıt hatası render'ı durdurmaz.
           void this.save(state).catch(() => {});
+        },
+        onRetry: (reason) => {
+          lastPct = -1;
+          this.log(`⚠ render geçici bir hatayla düştü (${reason}); baştan bir kez daha deneniyor`);
         },
       });
       state.render = { path: outputPath, at: new Date().toISOString() };
