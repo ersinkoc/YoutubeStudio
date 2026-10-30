@@ -149,27 +149,37 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
 
   // Aynı derinlikte üst üste binen ayaktaki karakterleri ayır; kadraj dışına taşanları içeri al.
   const standing = list.filter((p) => !p.sitting && p.heldBy === undefined && assets[spec.layers[p.index]!.asset]?.kind === "character");
-  standing.sort((a, b) => a.x - b.x);
-  for (let k = 1; k < standing.length; k++) {
-    const a = standing[k - 1]!;
-    const b = standing[k]!;
-    const minGap = (a.width + b.width) * 0.32;
-    if (Math.abs(a.z - b.z) < 10 && b.x - a.x < minGap) {
-      const push = (minGap - (b.x - a.x)) / 2;
-      a.x -= push;
-      b.x += push;
-      a.fixes.push("yanındaki karakterle üst üste biniyordu");
-      b.fixes.push("yanındaki karakterle üst üste biniyordu");
+  // Üç ve daha fazla karakter tek geçişte ayrılmıyordu; kenar sınırı da onları yeniden üst üste itebiliyordu.
+  // Ayırma + sınır, hiçbir şey kıpırdamayana kadar (en çok N² tur) tekrarlanır.
+  const overlapNote = "yanındaki karakterle üst üste biniyordu";
+  const note = (p: (typeof standing)[number], msg: string) => p.fixes.includes(msg) || p.fixes.push(msg);
+  for (let round = 0; round < Math.max(1, standing.length ** 2); round++) {
+    let moved = false;
+    standing.sort((a, b) => a.x - b.x);
+    for (let k = 1; k < standing.length; k++) {
+      const a = standing[k - 1]!;
+      const b = standing[k]!;
+      const minGap = (a.width + b.width) * 0.32;
+      if (Math.abs(a.z - b.z) < 10 && b.x - a.x < minGap - 0.5) {
+        const push = (minGap - (b.x - a.x)) / 2;
+        a.x -= push;
+        b.x += push;
+        note(a, overlapNote);
+        note(b, overlapNote);
+        moved = true;
+      }
     }
-  }
-  for (const p of standing) {
-    if (entering(spec.layers[p.index]!)) continue;
-    const half = p.width / 2;
-    const x = clamp(p.x, half + 20, STAGE.width - half - 20);
-    if (x !== p.x) {
-      p.x = x;
-      p.fixes.push("kadraj dışına taşıyordu");
+    for (const p of standing) {
+      if (entering(spec.layers[p.index]!)) continue;
+      const half = p.width / 2;
+      const x = clamp(p.x, half + 20, STAGE.width - half - 20);
+      if (Math.abs(x - p.x) > 0.5) {
+        p.x = x;
+        note(p, "kadraj dışına taşıyordu");
+        moved = true;
+      }
     }
+    if (!moved) break;
   }
 
   return list.sort((a, b) => a.z - b.z || a.index - b.index);

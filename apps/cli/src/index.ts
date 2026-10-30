@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { parseArgs } from "node:util";
-import { BudgetTier, Capability, Quality, formatUsd, usd } from "@ys/core";
+import { BudgetTier, Capability, Quality, STYLE_PACKS, formatUsd, usd } from "@ys/core";
 import { createDb, DbCostLedger } from "@ys/db";
 import {
   createProvidersFromEnv,
@@ -14,9 +14,9 @@ import {
   type RefInput,
   type RunOptions,
 } from "@ys/media-gateway";
-import { curateLessons, EpisodePipeline, loadLessons, saveLessons } from "@ys/pipeline";
+import { backfillLibraryIdentities, curateLessons, EpisodePipeline, listLibraryCharacters, loadLessons, saveLessons } from "@ys/pipeline";
 import { createStoreFromEnv } from "@ys/storage";
-import { episodeCommand, renderDemo } from "./episode.ts";
+import { episodeCommand, positive, renderDemo } from "./episode.ts";
 
 const LEDGER_FILE = ".data/ledger.jsonl";
 const WORK_DIR = ".data/episodes";
@@ -35,6 +35,8 @@ Komutlar:
   music  --prompt "..." [--duration 60]
   cost   [--episode id]             Maliyet defteri özeti
   version                           Çalışan sürüm
+  styles                            Hazır stil paketleri
+  library [--backfill]              Kütüphanedeki karakterler; --backfill eski bölümlerden kimlik yazar (ücretsiz)
 
   episode new --topic "..." [--lang tr] [--minutes 3] [--tier economy] [--budget 10]
               [--clips 0.2] [--style "..."] [--voice id] [--vertical]
@@ -45,8 +47,9 @@ Komutlar:
   episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
   episode preview <id>              seçilen referanslarla deneme kareleri
               new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--no-realism: gerçeklik denetimi kapalı] [--line outline|flat|sketch|ink]
+              [--series "Seri adı"] [--style-pack auto|custom|<paket>]  (paketler: pnpm ys styles)
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
-  lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir
+  lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir (Claude çağırır, ~$0.01)
 
 Ortak seçenekler:
   --tier ultra|economy|standard|premium   (varsayılan: economy)
@@ -117,6 +120,9 @@ async function main(): Promise<void> {
       "no-realism": { type: "boolean", default: false },
       curate: { type: "boolean", default: false },
       line: { type: "string" },
+      "style-pack": { type: "string" },
+      series: { type: "string" },
+      backfill: { type: "boolean", default: false },
       vertical: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -134,6 +140,20 @@ async function main(): Promise<void> {
   if (command === "version" || command === "--version") {
     const { version } = JSON.parse(await readFile("package.json", "utf8")) as { version?: string };
     console.log(`YoutubeStudio v${version ?? "0.0.0"}`);
+    return;
+  }
+
+  if (command === "library") {
+    const store = createStoreFromEnv(process.env);
+    if (values.backfill) console.log(`${await backfillLibraryIdentities(store)} karaktere kimlik yazıldı`);
+    for (const c of await listLibraryCharacters(store)) {
+      console.log(`${c.id.slice(0, 8)}  ${c.name.padEnd(28)} ${(c.pack ?? "özel").padEnd(18)} ${c.lineStyle.padEnd(8)} ${c.episodes.length} bölüm`);
+    }
+    return;
+  }
+
+  if (command === "styles") {
+    for (const p of STYLE_PACKS) console.log(`${p.id.padEnd(18)} ${p.name.tr} · ${p.lineStyle} · ${p.suits}`);
     return;
   }
 
@@ -214,6 +234,7 @@ async function main(): Promise<void> {
       ...values,
       noQa: values["no-qa"],
       noRealism: values["no-realism"],
+      stylePack: values["style-pack"],
       gate: positionals[3],
       pick: positionals[3],
       minutes: values.minutes,
@@ -278,9 +299,12 @@ async function main(): Promise<void> {
     },
     episodeId: values.episode,
     stage: `cli:${command}`,
-    budgetCapMicros: values.budget ? usd(Number(values.budget)) : undefined,
+    budgetCapMicros: values.budget ? usd(positive("--budget", values.budget)) : undefined,
     noCache: values["no-cache"],
   };
+
+  // Tavan bölüm defterine göre uygulanır: bölümsüz --budget sessizce yok sayılıyordu.
+  if (values.budget && !values.episode && command !== "plan") throw new Error("--budget için --episode <id> de gerekli");
 
   if (command === "plan") {
     const ranked = gateway.plan(req, run.policy);

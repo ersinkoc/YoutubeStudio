@@ -1,6 +1,7 @@
 import type { ShotPlanOut } from "@ys/agents";
 import type { Timeline, VectorAsset, VectorShot, WordTiming } from "@ys/core";
 import type { EpisodeState, PlannedShotState, SceneVoice } from "./state.ts";
+import { lineStyleOf } from "./state.ts";
 
 /** Sahneler arasında bırakılan nefes payı. */
 export const SCENE_GAP_MS = 400;
@@ -179,6 +180,6 @@ export function buildTimeline(
     captions,
     vectorAssets,
     palette: state.style?.palette ?? [],
-    lineStyle: input.lineStyle ?? "outline",
+    lineStyle: lineStyleOf(state),
   };
 }

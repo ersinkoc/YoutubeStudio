@@ -23,6 +23,8 @@ export const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   });
 
 const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
+// 503 "aşırı yük / hizmet yok": istek işlenmedi, tekrar göndermek güvenli.
+const NOT_PROCESSED = new Set([408, 425, 429, 503]);
 
 /** 429 ve 5xx'te üstel bekleme ile yeniden dener. */
 export async function request(
@@ -35,7 +37,10 @@ export async function request(
     const res = await fetchFn(url, init);
     if (res.ok) return res;
     const body = await res.text();
-    if (attempt < retries && RETRYABLE.has(res.status)) {
+    // GET dışı istek (iş gönderme, TTS) sunucu hatasında tekrar gönderilmez: ilk istek işlenmiş olabilir ve iki kez
+    // ücretlendirilir. Yalnız "işlenmedi" anlamına gelen 408/425/429/503 tekrarlanır.
+    const idempotent = !init.method || /^(GET|HEAD)$/i.test(init.method);
+    if (attempt < retries && (idempotent ? RETRYABLE : NOT_PROCESSED).has(res.status)) {
       await sleep(1000 * 2 ** attempt, init.signal ?? undefined);
       continue;
     }

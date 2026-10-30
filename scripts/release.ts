@@ -8,7 +8,7 @@
  *    bu release'ten okur. --publish olmadan hiçbir şey dışarı gönderilmez.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bumpVersion, type Bump } from "../packages/core/src/version.ts";
@@ -39,6 +39,13 @@ const current = pkg.version ?? "0.0.0";
 const next = bumpVersion(current, bump);
 const tag = `v${next}`;
 if (git("tag", "--list", tag)) fail(`${tag} etiketi zaten var.`);
+if (publish) {
+  try {
+    if (git("ls-remote", "--tags", "origin", tag)) fail(`${tag} etiketi uzakta (origin) zaten var.`);
+  } catch (e) {
+    fail(`origin'e ulaşılamadı: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
 
 let lastTag = "";
 try {
@@ -60,29 +67,70 @@ if (dryRun) process.exit(0);
 run("pnpm typecheck");
 run("pnpm test");
 
-pkg.version = next;
-writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-const changelogPath = "CHANGELOG.md";
-let changelog = "# Değişiklik günlüğü\n\nSürümler `pnpm release` ile çıkar; Stüdyo GitHub'daki son release'i görünce güncelleme uyarısı gösterir.\n";
-try {
-  changelog = readFileSync(changelogPath, "utf8");
-} catch {
-  // İlk release: dosya oluşturulur.
+// Buradan sonra bir adım başarısız olursa yerel değişiklikler geri alınır (ağaç kirli kalıp sonraki deneme kilitlenmesin).
+let committed = false;
+const changelogExisted = existsSync("CHANGELOG.md");
+function rollback(e: unknown): never {
+  try {
+    if (committed) {
+      try {
+        git("tag", "-d", tag);
+      } catch {
+        // Etiket oluşmamış olabilir.
+      }
+      git("reset", "--hard", "HEAD~1");
+    }
+    // Hazırlanmış (git add) dosyalar önce indeksten çıkarılır; yoksa checkout indeksteki artırılmış sürümü geri yazardı.
+    git("reset", "-q", "HEAD", "--", pkgPath, "CHANGELOG.md");
+    git("checkout", "HEAD", "--", pkgPath);
+    if (changelogExisted) git("checkout", "HEAD", "--", "CHANGELOG.md");
+    else rmSync("CHANGELOG.md", { force: true });
+  } catch {
+    // Geri alma da başarısızsa aşağıdaki mesaj durumu bildirir.
+  }
+  fail(`Release yarıda kaldı, yerel değişiklikler geri alındı: ${e instanceof Error ? e.message : String(e)}`);
 }
-const [head, ...rest] = changelog.split(/\n(?=## v)/);
-writeFileSync(changelogPath, [head!.trimEnd() + "\n", section, ...rest.map((r) => r.trimEnd() + "\n")].join("\n"));
 
-git("add", pkgPath, changelogPath);
-git("commit", "-m", `Release ${tag}`);
-git("tag", "-a", tag, "-m", `Release ${tag}`);
+try {
+  pkg.version = next;
+  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  const changelogPath = "CHANGELOG.md";
+  // Değişiklik günlüğü İngilizce (README gibi); commit başlıkları zaten İngilizce.
+  let changelog =
+    "# Changelog\n\nReleases are cut with `pnpm release`. The Studio shows an update banner when a newer GitHub release exists.\n";
+  try {
+    changelog = readFileSync(changelogPath, "utf8");
+  } catch {
+    // İlk release: dosya oluşturulur.
+  }
+  const [head, ...rest] = changelog.split(/\n(?=## v)/);
+  writeFileSync(changelogPath, [head!.trimEnd() + "\n", section, ...rest.map((r) => r.trimEnd() + "\n")].join("\n"));
+
+  git("add", pkgPath, changelogPath);
+  git("commit", "-m", `Release ${tag}`);
+  committed = true;
+  // Notlar etiket mesajında da durur: "gh release create --notes-from-tag" boş release açmasın.
+  git("tag", "-a", tag, "-m", `Release ${tag}\n\n${notes}`);
+} catch (e) {
+  rollback(e);
+}
 console.log(`✓ ${tag} commit'i ve etiketi oluşturuldu.`);
 
 if (!publish) {
-  console.log(`Yayınlamak için: git push origin main --follow-tags && gh release create ${tag} --title ${tag} --notes-from-tag\n(ya da bir dahaki sefere: pnpm release ${bump} --publish)`);
+  console.log(
+    `Yayınlamak için: git push origin main --follow-tags && gh release create ${tag} --title ${tag} --notes-from-tag\n(ya da bir dahaki sefere: pnpm release ${bump} --publish)`,
+  );
   process.exit(0);
 }
-run("git push origin main --follow-tags");
+// Yerel commit ve etiket hazır: push ya da gh başarısız olursa geri alınmaz, nasıl sürdürüleceği yazılır.
 const notesFile = join(mkdtempSync(join(tmpdir(), "ys-release-")), "notes.md");
 writeFileSync(notesFile, notes + "\n");
-execFileSync("gh", ["release", "create", tag, "--title", tag, "--notes-file", notesFile], { stdio: "inherit" });
+try {
+  execFileSync("git", ["push", "origin", "main", "--follow-tags"], { stdio: "inherit" });
+  execFileSync("gh", ["release", "create", tag, "--title", tag, "--notes-file", notesFile], { stdio: "inherit" });
+} catch (e) {
+  fail(
+    `Yayınlama yarıda kaldı (${e instanceof Error ? e.message : String(e)}). Sürdürmek için:\n  git push origin main --follow-tags\n  gh release create ${tag} --title ${tag} --notes-file "${notesFile}"`,
+  );
+}
 console.log(`✓ ${tag} yayınlandı.`);

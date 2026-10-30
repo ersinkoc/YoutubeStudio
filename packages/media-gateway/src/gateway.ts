@@ -113,6 +113,9 @@ function stableStringify(value: unknown): string {
 }
 
 export class MediaGateway {
+  /** Bölüm başına süren (henüz deftere yazılmamış) üretimlerin tahmini. */
+  private readonly reserved = new Map<string, number>();
+
   private readonly fetchFn: typeof fetch;
   private readonly health: HealthTracker;
   private readonly log: (message: string) => void;
@@ -187,53 +190,37 @@ export class MediaGateway {
 
     for (const { adapter, estimateMicros } of candidates) {
       const bill = billing(adapter.price, req);
-      if (run.budgetCapMicros !== undefined && run.episodeId) {
-        const spent = await ledger.spent(run.episodeId);
+      // Paralel çağrılar aynı anda "tavanın altında" görmesin: süren çağrıların tahmini de sayılır (rezervasyon).
+      const episode = run.episodeId;
+      if (run.budgetCapMicros !== undefined && episode) {
+        const spent = (await ledger.spent(episode)) + (this.reserved.get(episode) ?? 0);
         if (spent + estimateMicros > run.budgetCapMicros) {
           this.log(`bütçe: ${adapter.id} atlandı (${formatUsd(spent)} + ${formatUsd(estimateMicros)})`);
           skippedForBudget++;
           continue;
         }
       }
+      if (episode) this.reserved.set(episode, (this.reserved.get(episode) ?? 0) + estimateMicros);
+      const release = () => {
+        if (!episode) return;
+        const left = (this.reserved.get(episode) ?? 0) - estimateMicros;
+        if (left > 0) this.reserved.set(episode, left);
+        else this.reserved.delete(episode);
+      };
 
       const startedAt = Date.now();
+      let result: Awaited<ReturnType<typeof adapter.generate>>;
       try {
         this.log(`üretiliyor: ${adapter.id} ~${formatUsd(estimateMicros)}`);
-        const result = await adapter.generate(req, {
+        result = await adapter.generate(req, {
           fetch: this.fetchFn,
           signal: run.signal,
           onProgress: (m) => this.log(`${adapter.id}: ${m}`),
         });
         if (result.files.length === 0) throw new Error("Sağlayıcı dosya döndürmedi");
         this.health.recordSuccess(adapter.id);
-
-        // Her üretim kendi klasörüne yazılır: başka sağlayıcının veya önceki üretimin
-        // (başka bir bölümün referans verdiği) dosyası asla ezilmez.
-        const generationDir = `assets/${requestHash}/${providerSlug(adapter.id)}-${randomBytes(4).toString("hex")}`;
-        const files: StoredFile[] = [];
-        for (const [i, file] of result.files.entries()) {
-          const key = `${generationDir}/${i}.${EXTENSIONS[file.mimeType] ?? "bin"}`;
-          files.push({ key, uri: await store.put(key, file.bytes, file.mimeType), mimeType: file.mimeType });
-        }
-        const entry: CacheEntry = { providerId: adapter.id, files, words: result.words };
-        manifest.entries[adapter.id] = entry;
-        await putJson(store, manifestKey, manifest);
-        await ledger.record({
-          at: new Date().toISOString(),
-          episodeId: run.episodeId,
-          stage: run.stage,
-          refId: run.refId,
-          providerId: adapter.id,
-          capability: req.capability,
-          estimateMicros,
-          cacheHit: false,
-          requestHash,
-          durationMs: Date.now() - startedAt,
-          units: bill.units,
-          unitLabel: bill.unitLabel,
-        });
-        return { requestHash, ...entry, costMicros: estimateMicros, cacheHit: false };
       } catch (error) {
+        release();
         if (run.signal?.aborted) throw error;
         // İçerik reddi sağlayıcı arızası değildir; sayılırsa birkaç ret tüm sağlayıcıyı kapatır (30 Eki).
         if (!(error instanceof ContentRejectedError)) this.health.recordFailure(adapter.id);
@@ -254,11 +241,50 @@ export class MediaGateway {
           durationMs: Date.now() - startedAt,
           error: message.slice(0, 300),
         });
+        continue;
+      }
+
+      // Üretim ödendi: buradan sonraki depo/defter hataları sağlayıcı arızası sayılmaz ve başka sağlayıcıya
+      // yeniden ödetilmez; hata yukarı çıkar (aynı istek tekrar çalışınca önbellek ya da yeni üretim karar verir).
+      try {
+        // Önce defter: dosya yazımı başarısız olsa da ödenen üretim tavana sayılır.
+        await ledger.record({
+          at: new Date().toISOString(),
+          episodeId: run.episodeId,
+          stage: run.stage,
+          refId: run.refId,
+          providerId: adapter.id,
+          capability: req.capability,
+          estimateMicros,
+          cacheHit: false,
+          requestHash,
+          durationMs: Date.now() - startedAt,
+          units: bill.units,
+          unitLabel: bill.unitLabel,
+        });
+        // Her üretim kendi klasörüne yazılır: başka sağlayıcının veya önceki üretimin
+        // (başka bir bölümün referans verdiği) dosyası asla ezilmez.
+        const generationDir = `assets/${requestHash}/${providerSlug(adapter.id)}-${randomBytes(4).toString("hex")}`;
+        const files: StoredFile[] = [];
+        for (const [i, file] of result.files.entries()) {
+          const key = `${generationDir}/${i}.${EXTENSIONS[file.mimeType] ?? "bin"}`;
+          files.push({ key, uri: await store.put(key, file.bytes, file.mimeType), mimeType: file.mimeType });
+        }
+        const entry: CacheEntry = { providerId: adapter.id, files, words: result.words };
+        manifest.entries[adapter.id] = entry;
+        await putJson(store, manifestKey, manifest);
+        return { requestHash, ...entry, costMicros: estimateMicros, cacheHit: false };
+      } finally {
+        release();
       }
     }
 
-    if (failures.length === 0 && skippedForBudget > 0) {
-      throw new BudgetExceededError(`Bölüm ${run.episodeId} bütçe tavanını aşacak; onay gerekli`);
+    // Bir sağlayıcı düştü, kalanlar bütçe yüzünden atlandıysa da kullanıcıya bütçe onayı sorulmalı.
+    if (skippedForBudget > 0) {
+      const tried = failures.length
+        ? ` (başarısız: ${failures.map((f) => `${f.providerId}: ${f.error instanceof Error ? f.error.message : String(f.error)}`).join("; ")})`
+        : "";
+      throw new BudgetExceededError(`Bölüm ${run.episodeId} bütçe tavanını aşacak; onay gerekli${tried}`);
     }
     throw new AllProvidersFailedError(failures);
   }

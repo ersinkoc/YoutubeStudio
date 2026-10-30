@@ -53,7 +53,9 @@ export class AgentError extends Error {}
  * şema draft-07 olarak üretilip $schema alanı çıkarılır.
  */
 export function toOutputSchema(schema: z.ZodType): Record<string, unknown> {
-  const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
+  // io "input": varsayılanı olan alanlar modelden zorunlu istenmez (çıktı şemasında hepsi zorunluydu, uzun çıktı ve
+  // tur sınırı aşımı); eksikleri Zod ayrıştırırken doldurur.
+  const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { target: "draft-7", io: "input" }) as Record<string, unknown>;
   return rest;
 }
 

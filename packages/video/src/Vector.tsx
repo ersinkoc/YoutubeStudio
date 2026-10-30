@@ -459,13 +459,19 @@ export function readable(color: string | undefined): string | undefined {
 function countUp(text: string, k: number): string {
   const m = /\d[\d.,]*/.exec(text);
   if (!m) return text;
-  const raw = m[0];
-  const sep = raw.includes(".") && raw.split(".").at(-1)!.length === 3 ? "." : raw.includes(",") ? "," : "";
-  const value = Number(raw.replace(/[.,]/g, ""));
-  const now = Math.round(value * k);
+  const raw = m[0].replace(/[.,]+$/, "");
+  // Son ayraçtan sonra tam 3 hane yoksa ondalıktır ("3.14", "1,5", "%2,5"); 3 hane binliktir ("60.000").
+  const last = Math.max(raw.lastIndexOf("."), raw.lastIndexOf(","));
+  const decimal = last >= 0 && raw.length - last - 1 !== 3 ? raw[last]! : "";
+  const decimals = decimal ? raw.length - last - 1 : 0;
+  const intPart = decimal ? raw.slice(0, last) : raw;
+  const group = /[.,]/.exec(intPart)?.[0] ?? "";
+  const value = Number(intPart.replace(/[.,]/g, "") + (decimal ? `.${raw.slice(last + 1)}` : ""));
+  const now = (value * k).toFixed(decimals);
+  const [whole, frac] = now.split(".");
   // Yıl gibi ayraçsız sayılar ayraçsız kalır.
-  const shown = sep ? now.toString().replace(/\B(?=(\d{3})+(?!\d))/g, sep) : String(now);
-  return text.replace(raw, shown);
+  const grouped = group ? whole!.replace(/\B(?=(\d{3})+(?!\d))/g, group) : whole!;
+  return text.replace(raw, frac ? `${grouped}${decimal}${frac}` : grouped);
 }
 
 function Text({ placed, p, t, seed, accent }: { placed: PlacedText; p: number; t: number; seed: string; accent: string }) {
@@ -601,11 +607,15 @@ export function VectorScene({
   const safe = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(assets).map(([id, a]) => [
-          id,
+        Object.entries(assets).flatMap(([id, a]) => {
           // Arka plan da dahil bütün varlıklar aynı çizgi stiline getirilir; gerçek veriden üretilenler (harita, bayrak) hariç.
-          { ...a, svg: a.meta.exact ? sanitizeSvg(a.svg) : applyLineStyle(sanitizeSvg(a.svg), lineStyle) },
-        ]),
+          // Bozuk tek varlık bütün vektör çekimlerini düşürmesin: o varlık atlanır.
+          try {
+            return [[id, { ...a, svg: a.meta.exact ? sanitizeSvg(a.svg) : applyLineStyle(sanitizeSvg(a.svg), lineStyle) }]];
+          } catch {
+            return [];
+          }
+        }),
       ),
     [assets, lineStyle],
   );

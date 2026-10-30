@@ -34,6 +34,7 @@ const SVG_RULES = `SVG rules:
 - Output exactly one <svg xmlns="http://www.w3.org/2000/svg" viewBox="..."> element. No width/height attributes.
 - Flat vector illustration: paths, rects, circles, ellipses, polygons, linear/radial gradients. Keep it under ~8 KB.
 - Forbidden: <script>, <image>, <foreignObject>, <text>, external links, event attributes, CSS @import.
+- Colour every shape with presentation attributes (fill="…", stroke="…"). No <style> element and no class attributes: they are stripped, and class-styled shapes turn black.
 - Use the given palette; keep shapes bold and readable at small sizes.`;
 
 /** Çizgi stilinin tasarımcıya tarifi; render'da da konturlar bu stile göre eşitlenir. */
@@ -176,7 +177,7 @@ Quality: a distinctive silhouette and outfit that tells who they are; 2–3 tone
 The wall meets the floor along a horizontal line at floorY (between 620 and 760, return it). Below floorY there is only plain floor (2 tones at most).
 Keep it MINIMAL and calm: 6–12 large flat shapes, 2–3 value steps, muted low-saturation colours, low contrast, no small clutter, patterns, stripes or textures. No lettering.
 Leave the stage band plain: between x 420–1500 and y 180–floorY the wall is an empty surface (people's heads, gestures and titles go there). Windows, shelves, boards and wall objects go to the left and right thirds or high above y 180. Shelves with many small items (jars, books, bottles) are clutter: use at most one simple shelf with 2–3 large shapes, at the side.`
-        : `Canvas: a viewBox sized to the object (e.g. "0 0 400 400"), object centered horizontally, transparent background, its base resting exactly on the bottom edge (y = viewBox height) so code can put it on the floor or on a surface. Seen straight on (front view, like the room); animals and vehicles in side view on all their legs/wheels. Return realHeight in metres (the real size the viewBox height represents), grounded, and surface for furniture. Small story objects (notes, books, chips, tools) should be drawn filling the canvas at a readable angle, e.g. an open book tilted toward the viewer, not edge-on; code enlarges them to a readable size on screen.`;
+        : `Canvas: a viewBox sized to the object (e.g. "0 0 400 400"), object centered horizontally, transparent background, its base resting exactly on the bottom edge (y = viewBox height) so code can put it on the floor or on a surface. Objects front or three-quarter view at a readable angle; animals and vehicles in side view on all their legs/wheels. Return realHeight in metres (the real size the viewBox height represents), grounded, and surface for furniture. Small story objects (notes, books, chips, tools) should be drawn filling the canvas at a readable angle, e.g. an open book tilted toward the viewer, not edge-on; code enlarges them to a readable size on screen.`;
   const isolated =
     brief.kind === "background"
       ? ""
@@ -193,7 +194,11 @@ Leave the stage band plain: between x 420–1500 and y 180–floorY the wall is 
       schema: VectorAssetOut,
       system: `You are a vector illustrator for an animated explainer channel. You draw clean, consistent SVG assets that will be reused across many scenes and must look like they come from the same hand.
 Art style: ${style.artStyle}. Palette: ${style.palette.join(", ")}. Lighting: ${style.lighting}.
-${LINE_STYLE_RULES[brief.lineStyle ?? "outline"]}
+${LINE_STYLE_RULES[brief.lineStyle ?? "outline"]}${
+        style.designNotes
+          ? `\nStyle rules: ${style.designNotes}\nThe canvas, rig and stage rules below always win over the style rules (proportions are fixed by the rig; backgrounds stay calm, any style texture is subtle and kept out of the plain centre band).`
+          : ""
+      }
 ${canvas}${isolated}
 ${SVG_RULES}${lessonsBlock(brief.lessons)}`,
       prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}

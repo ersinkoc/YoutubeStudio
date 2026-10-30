@@ -7,7 +7,7 @@ import { useI18n } from "../locale-provider";
 
 /** Aşamaya göre gruplu ajanlar: kullanıcı hangi işin hangi modelle yapıldığını bir bakışta görür. */
 const GROUPS: { title: MessageKey; roles: AgentRole[] }[] = [
-  { title: "models.group.story", roles: ["art-director", "story-architect", "screenwriter", "script-doctor", "casting-director"] },
+  { title: "models.group.story", roles: ["style-picker", "art-director", "story-architect", "screenwriter", "script-doctor", "casting-director"] },
   {
     title: "models.group.vector",
     roles: ["vector-director", "asset-planner", "vector-designer:character", "vector-designer:background", "vector-designer:prop", "vector-designer:redraw"],
@@ -62,6 +62,7 @@ export function ModelsForm({ initial }: { initial: ModelSettings }) {
                     </div>
                   </div>
                   <select
+                    disabled={saved === "saving"}
                     className={`rounded-md border bg-panel-2 px-2 py-1 text-sm ${chosen && chosen !== fallback ? "border-accent" : "border-line"}`}
                     value={chosen ?? ""}
                     onChange={(e) => {

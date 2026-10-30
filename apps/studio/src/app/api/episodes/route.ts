@@ -1,5 +1,5 @@
-import { BudgetTier, LineStyle } from "@ys/core";
-import { newEpisodeState, type MotionMode } from "@ys/pipeline/light";
+import { BudgetTier, LineStyle, STYLE_AUTO, STYLE_CUSTOM, stylePackOf } from "@ys/core";
+import { cleanSeries, newEpisodeState, type MotionMode } from "@ys/pipeline/light";
 import { repo, startJob } from "../../../lib/server";
 
 export async function GET() {
@@ -31,26 +31,38 @@ interface CreateBody {
   qa?: boolean;
   realism?: boolean;
   lineStyle?: string;
+  stylePack?: string;
+  series?: string;
 }
 
 /** Bölümü oluşturur ve senaryo üretimini hemen başlatır (stil → hikâye → senaryo, sonra onay bekler). */
 export async function POST(req: Request) {
   const body = (await req.json()) as CreateBody;
-  if (!body.topic?.trim()) return Response.json({ error: "Konu gerekli" }, { status: 400 });
+  if (typeof body.topic !== "string" || !body.topic.trim()) return Response.json({ error: "Konu gerekli" }, { status: 400 });
+  const minutes = Number(body.minutes ?? 3);
+  const budget = Number(body.budgetUsd ?? 20);
+  if (!Number.isFinite(minutes) || minutes < 0.5 || minutes > 30) return Response.json({ error: "Süre 0,5–30 dk olmalı" }, { status: 400 });
+  if (!Number.isFinite(budget) || budget <= 0) return Response.json({ error: "Bütçe pozitif olmalı" }, { status: 400 });
+  const motionMode = (["animated", "mixed", "still", "vector"] as const).find((m) => m === body.motionMode) ?? "animated";
+  if (body.vertical && motionMode === "vector") return Response.json({ error: "Dikey (9:16) vektör modunda henüz desteklenmiyor" }, { status: 400 });
+  const lang = typeof body.lang === "string" && /^[a-z]{2,3}(-[A-Z]{2})?$/.test(body.lang) ? body.lang : "tr";
   const state = newEpisodeState({
     topic: body.topic.trim(),
-    lang: body.lang || "tr",
-    targetSec: Math.round((body.minutes || 3) * 60),
-    tier: BudgetTier.parse(body.tier || "standard"),
-    motionMode: body.motionMode ?? "animated",
+    lang,
+    targetSec: Math.round(minutes * 60),
+    tier: BudgetTier.catch("standard").parse(body.tier),
+    motionMode,
     aiClipRatio: 0.2,
-    budgetUsd: body.budgetUsd || 20,
-    voiceId: body.voiceId || undefined,
-    styleHint: body.styleHint?.trim() || undefined,
+    budgetUsd: budget,
+    voiceId: typeof body.voiceId === "string" && body.voiceId ? body.voiceId : undefined,
+    styleHint: typeof body.styleHint === "string" ? body.styleHint.trim().slice(0, 300) || undefined : undefined,
     autoApprove: false,
     qa: body.qa !== false,
     realism: body.realism !== false,
-    lineStyle: LineStyle.catch("outline").parse(body.lineStyle),
+    // Boş: stil paketinin çizgi stili.
+    lineStyle: body.lineStyle ? LineStyle.optional().catch(undefined).parse(body.lineStyle) : undefined,
+    series: typeof body.series === "string" ? cleanSeries(body.series) : undefined,
+    stylePack: body.stylePack === STYLE_CUSTOM || stylePackOf(body.stylePack) ? body.stylePack : STYLE_AUTO,
     width: body.vertical ? 1080 : 1920,
     height: body.vertical ? 1920 : 1080,
     fps: 30,

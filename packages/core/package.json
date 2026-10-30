@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./rules": "./src/rules.ts",
-    "./models": "./src/models.ts"
+    "./models": "./src/models.ts",
+    "./styles": "./src/styles.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

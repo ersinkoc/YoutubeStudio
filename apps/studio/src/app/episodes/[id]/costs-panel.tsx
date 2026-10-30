@@ -4,13 +4,13 @@ import type { CostGroup } from "@ys/media-gateway";
 import { AlertTriangle } from "lucide-react";
 import type { EpisodeResponse } from "../../../lib/types";
 import { useI18n } from "../../locale-provider";
-import { Stat, StatusIcon, stageKey } from "./parts";
+import { Stat, StatusIcon, stageKey, modeOf } from "./parts";
 
 export function CostsTab({ data }: { data: EpisodeResponse }) {
   const { t, fmt } = useI18n();
   const { usd, duration, number } = fmt;
   const { state } = data;
-  const est = data.estimates[state.input.motionMode ?? "mixed"];
+  const est = data.estimates[modeOf(state.input)];
   const actual = new Map<string, CostGroup>(data.actual.byStage.map((g) => [g.key, g]));
   const actualUsd = data.actual.byStage.reduce((n, g) => n + g.micros, 0) / 1_000_000;
   const actualSec = Object.values(state.stats ?? {}).reduce((n, s) => n + (s?.durationMs ?? 0), 0) / 1000;

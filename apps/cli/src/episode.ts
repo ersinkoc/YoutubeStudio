@@ -1,4 +1,4 @@
-import { LineStyle } from "@ys/core";
+import { LineStyle, STYLE_AUTO, STYLE_CUSTOM, STYLE_PACK_IDS } from "@ys/core";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,6 +35,8 @@ export interface EpisodeArgs {
   manual?: boolean;
   noQa?: boolean;
   noRealism?: boolean;
+  stylePack?: string;
+  series?: string;
   line?: string;
   gate?: string;
   pick?: string;
@@ -56,13 +58,19 @@ export async function episodeCommand(
   switch (sub) {
     case "new": {
       if (!args.topic) throw new Error("--topic gerekli");
+      // Vektör sahneleri 1920×1080 tuvalde çizilir; 9:16'da kırpılırdı.
+      if (args.vertical && args.motion === "vector") throw new Error("--vertical vektör modunda henüz desteklenmiyor");
+      const minutes = positive("--minutes", args.minutes ?? 3);
+      const budget = positive("--budget", args.budget ?? 10);
+      const clips = Number(args.clips ?? 0);
+      if (!Number.isFinite(clips) || clips < 0 || clips > 1) throw new Error("--clips 0 ile 1 arasında olmalı");
       const state = await pipeline.create({
         topic: args.topic,
         lang: args.lang ?? "tr",
-        targetSec: Math.round(Number(args.minutes ?? 3) * 60),
+        targetSec: Math.round(minutes * 60),
         tier: BudgetTier.parse(args.tier ?? "economy"),
-        budgetUsd: Number(args.budget ?? 10),
-        aiClipRatio: Number(args.clips ?? 0),
+        budgetUsd: budget,
+        aiClipRatio: clips,
         motionMode: parseMotion(args.motion),
         styleHint: args.style,
         voiceId: args.voice,
@@ -70,6 +78,8 @@ export async function episodeCommand(
         qa: !args.noQa,
         realism: !args.noRealism,
         lineStyle: args.line ? LineStyle.parse(args.line) : undefined,
+        stylePack: parseStylePack(args.stylePack),
+        series: args.series?.trim() || undefined,
         width: args.vertical ? 1080 : 1920,
         height: args.vertical ? 1920 : 1080,
         fps: 30,
@@ -203,11 +213,27 @@ export async function renderDemo(pipeline: EpisodePipeline, store: AssetStore): 
       keyframes,
       clips: {},
     } satisfies Partial<EpisodeState>);
-    for (const st of ["style", "story", "script", "voice", "shots", "keyframes", "clips"] as const) state.done[st] = "demo";
+    // Kadro/konsept boş ve onaylı: API'siz demo hiçbir ajan ya da görsel çağrısı yapmadan render'a gider.
+    Object.assign(state, { cast: { characters: [], locations: [] }, concept: { candidates: {}, selected: {} } });
+    state.approvals = { script: "demo", concept: "demo" };
+    for (const st of ["style", "story", "script", "cast", "concept", "voice", "shots", "keyframes", "clips"] as const) state.done[st] = "demo";
     await pipeline.save(state);
 
-    printSummary(await pipeline.run(state.id));
+    printSummary(await pipeline.run(state.id, { until: "render" }));
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+function parseStylePack(v: string | undefined): string {
+  if (!v) return STYLE_AUTO;
+  if (v === STYLE_AUTO || v === STYLE_CUSTOM || STYLE_PACK_IDS.includes(v)) return v;
+  throw new Error(`--style-pack auto|custom|${STYLE_PACK_IDS.join("|")}`);
+}
+
+/** Sayı bayrağı: "2,5" ya da "$5" gibi girdiler NaN olup bütçe tavanını kaldırıyordu. */
+export function positive(flag: string, v: string | number): number {
+  const n = Number(typeof v === "string" ? v.replace(",", ".") : v);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${flag} pozitif bir sayı olmalı (ör. 2.5)`);
+  return n;
 }

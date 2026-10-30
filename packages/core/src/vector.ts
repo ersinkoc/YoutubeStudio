@@ -83,6 +83,11 @@ export const AssetCheck = z.object({
   rejectedKey: z.string().optional(),
   /** Çizimden önce hazırlanan plan (Stüdyo'da gösterilir). */
   plan: AssetPlan.optional(),
+  /**
+   * Gerçeklik denetimi kapalı bir bölümde geçti (referans vardı ama sadakat bakılmadı). Gerçeklik açık bölümler bu
+   * kaydı güvenmez, yeniden denetler: bir bölümün geçici ayarı paylaşılan kütüphaneye sızmasın.
+   */
+  fidelitySkipped: z.boolean().optional(),
   /** Varlığın sahibi: kadro kimliği (c1, l2) ya da nesne kimliği (p-horse); insan kararı buna uygulanır. */
   entityId: z.string().optional(),
   /** İnsan kararı her zaman son sözdür: sistemin reddettiğini kabul edebilir, geçirdiğini reddedebilir. */
@@ -113,6 +118,18 @@ export const VectorAssetMeta = z.object({
   exact: z.boolean().optional(),
   /** Kalite kapısı sonucu; olmayan (eski) varlık kullanılmadan önce denetlenir. */
   check: AssetCheck.optional(),
+  /** Karakterin kimliği: kütüphaneden başka bölümlerde tekrar kullanmak için (aynı stil ve çizgi stilinde). */
+  identity: z
+    .object({
+      name: z.string(),
+      description: z.string(),
+      reference: z.string().optional(),
+      pack: z.string().optional(),
+      artStyle: z.string(),
+      lineStyle: z.string(),
+      episodes: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 export type VectorAssetMeta = z.infer<typeof VectorAssetMeta>;
 
@@ -267,14 +284,39 @@ const ALLOWED_ATTRS = new Set(
   ],
 );
 
-/** Öznitelik değeri yalnız iç başvuru (#id) kullanabilir; betik, data: ve dış URL yasak. */
+/** style="" içinde izin verilen CSS özellikleri (sunum öznitelikleriyle aynı küme). */
+const STYLE_PROPS = new Set([
+  "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
+  "stroke-dashoffset", "stroke-opacity", "stroke-miterlimit", "opacity", "stop-color", "stop-opacity", "display", "visibility",
+  "clip-path", "mask", "filter",
+]);
+
+/**
+ * Öznitelik değeri yalnız iç başvuru (#id) kullanabilir; betik, data: ve dış URL yasak. Varlık (&#..;) ve CSS kaçışı
+ * (\75rl) içeren değerler reddedilir: düz metin denetimini atlatıp dış kaynak yükletebiliyorlardı (30 Eki incelemesi).
+ */
 function safeValue(name: string, value: string): boolean {
+  if (/[\\&]/.test(value)) return false;
   const v = value.toLowerCase().replace(/\s+/g, "");
-  if (/javascript:|vbscript:|data:|expression\(|@import|behavior:/.test(v)) return false;
-  if (/url\((?!['"]?#)/.test(v)) return false;
+  if (/javascript:|vbscript:|data:|expression\(|@import|behavior:|image-set|src\(|-moz-binding/.test(v)) return false;
+  // Her url() yalnız iç başvuru: url(#id).
+  for (const u of v.match(/url\([^)]*\)?/g) ?? []) if (!/^url\(['"]?#[\w.:-]+['"]?\)$/.test(u)) return false;
   if ((name === "href" || name === "xlink:href") && !value.trim().startsWith("#")) return false;
   return true;
 }
+
+/** style="" izin listesine göre yeniden kurulur; bilinmeyen özellik atılır. */
+function safeStyle(value: string): string {
+  return value
+    .split(";")
+    .map((decl) => decl.split(":"))
+    .filter(([prop, val]) => prop && val !== undefined && STYLE_PROPS.has(prop.trim().toLowerCase()) && safeValue("style", val))
+    .map(([prop, val]) => `${prop!.trim().toLowerCase()}:${val!.trim()}`)
+    .join(";");
+}
+
+/** url('#a'), url( #a ) → url(#a): kimlik önekleme (prefixSvgIds) tek biçimi tanır. */
+const normalizeUrls = (value: string) => value.replace(/url\(\s*['"]?#([^'")\s]+)['"]?\s*\)/g, "url(#$1)");
 
 /**
  * Model çıktısı SVG'yi izin listesiyle yeniden kurar: yalnız bilinen öğe ve öznitelikler kalır; yorum,
@@ -293,8 +335,9 @@ export function sanitizeSvg(raw: string): string {
     .replace(/<(script|style|foreignObject|text|textPath|iframe|object|embed|audio|video|animate\w*|set)\b[\s\S]*?<\/\1\s*>/gi, "");
 
   const out: string[] = [];
-  const tag = /<(\/?)([a-zA-Z][\w:-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+))?)*)\s*(\/?)>/g;
-  const attr = /([^\s=>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>]+)))?/g;
+  // Tırnaksız değer tırnak içeremez: aksi halde kapanmamış bir etikette geri izleme üstel büyüyordu.
+  const tag = /<(\/?)([a-zA-Z][\w:-]*)((?:(?:\s+|(?<=["']))[^\s=>/"']+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>/]+))?)*)\s*(\/?)>/g;
+  const attr = /([^\s=>/"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>/]+)))?/g;
   let m: RegExpExecArray | null;
   while ((m = tag.exec(body))) {
     const [, closing, rawName, rawAttrs, selfClosing] = m;
@@ -309,8 +352,13 @@ export function sanitizeSvg(raw: string): string {
     attr.lastIndex = 0;
     while ((a = attr.exec(rawAttrs ?? ""))) {
       const attrName = a[1]!.toLowerCase();
-      const value = a[2] ?? a[3] ?? a[4] ?? "";
-      if (!ALLOWED_ATTRS.has(attrName) || !safeValue(attrName, value)) continue;
+      let value = a[2] ?? a[3] ?? a[4] ?? "";
+      if (!ALLOWED_ATTRS.has(attrName)) continue;
+      if (attrName === "style") {
+        value = safeStyle(value);
+        if (!value) continue;
+      } else if (!safeValue(attrName, value)) continue;
+      value = normalizeUrls(value);
       attrs.push(`${a[1]}="${value.replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`);
     }
     out.push(`<${rawName}${attrs.length ? ` ${attrs.join(" ")}` : ""}${selfClosing ? "/" : ""}>`);
@@ -372,7 +420,7 @@ export function stripBackdrop(svg: string, size: { width: number; height: number
 export function prefixSvgIds(svg: string, prefix: string): string {
   return svg
     .replace(/\bid="([^"]+)"/g, `id="${prefix}$1"`)
-    .replace(/url\(#([^)]+)\)/g, `url(#${prefix}$1)`)
+    .replace(/url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)/g, `url(#${prefix}$2)`)
     .replace(/(href|xlink:href)="#([^"]+)"/g, `$1="#${prefix}$2"`);
 }
 
@@ -400,15 +448,35 @@ const darkColor = (value: string): boolean => {
  * flat: dolgulu şekillerin konturu atılır (yalnız fill="none" çizgiler — ağız, kaş gibi — kalır).
  */
 export function applyLineStyle(svg: string, style: LineStyle): string {
-  return svg.replace(/<(path|rect|circle|ellipse|polygon|polyline|line|g)\b([^>]*?)(\/?)>/g, (whole, tag: string, attrs: string, close: string) => {
+  // Düz stilde grubun koyu konturu silinir; ama içindeki fill="none" çizgiler (ağız, kaş) konturu gruptan miras alır,
+  // silinince görünmez olurlardı: grup konturu önce o çizgilere taşınır.
+  const inherited: (string | undefined)[] = [];
+  return svg.replace(/<(\/?)(path|rect|circle|ellipse|polygon|polyline|line|g)\b([^>]*?)(\/?)>/g, (whole, closing: string, tag: string, attrs: string, close: string) => {
+    if (closing) {
+      if (tag === "g") inherited.pop();
+      return whole;
+    }
+    const parent = inherited.at(-1);
     const stroke = /\sstroke="([^"]*)"/.exec(attrs)?.[1];
-    if (!stroke || stroke === "none") return whole;
     const fillNone = /\sfill="none"/.test(attrs);
     let next = attrs;
     if (style === "flat") {
-      if (fillNone || !darkColor(stroke)) return whole;
+      const strokeAttrs = (a: string) => (a.match(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g) ?? []).join("");
+      if (tag === "g") {
+        const dark = stroke && stroke !== "none" && darkColor(stroke);
+        const carried = dark ? strokeAttrs(attrs) : parent;
+        if (!close) inherited.push(stroke === "none" ? undefined : carried);
+        if (dark) next = next.replace(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g, "");
+        return next === attrs ? whole : `<${tag}${next}${close}>`;
+      }
+      if (!stroke) return fillNone && parent ? `<${tag}${attrs}${parent}${close}>` : whole;
+      if (stroke === "none" || fillNone || !darkColor(stroke)) return whole;
       next = next.replace(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g, "");
-    } else if (darkColor(stroke)) {
+      return `<${tag}${next}${close}>`;
+    }
+    if (tag === "g" && !close) inherited.push(undefined);
+    if (!stroke || stroke === "none") return whole;
+    if (darkColor(stroke)) {
       const color = style === "ink" ? "#111014" : "#1d1a24";
       next = next.replace(/\sstroke="[^"]*"/, ` stroke="${color}"`);
       if (style === "ink") {

@@ -1,5 +1,5 @@
 import type { CostGroup, Quota } from "@ys/media-gateway";
-import type { EpisodeEstimate, EpisodeState, MotionMode, Progress, RunStatus, Stage } from "@ys/pipeline/light";
+import type { EpisodeEstimate, EpisodeState, LibraryCharacter, MotionMode, Progress, RunStatus, Stage } from "@ys/pipeline/light";
 
 /** Sunucu ile istemci arasında paylaşılan yanıt tipleri (sadece tip; çalışma anı kodu yok). */
 
@@ -20,6 +20,8 @@ export interface QuotaView {
 
 export interface EpisodeResponse {
   state: EpisodeState;
+  /** Bu bölümün stilinde kütüphanedeki onaylı karakterler (tekrar kullanmak için). */
+  library: LibraryCharacter[];
   job: JobView | null;
   /** Ücretli API harcaması (bütçe tavanına sayılan). */
   spentUsd: number;

@@ -61,12 +61,20 @@ export async function normalizeClip(input: string, output: string, width: number
 export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
+  let failure: { error: unknown } | undefined;
+  // İlk hatadan sonra yeni iş alınmaz (paralel işçiler para harcamaya ve durumu yazmaya devam etmesin); süren işler
+  // bitince hata fırlatılır, böylece hemen başlatılan bir "devam" ikinci bir yazarla çakışmaz.
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
+    while (next < items.length && !failure) {
       const i = next++;
-      results[i] = await fn(items[i]!, i);
+      try {
+        results[i] = await fn(items[i]!, i);
+      } catch (error) {
+        failure ??= { error };
+      }
     }
   });
   await Promise.all(workers);
+  if (failure) throw failure.error;
   return results;
 }

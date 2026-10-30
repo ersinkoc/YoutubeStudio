@@ -14,7 +14,12 @@ export const stageKey = (s: string) => `stage.${s}` as MessageKey;
  */
 export const approved = (state: EpisodeState, gate: "script" | "concept") => Boolean(state.input.autoApprove || state.approvals?.[gate]);
 
-export type Act = (action: Record<string, unknown>) => Promise<void>;
+/** Eylem: sunucu kabul ettiyse true (çağıran yalnız o zaman girdisini temizler). */
+export type Act = (action: Record<string, unknown>) => Promise<boolean>;
+
+/** Sunucudaki motionModeOf'un istemci kopyası (pipeline/light çalışma kodu istemciye alınamaz). */
+export const modeOf = (input: { motionMode?: "animated" | "mixed" | "still" | "vector"; aiClipRatio: number }) =>
+  input.motionMode ?? (input.aiClipRatio > 0 ? "mixed" : "still");
 
 export type Tab = "overview" | "script" | "concept" | "shots" | "costs" | "activity";
 export const TABS: Tab[] = ["overview", "script", "concept", "shots", "costs", "activity"];

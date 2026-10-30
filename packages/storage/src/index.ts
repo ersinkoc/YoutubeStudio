@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   CreateBucketCommand,
@@ -37,14 +37,32 @@ export class FsAssetStore implements AssetStore {
 
   private pathFor(key: string): string {
     const p = resolve(join(this.root, ...key.split("/")));
-    if (!p.startsWith(this.root)) throw new Error(`Geçersiz anahtar: ${key}`);
+    // Ayraçla karşılaştırılır: ".data/assets-x" gibi kardeş klasör de "root ile başlıyor" sayılmasın.
+    if (!p.startsWith(this.root + sep)) throw new Error(`Geçersiz anahtar: ${key}`);
     return p;
   }
 
   async put(key: string, bytes: Uint8Array): Promise<string> {
     const p = this.pathFor(key);
     await mkdir(dirname(p), { recursive: true });
-    await writeFile(p, bytes);
+    // Geçici dosyaya yazıp yeniden adlandırma: okuyan (Stüdyo yoklaması) yarım JSON görmesin, yazarken öldürülen süreç
+    // dosyayı kesik bırakmasın.
+    const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(tmp, bytes);
+    // Windows'ta virüs tarayıcı/dizinleyici yeni dosyayı kısa süre tutabilir (EPERM/EACCES/EBUSY): ~2 sn yeniden dene.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(tmp, p);
+        break;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (attempt >= 8 || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) {
+          await rm(tmp, { force: true });
+          throw e;
+        }
+        await new Promise((r) => setTimeout(r, 25 * 2 ** Math.min(attempt, 6)));
+      }
+    }
     return `file://${p.replaceAll("\\", "/")}`;
   }
 
@@ -61,7 +79,7 @@ export class FsAssetStore implements AssetStore {
     try {
       const entries = await readdir(this.root, { recursive: true, withFileTypes: true });
       return entries
-        .filter((e) => e.isFile())
+        .filter((e) => e.isFile() && !e.name.endsWith(".tmp"))
         .map((e) => relative(this.root, join(e.parentPath, e.name)).split(sep).join("/"))
         .filter((k) => k.startsWith(prefix));
     } catch (e) {

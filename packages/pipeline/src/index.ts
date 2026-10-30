@@ -7,3 +7,6 @@ export * from "./timing.ts";
 export * from "./qa.ts";
 export * from "./lessons.ts";
 export * from "./curate.ts";
+export * from "./library.ts";
+export * from "./settings.ts";
+export * from "./series.ts";

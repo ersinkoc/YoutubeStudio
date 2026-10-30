@@ -2,13 +2,14 @@
 
 import type { EpisodeState, PlannedShotState } from "@ys/pipeline/light";
 import { QUALITY_GATE } from "@ys/core/rules";
+import { stylePackOf } from "@ys/core/styles";
 import { Check, CheckSquare, ChevronLeft, ChevronRight, Clapperboard, Mic, RefreshCw, Square, Undo2, Wand2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { MessageKey } from "../../../lib/i18n";
 import type { EpisodeResponse, QuotaView } from "../../../lib/types";
 import { VOICES } from "../../../lib/voices";
 import { useI18n } from "../../locale-provider";
-import { AFTER_CONCEPT, AFTER_SCRIPT, approved as isApproved, asset, costOf, type Act } from "./parts";
+import { AFTER_CONCEPT, AFTER_SCRIPT, approved as isApproved, asset, costOf, type Act, modeOf } from "./parts";
 
 const MODES = ["animated", "mixed", "still", "vector"] as const;
 
@@ -18,7 +19,7 @@ export function ScriptTab({ data, busy, act }: { data: EpisodeResponse; busy: bo
   const { t, fmt } = useI18n();
   const { duration, number } = fmt;
   const { state } = data;
-  const est = data.estimates[state.input.motionMode ?? "mixed"];
+  const est = data.estimates[modeOf(state.input)];
   const approved = isApproved(state, "script");
   if (!state.script) {
     return (
@@ -136,7 +137,7 @@ function QuotaBox({ q }: { q: QuotaView }) {
 }
 
 export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: boolean; act: Act }) {
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
   const { usd, duration } = fmt;
   const { state } = data;
   const { cast, concept, style } = state;
@@ -160,6 +161,7 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
       sub: c.role,
       desc: c.visualDescription,
       kind: t("concept.character"),
+      character: true,
     })),
     ...cast.locations.map((l) => ({
       id: l.id,
@@ -167,10 +169,11 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
       sub: "",
       desc: l.visualDescription,
       kind: t("concept.location"),
+      character: false,
     })),
   ];
   const missing = entities.filter((e) => !concept.selected[e.id]).length;
-  const mode = state.input.motionMode ?? "mixed";
+  const mode = modeOf(state.input);
   const est = data.estimates[mode];
   const quotaShort = data.quota && data.quota.quota.limit - data.quota.quota.used < data.quota.needed;
   const locked = approved || busy;
@@ -181,7 +184,10 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
         <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-panel-2/50 p-4 text-sm">
           <div className="min-w-0 flex-1">
             <div className="label">{t("concept.style")}</div>
-            <div className="leading-relaxed">{style.artStyle}</div>
+            <div className="leading-relaxed">
+              {stylePackOf(style.pack) ? <span className="font-medium">{stylePackOf(style.pack)!.name[locale]} · </span> : null}
+              {style.artStyle}
+            </div>
           </div>
           <div className="flex gap-1">
             {style.palette.map((c) => (
@@ -227,6 +233,7 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
                 );
               })}
             </div>
+            {e.character && !locked && <ReuseFromLibrary data={data} castId={e.id} act={act} />}
           </div>
         ))}
       </div>
@@ -327,6 +334,30 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
  * Her SVG'nin kapı sonucu: reddedilenler önce. Çizim (reddedildiyse en iyi deneme) ve internetten bulunan referanslar
  * yan yana; adı bilmeyen denetçinin tahmini, puanlar, kusurlar ve kaynaklar.
  */
+/** Kütüphanedeki (aynı stilde) onaylı bir karakteri bu kadro üyesi için kullan: yeniden çizilmez, para harcanmaz. */
+function ReuseFromLibrary({ data, castId, act }: { data: EpisodeResponse; castId: string; act: Act }) {
+  const { t } = useI18n();
+  const taken = new Set((data.state.concept?.candidates[castId] ?? []).map((r) => r.key));
+  const options = data.library.filter((l) => !taken.has(l.key));
+  if (!options.length) return null;
+  return (
+    <select
+      className="field mt-2 py-1 text-xs"
+      value=""
+      title={t("concept.reuseHint")}
+      onChange={(e) => e.target.value && act({ type: "reuse-character", castId, key: e.target.value })}
+    >
+      <option value="">{t("concept.reuse", { n: options.length })}</option>
+      {options.map((l) => (
+        <option key={l.key} value={l.key}>
+          {l.name}
+          {l.episodes.length ? ` (${t("concept.reuseUsed", { n: l.episodes.length })})` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function QualityGate({ state, busy, act }: { state: EpisodeState; busy: boolean; act: Act }) {
   const { t } = useI18n();
   const [all, setAll] = useState(false);
@@ -457,7 +488,7 @@ function HumanDecision({
             className="btn-primary py-1 text-xs"
             disabled={busy}
             onClick={async () => {
-              await act({ type: "reject-asset", key: checkKey, note });
+              if (!(await act({ type: "reject-asset", key: checkKey, note }))) return;
               setRejecting(false);
             }}
           >
@@ -512,9 +543,9 @@ export function ShotsTab({ data, busy, act }: { data: EpisodeResponse; busy: boo
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string>();
   const [weakOnly, setWeakOnly] = useState(false);
-  const imageMode = (state.input.motionMode ?? "mixed") !== "vector";
+  const imageMode = (modeOf(state.input)) !== "vector";
   const failedQa = shots.filter((s) => state.qa?.[s.id] && !state.qa[s.id]!.passed).map((s) => s.id);
-  const kfRow = data.estimates[state.input.motionMode ?? "mixed"].rows.find((r) => r.stage === "keyframes");
+  const kfRow = data.estimates[modeOf(state.input)].rows.find((r) => r.stage === "keyframes");
   const perFrame = kfRow && kfRow.quantity ? kfRow.costUsd / kfRow.quantity : 0;
   if (!shots.length) return <Empty>{t("shots.empty")}</Empty>;
 
@@ -559,7 +590,7 @@ export function ShotsTab({ data, busy, act }: { data: EpisodeResponse; busy: boo
                   className="btn-primary py-1 text-xs"
                   disabled={busy}
                   onClick={async () => {
-                    await act({ type: "redraw", shotIds: [...picked] });
+                    if (!(await act({ type: "redraw", shotIds: [...picked] }))) return;
                     setPicked(new Set());
                   }}
                 >

@@ -138,6 +138,17 @@ export function cancelJob(episodeId: string): void {
   }
 }
 
+/**
+ * Bölümde iş sürüyor mu: Stüdyo'nun işi ya da durum dosyasına göre (CLI'dan başlayanlar). Stüdyo'nun işi durum dosyasının
+ * son kaydından sonra bittiyse (iptal, çökme) dosyadaki "sürüyor" bayattır: süreç aşamayı kapatamadan öldü.
+ */
+export function episodeBusy(episodeId: string, state: { heartbeatAt?: string }, fileStatus: string): boolean {
+  const job = init().jobs.get(episodeId);
+  if (job?.status === "running") return true;
+  if (fileStatus !== "running") return false;
+  return !(job?.endedAt && job.endedAt >= (state.heartbeatAt ?? ""));
+}
+
 export function getJob(episodeId: string): JobView | undefined {
   const job = init().jobs.get(episodeId);
   return job && view(job);

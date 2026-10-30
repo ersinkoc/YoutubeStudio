@@ -18,6 +18,7 @@ export const DEFAULT_TIER_MODEL: Record<ModelTier, ModelChoice> = {
 
 /** Ajan anahtarı → varsayılan sınıf. Anahtar ajan çağrısının adıdır (günlükte ve maliyet dökümünde görünen). */
 export const AGENT_ROLES = {
+  "style-picker": "cheap",
   "art-director": "fast",
   "story-architect": "creative",
   screenwriter: "creative",
@@ -47,7 +48,7 @@ export function cleanModelSettings(raw: unknown): ModelSettings {
   if (!parsed.success) return {};
   const out: ModelSettings = {};
   for (const [role, model] of Object.entries(parsed.data)) {
-    if (role in AGENT_ROLES && (MODEL_CHOICES as readonly string[]).includes(model)) out[role as AgentRole] = model as ModelChoice;
+    if (Object.hasOwn(AGENT_ROLES, role) && (MODEL_CHOICES as readonly string[]).includes(model)) out[role as AgentRole] = model as ModelChoice;
   }
   return out;
 }
@@ -58,5 +59,6 @@ export function cleanModelSettings(raw: unknown): ModelSettings {
  */
 export function modelFor(name: string, fallback: string, settings: ModelSettings | undefined): string {
   if (!settings) return fallback;
-  return settings[name as AgentRole] ?? settings[name.split(":")[0] as AgentRole] ?? fallback;
+  const own = (key: string) => (Object.hasOwn(settings, key) ? settings[key as AgentRole] : undefined);
+  return own(name) ?? own(name.split(":")[0]!) ?? fallback;
 }

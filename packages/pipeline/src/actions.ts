@@ -1,5 +1,7 @@
 import { VectorAssetMeta } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
+import { libraryIdOf, noteCharacterUse } from "./library.ts";
+import { cleanSeries } from "./series.ts";
 import { GATES, STAGES, type EpisodeInput, type EpisodeState, type Gate, type MotionMode } from "./state.ts";
 
 /*
@@ -41,7 +43,8 @@ export class EpisodeRepo {
 
   async list(): Promise<EpisodeState[]> {
     const keys = (await this.store.list("episodes/")).filter((k) => k.endsWith("/state.json"));
-    const states = await Promise.all(keys.map((k) => getJson<EpisodeState>(this.store, k)));
+    // Okunamayan (bozuk) tek durum dosyası tüm listeyi düşürmesin.
+    const states = await Promise.all(keys.map((k) => getJson<EpisodeState>(this.store, k).catch(() => null)));
     return states
       .filter((s): s is EpisodeState => s !== null)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -94,6 +97,8 @@ export function editNarration(state: EpisodeState, sceneId: string, narration: s
   const scene = state.script?.scenes.find((s) => s.id === sceneId);
   if (!scene) throw new Error(`Sahne yok: ${sceneId}`);
   scene.narration = narration.trim();
+  // Eski ses yeni metni okumaz.
+  delete state.voice?.[sceneId];
 }
 
 export function setMotion(state: EpisodeState, motionMode: MotionMode, aiClipRatio?: number): void {
@@ -219,10 +224,45 @@ export async function rejectAsset(store: AssetStore, state: EpisodeState, key: s
   if (!check) throw new Error(`Kapı kaydı yok: ${key}`);
   const override = { decision: "rejected" as const, note: note?.trim() || undefined, at: new Date().toISOString() };
   const next = { ...check, passed: false, override };
+  // Kütüphaneden tekrar kullanılan karakter: "bu kişi değil" kararı yalnız bu bölümü ilgilendirir; paylaşılan kayıt
+  // değişmezse başka bölümler ve seriler onu kullanmaya devam eder. Bu bölümde yeniden çizilir.
+  const reused = state.cast?.characters.find((c) => c.reuse && c.reuse === libraryIdOf(key));
+  if (reused) {
+    delete reused.reuse;
+    (state.assetChecks ??= {})[key] = next;
+    detach(state, reused.id, key);
+    return;
+  }
   const meta = await getJson<VectorAssetMeta>(store, `${key}.json`);
   if (meta) await putJson(store, `${key}.json`, { ...meta, check: next });
   (state.assetChecks ??= {})[key] = next;
   detach(state, ownerOf(state, check), key);
+}
+
+/**
+ * Kadrodaki karaktere kütüphanedeki onaylı bir karakteri atar (Stüdyo → Konsept → "Kütüphaneden kullan"): yeniden
+ * çizilmez, aday olarak eklenir ve seçilir.
+ */
+export async function reuseCharacter(store: AssetStore, state: EpisodeState, castId: string, key: string): Promise<void> {
+  const character = state.cast?.characters.find((c) => c.id === castId);
+  if (!character || !state.concept) throw new Error(`Kadroda yok: ${castId}`);
+  const meta = VectorAssetMeta.parse((await getJson(store, `${key}.json`)) ?? {});
+  if (!meta.identity || !meta.check?.passed || meta.check.override?.decision === "rejected") throw new Error("Kütüphanede onaylı karakter değil");
+  if (state.input.realism !== false && meta.check.fidelitySkipped && meta.check.override?.decision !== "accepted") {
+    throw new Error("Bu karakter gerçeklik denetimi kapalıyken geçti; gerçeklik açık bölümde kullanılamaz");
+  }
+  const ref = { key, mimeType: "image/svg+xml" };
+  const list = (state.concept.candidates[castId] ??= []);
+  if (!list.some((r) => r.key === key)) list.push(ref);
+  state.concept.selected[castId] = ref;
+  (state.assetChecks ??= {})[key] = { ...meta.check, entityId: castId };
+  character.reuse = libraryIdOf(key);
+  await noteCharacterUse(store, key, state.id);
+}
+
+/** Bölümün serisini değiştirir (boş: seriden çıkar). Üretimi etkilemez; stil zaten seçildiyse değişmez. */
+export function setSeries(state: EpisodeState, name: string | undefined): void {
+  state.input.series = cleanSeries(name);
 }
 
 /** Gerçeklik (referansa sadakat) denetimini bölüm için açar/kapatır; tanınırlık denetimi her zaman açıktır. */

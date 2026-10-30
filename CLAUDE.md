@@ -1,6 +1,7 @@
 # YoutubeStudio: Claude için proje notları
 
 Plan ve mimari: `docs/PROJE_PLANI.md`. Büyük kararları değiştirmeden önce oradaki ilgili bölüme bak ve gerekirse güncelle.
+README İngilizce (`README.md`), Türkçesi `README-TR.md`: birini değiştirirken diğerini de güncelle. CHANGELOG ve release notları İngilizce.
 
 ## Yapı
 - pnpm workspace, TypeScript 7, ESM, derleme adımı yok (tsx/vitest kaynaktan çalışır). Paketler `exports: ./src/index.ts`.
@@ -16,8 +17,13 @@ Plan ve mimari: `docs/PROJE_PLANI.md`. Büyük kararları değiştirmeden önce 
 - `apps/studio` istemci bileşenleri (`"use client"`) `@ys/pipeline/light`'tan sadece **tip** import eder; çalışma kodu `node:fs`'e ulaşır ve Turbopack çöker. Sunucu sayfası, istemci dosyasındaki düz fonksiyonu çağıramaz: ortak yardımcılar `src/lib/` altında.
 - **Kalite kapısı ve gerçeklik zorunlu:** hiçbir SVG denetlenmeden kullanılmaz (`designAsset` → `gateCheck`: kör tahmin + `assetGate`, eşikler `core/rules.ts`'te; Stüdyo Kurallar sayfası aynı sabitleri gösterir). Gerçek özneler ve her nesne internetten (Wikipedia/Commons) bulunan görsele bakılarak çizilir (`pipeline/src/reference.ts`). Eşik değiştirirken yalnız `QUALITY_GATE`'i değiştir. Çizimden önce `assetPlanner` referanslara bakıp tarifi varlık türüne uydurur ve plan çıkarır (`<anahtar>.plan.json`, bir kez); tasarımcı plana göre çizer, kapı planın ipuçlarını arar.
 - Harita ve bayrak gibi gerçek dünya bilgisi Claude'a çizdirilmez: yönetmen `map`/`flag` tarifi verir, `pipeline/src/geo.ts` gerçek veriden üretir. Yeni "olgusal" varlık türü (logo, anıt, bina…) eklerken de önce gerçek veri kaynağı ara.
+- Stil paketleri `core/styles.ts` (`STYLE_PACKS`, en az 20; test bunu denetler): "auto" `stylePicker` seçer, "custom" eski `artDirector`. Çizgi stili `lineStyleOf(state)` (kullanıcı seçimi yoksa paketinki). Onaylı karakterlerin meta'sında `identity` var; `listLibraryCharacters` aynı stil + çizgi stilindekileri verir, casting `reuse` ile, Stüdyo "Kütüphaneden kullan" (`reuseCharacter`) ile tekrar kullanır.
+- Seriler (`pipeline/src/series.ts`): `input.series`; "auto" stil seçimi serinin önceki paketini devralır, kütüphanede serinin karakterleri önce gelir. Seri adı karşılaştırması `sameSeries` ile (büyük/küçük harf ve boşluk duyarsız).
 - Ajan modelleri: her ajanın kodda varsayılan sınıfı var; kullanıcı Stüdyo → Modeller'den ajan başına model seçer (`settings/models.json`, `core/models.ts` → `AGENT_ROLES`). Yeni ajan eklerken `AGENT_ROLES`'a ve Modeller sayfasının gruplarına ekle; seçim `runStructured` içinde `modelFor` ile uygulanır.
 - Sürüm: tek kaynak kök `package.json`. `pnpm release [patch|minor|major] [--publish]` (main, temiz ağaç, typecheck+test, CHANGELOG, etiket; `--publish` olmadan dışarı bir şey gitmez). Stüdyo GitHub'daki son release'i görünce güncelleme uyarısı gösterir (`YS_UPDATE_CHECK=0` kapatır). Dev olmadan: `pnpm studio:build && pnpm studio:start`.
+- Stüdyo API'si: yazma istekleri yalnız aynı kökenden ve JSON (`apps/studio/src/proxy.ts`). Bölüm durumunu değiştiren her eylem, iş sürerken reddedilir (`episodeBusy`: Stüdyo işi + durum dosyası); çalışan pipeline durumu bellekten yeniden yazar, araya giren değişiklik kaybolur.
+- Paylaşılan kütüphane (library/…) bir bölümün kararıyla yerinde değiştirilmez: insan reddi yeni türetilmiş anahtara çizdirir, gerçeklik kapalı geçişler `fidelitySkipped` ile işaretlenir, tekrar kullanılan karakteri reddetmek yalnız o bölümden ayırır.
+- Model SVG'si temizlenirken `&`/`\` içeren değerler, dış `url()` ve izin listesi dışı `style` özellikleri atılır; temizleyiciye dokunursan `packages/core/test/sanitize.test.ts`'e atlatma örneği ekle.
 - `apps/studio`: arayüz metinleri `src/lib/i18n.ts` sözlüğünden (TR + EN, ikisi de zorunlu); bileşenlerde sabit metin yazma.
 
 ## Sürümler

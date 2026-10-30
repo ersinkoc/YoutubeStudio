@@ -11,7 +11,8 @@ export const StyleBibleOut = z.object({
   lighting: z.string(),
   lensLanguage: z.string(),
 });
-export type StyleBibleOut = z.infer<typeof StyleBibleOut>;
+/** Hazır paketten gelen stilde paket kimliği ve tasarımcı notları da bulunur (ajan çıktısında yok). */
+export type StyleBibleOut = z.infer<typeof StyleBibleOut> & { pack?: string; designNotes?: string };
 
 export const Beat = z.object({
   id: z.string().describe("b1, b2, ..."),
@@ -60,6 +61,10 @@ export const CastCharacter = z.object({
     .describe("English. Fixed look for the whole episode: age, build, face, hair/beard, clothing, colors, distinctive marks"),
   reference: z.string().optional().describe("For a REAL person, place, building, object, uniform, vehicle or artwork: a short English search query that finds a photo or painting of it on Wikipedia/Wikimedia (e.g. \"Intel C4004\", \"Hagia Sophia exterior\", \"Mehmed II Bellini portrait\", \"Janissary uniform 17th century\"). Omit for invented or generic things."),
   scenes: z.array(z.string()),
+  reuse: z
+    .string()
+    .optional()
+    .describe("Id of a LIBRARY character when this is exactly the same person (same real figure or the channel's recurring host); omit otherwise"),
 });
 
 export const CastLocation = z.object({

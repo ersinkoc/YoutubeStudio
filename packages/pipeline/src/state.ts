@@ -1,5 +1,6 @@
 import type { CastOut, LessonTarget, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
 import type { Ambience, AssetCheck, BudgetTier, FlagSpec, LineStyle, MapSpec, Timeline, VectorShot, WordTiming } from "@ys/core";
+import { stylePackOf } from "@ys/core";
 
 export type { MotionMode };
 
@@ -44,7 +45,12 @@ export interface EpisodeInput {
   /** true: onay kapılarında durma (CLI varsayılanı). Stüdyo false kullanır. */
   autoApprove?: boolean;
   /** Vektör modunda çizgi stili (kalın kontur, konturksuz, el çizimi, mürekkep). */
+  /** Çizgi stili; verilmezse stil paketinin çizgi stili. */
   lineStyle?: LineStyle;
+  /** Seri adı: bölümler seriye göre gruplanır, seri stil paketini ve karakterlerini paylaşır. */
+  series?: string;
+  /** Stil paketi: "auto" (varsayılan, konuya göre ajan seçer), "custom" (serbest sanat yönetmeni) ya da paket kimliği. */
+  stylePack?: string;
   /** Kare kalite kontrolü (görsel model). Varsayılan açık; false ile kapatılır. */
   qa?: boolean;
   /**
@@ -65,6 +71,8 @@ export interface SceneVoice {
   words: WordTiming[];
   /** true: sağlayıcı zamanlama vermedi, harf sayısına göre tahmin edildi. */
   estimatedTiming: boolean;
+  /** Seslendirilen metin: senaryo değişince eski ses kullanılmasın (yoksa eski kayıt, yeniden üretilmez). */
+  text?: string;
 }
 
 export interface PlannedShotState {
@@ -209,4 +217,9 @@ export function isApproved(state: EpisodeState, gate: Gate): boolean {
 
 export function motionModeOf(input: EpisodeInput): MotionMode {
   return input.motionMode ?? (input.aiClipRatio > 0 ? "mixed" : "still");
+}
+
+/** Bölümün çizgi stili: kullanıcı seçtiyse o, yoksa stil paketininki. */
+export function lineStyleOf(state: Pick<EpisodeState, "input" | "style">): LineStyle {
+  return state.input.lineStyle ?? stylePackOf(state.style?.pack)?.lineStyle ?? "outline";
 }

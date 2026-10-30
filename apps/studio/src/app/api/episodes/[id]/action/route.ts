@@ -1,4 +1,7 @@
 import {
+  runStatusOf,
+  setSeries,
+  reuseCharacter,
   acceptAsset,
   approve,
   rejectAsset,
@@ -11,7 +14,10 @@ import {
   setMotion,
   type MotionMode,
 } from "@ys/pipeline/light";
-import { cancelJob, getJob, repo, startJob, store } from "../../../../../lib/server";
+import { cancelJob, episodeBusy, getJob, repo, startJob, store } from "../../../../../lib/server";
+
+const EPISODE_ID = /^[a-z0-9][a-z0-9-]{0,120}$/;
+const MOTION_MODES: MotionMode[] = ["animated", "mixed", "still", "vector"];
 
 export type StudioAction =
   | { type: "generate-script" }
@@ -29,15 +35,24 @@ export type StudioAction =
   | { type: "accept-asset"; key: string }
   | { type: "reject-asset"; key: string; note?: string }
   | { type: "set-realism"; enabled: boolean }
+  | { type: "reuse-character"; castId: string; key: string }
+  | { type: "set-series"; series?: string }
   | { type: "cancel" };
 
 /** Stüdyodaki her insan kararı ve iş başlatma buradan geçer. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  if (!EPISODE_ID.test(id)) return Response.json({ error: "Geçersiz bölüm" }, { status: 400 });
   const action = (await req.json()) as StudioAction;
   const episodes = repo();
 
   try {
+    // Çalışan iş (Stüdyo'nun ya da CLI'ın) durum dosyasını bellekteki kopyasıyla yeniden yazar: araya giren her
+    // değişiklik kaybolur ya da işin ilerlemesini siler. İptal dışında hiçbir eylem iş sürerken yapılmaz.
+    if (action.type !== "cancel") {
+      const state = await episodes.load(id);
+      if (episodeBusy(id, state, runStatusOf(state).status)) throw new Error("Önce çalışan iş bitmeli");
+    }
     switch (action.type) {
       case "generate-script":
         startJob(id, "Senaryo yazılıyor", ["episode", "run", id, "--until", "script"]);
@@ -62,6 +77,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         startJob(id, "Deneme kareleri üretiliyor", ["episode", "preview", id]);
         break;
       case "set-motion":
+        if (!MOTION_MODES.includes(action.motionMode)) throw new Error("Geçersiz hareket modu");
         await episodes.update(id, (s) => setMotion(s, action.motionMode, action.aiClipRatio));
         break;
       case "approve-concept":
@@ -72,21 +88,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         await episodes.update(id, (s) => changeVoice(s, action.voiceId));
         break;
       case "redraw":
-        // Çalışan iş durumu dosyasına yazarken araya girilmesin.
-        if (getJob(id)?.status === "running") throw new Error("Önce çalışan iş bitmeli");
         await episodes.update(id, (s) => redrawShots(s, action.shotIds));
         startJob(id, `${action.shotIds.length} kare yeniden çiziliyor`, ["episode", "run", id]);
         break;
       case "accept-asset":
       case "reject-asset": {
-        // Çalışan iş durum dosyasına yazarken insan kararı araya girmesin.
-        if (getJob(id)?.status === "running") throw new Error("Önce çalışan iş bitmeli");
         const s = await episodes.load(id);
         if (action.type === "accept-asset") await acceptAsset(store(), s, action.key);
         else await rejectAsset(store(), s, action.key, action.note);
         await episodes.save(s);
         break;
       }
+      case "reuse-character": {
+        const s = await episodes.load(id);
+        await reuseCharacter(store(), s, action.castId, action.key);
+        await episodes.save(s);
+        break;
+      }
+      case "set-series":
+        await episodes.update(id, (s) => setSeries(s, typeof action.series === "string" ? action.series : undefined));
+        break;
       case "set-realism":
         await episodes.update(id, (s) => setRealism(s, action.enabled));
         break;
@@ -96,6 +117,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       case "cancel":
         cancelJob(id);
         break;
+      default:
+        throw new Error(`Bilinmeyen eylem: ${(action as { type?: unknown }).type}`);
     }
     return Response.json({ ok: true });
   } catch (e) {

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { lessonsBlock, models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
 import { CastOut, FrameReviewOut, ScriptDoctorOut, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "./schemas.ts";
 
@@ -54,6 +55,33 @@ Rules:
 - Every frame is a full-bleed video frame. The style must NOT include borders, frames, ornamental margins, panels, page/paper edges or book layouts — even for historical art styles, describe only rendering technique, palette and texture.
 - Never include text, letters, logos or watermarks.`,
       prompt: `Topic: ${brief.topic}\nAudience: ${brief.audience ?? "general"}\nStyle hint: ${brief.styleHint ?? "none — choose what fits the topic"}`,
+    },
+    deps,
+  );
+}
+
+export const StylePickOut = z.object({
+  packId: z.string().describe("Id of the chosen style pack, exactly as listed"),
+  reason: z.string().describe("One short sentence: why this style fits the topic"),
+});
+export type StylePickOut = z.infer<typeof StylePickOut>;
+
+/** Hazır stil paketlerinden konuya en uygununu seçer (ucuz; serbest sanat yönetimi yerine). */
+export function stylePicker(
+  brief: EpisodeBrief,
+  packs: readonly { id: string; artStyle: string; suits: string }[],
+  deps?: AgentDeps,
+): Promise<AgentResult<StylePickOut>> {
+  return runStructured(
+    {
+      name: "style-picker",
+      model: models().cheap,
+      effort: "low",
+      schema: StylePickOut,
+      system: `You choose the visual style of an animated YouTube video from a fixed catalogue of style packs. Pick the pack whose era, mood and subject fit the topic best, so the look itself tells the viewer what the video is about (an Ottoman story in Ottoman miniature, a 1980s computer story in neon synthwave, a crime story in film noir). Respect the user's style hint when it is given.
+Catalogue:
+${packs.map((p) => `- ${p.id}: ${p.artStyle}. Suits: ${p.suits}`).join("\n")}`,
+      prompt: `Topic: ${brief.topic}\nAudience: ${brief.audience ?? "general"}\nStyle hint: ${brief.styleHint ?? "none"}`,
     },
     deps,
   );
@@ -140,7 +168,19 @@ export function indexWords(narration: string): { words: string[]; annotated: str
 }
 
 /** Senaryodaki tekrar eden karakter ve mekânları çıkarır; tutarlılığın temeli (plan §6). */
-export function castingDirector(script: ScriptOut, style: StyleBibleOut, deps?: AgentDeps): Promise<AgentResult<CastOut>> {
+/** Kütüphanede bu stilde çizilmiş karakter: aynı kişi başka bölümde geçerse yeniden çizilmez. */
+export interface LibraryCharacterBrief {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export function castingDirector(
+  script: ScriptOut,
+  style: StyleBibleOut,
+  deps?: AgentDeps,
+  library: LibraryCharacterBrief[] = [],
+): Promise<AgentResult<CastOut>> {
   return runStructured(
     {
       name: "casting-director",
@@ -158,7 +198,13 @@ Rules:
 - Historical/real figures: depict respectfully in the given art style; never depict prophets or religious figures.
 - Set "kind" honestly: only humans are "person". A recurring horse, dog or bird is "animal"; a recurring bag, machine or vehicle is "object" (they are drawn differently from people).
 - Realism is mandatory: real people, places, buildings, objects and uniforms are described as they really looked (period-correct clothing, headgear, hair, beard, materials, colours, architecture). Set "reference" for every real one so the illustrator works from a real photo or painting; never invent the look of something real.
-Art style: ${style.artStyle}.`,
+Art style: ${style.artStyle}.${
+        library.length
+          ? `\nCharacter library (already drawn in this art style; reusing one is free and keeps the channel consistent):
+${library.map((c) => `- ${c.id}: ${c.name} — ${c.description}`).join("\n")}
+If a character of this script is EXACTLY the same person as a library character (the same real historical figure, or the channel's recurring host/narrator), set "reuse" to that id and copy its visualDescription. Never reuse a library character for a different person just because the role is similar.`
+          : ""
+      }`,
       prompt: script.scenes
         .map((s) => `## ${s.id} (location: ${s.location})\nVisual intent: ${s.visualIntent}\nNarration: ${s.narration}`)
         .join("\n\n"),

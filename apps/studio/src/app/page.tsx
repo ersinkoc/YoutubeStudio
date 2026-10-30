@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { statusLabel } from "../lib/status";
-import { runStatusOf, STAGES, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
+import { motionModeOf, runStatusOf, sameSeries, seriesOf, STAGES, summarizeSeries, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
 import { Film } from "lucide-react";
 import type { MessageKey } from "../lib/i18n";
 import { getI18n } from "../lib/locale";
@@ -28,9 +28,21 @@ const SEGMENT: Record<RunStatus | "pending", string> = {
   pending: "bg-panel-2",
 };
 
-export default async function Home() {
-  const [all, entries, { t, fmt }] = await Promise.all([repo().list(), ledgerEntries(), getI18n()]);
-  const episodes = all.filter((e) => e.input.topic !== "render demo");
+/** "?series=Ad" o seriyi, "?series=-" serisizleri gösterir; parametre yoksa hepsi. */
+const NO_SERIES = "-";
+
+export default async function Home({ searchParams }: { searchParams: Promise<{ series?: string }> }) {
+  const [all, entries, { t, fmt }, params] = await Promise.all([repo().list(), ledgerEntries(), getI18n(), searchParams]);
+  const everything = all.filter((e) => e.input.topic !== "render demo");
+  const series = summarizeSeries(everything);
+  const filter = params.series;
+  const episodes =
+    filter === undefined
+      ? everything
+      : filter === NO_SERIES
+        ? everything.filter((e) => !seriesOf(e))
+        : everything.filter((e) => sameSeries(seriesOf(e), filter));
+  const unseries = everything.filter((e) => !seriesOf(e)).length;
   const spent = new Map<string, number>();
   for (const e of entries) if (e.episodeId && !e.cacheHit) spent.set(e.episodeId, (spent.get(e.episodeId) ?? 0) + e.estimateMicros);
   const statuses = new Map(episodes.map((e) => [e.id, runStatusOf(e)]));
@@ -41,7 +53,28 @@ export default async function Home() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
       <section className="grid content-start gap-5">
         <AutoRefresh everyMs={running ? 4000 : 30_000} />
-        <h1 className="text-2xl font-semibold tracking-tight">{t("home.title")}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{filter && filter !== NO_SERIES ? t("series.label", { name: filter }) : t("home.title")}</h1>
+        {series.length > 0 && (
+          <nav className="flex flex-wrap gap-2 text-sm" aria-label={t("series.filter")}>
+            <Link href="/" className={`chip ${filter === undefined ? "chip-on" : ""}`}>
+              {t("series.all")} <span className="text-muted">{everything.length}</span>
+            </Link>
+            {series.map((s) => (
+              <Link
+                key={s.name}
+                href={`/?series=${encodeURIComponent(s.name)}`}
+                className={`chip ${filter !== undefined && sameSeries(filter, s.name) ? "chip-on" : ""}`}
+              >
+                {s.name} <span className="text-muted">{s.episodes}</span>
+              </Link>
+            ))}
+            {unseries > 0 && (
+              <Link href={`/?series=${NO_SERIES}`} className={`chip ${filter === NO_SERIES ? "chip-on" : ""}`}>
+                {t("series.none")} <span className="text-muted">{unseries}</span>
+              </Link>
+            )}
+          </nav>
+        )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Kpi label={t("home.kpi.episodes")} value={fmt.number(episodes.length)} />
           <Kpi label={t("home.kpi.videos")} value={fmt.number(episodes.filter((e) => e.render).length)} />
@@ -68,9 +101,10 @@ export default async function Home() {
                   <div className="grid min-w-0 flex-1 content-between gap-2 py-0.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
+                        {seriesOf(e) && filter === undefined && <div className="text-[11px] font-medium text-accent">{seriesOf(e)}</div>}
                         <div className="truncate font-medium">{e.story?.title ?? e.input.topic}</div>
                         <div className="mt-1 text-xs text-muted">
-                          {e.input.lang.toUpperCase()} · {fmt.duration(e.input.targetSec)} · {t(`motion.${e.input.motionMode ?? "mixed"}` as MessageKey)} ·{" "}
+                          {e.input.lang.toUpperCase()} · {fmt.duration(e.input.targetSec)} · {t(`motion.${motionModeOf(e.input)}` as MessageKey)} ·{" "}
                           {fmt.date(e.createdAt)}
                         </div>
                       </div>
@@ -98,7 +132,7 @@ export default async function Home() {
         </ul>
       </section>
       <aside>
-        <NewEpisodeForm />
+        <NewEpisodeForm key={filter ?? ""} series={series} initialSeries={filter && filter !== NO_SERIES ? filter : undefined} />
       </aside>
     </div>
   );

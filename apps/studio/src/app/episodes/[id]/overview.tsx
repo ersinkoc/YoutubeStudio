@@ -2,11 +2,12 @@
 
 import { Download, Film, GraduationCap, Stethoscope } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { stylePackOf } from "@ys/core/styles";
 import type { MessageKey } from "../../../lib/i18n";
 import type { EpisodeResponse } from "../../../lib/types";
 import { VOICES } from "../../../lib/voices";
 import { useI18n } from "../../locale-provider";
-import { asset, Bar, Stat } from "./parts";
+import { asset, Bar, Stat, modeOf } from "./parts";
 
 export function OverviewTab({ data }: { data: EpisodeResponse }) {
   const { t, fmt } = useI18n();
@@ -154,17 +155,19 @@ function Review({ data }: { data: EpisodeResponse }) {
 }
 
 function Facts({ data }: { data: EpisodeResponse }) {
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
   const { state } = data;
   const { input } = state;
-  const mode = input.motionMode ?? "mixed";
+  const mode = modeOf(input);
+  const pack = stylePackOf(state.style?.pack);
   const voice = VOICES.find((v) => v.id === (input.voiceId ?? ""));
   const rows: [string, ReactNode][] = [
     [t("fact.topic"), input.topic],
     [t("fact.lang"), input.lang.toUpperCase()],
     [t("fact.target"), fmt.duration(input.targetSec)],
     [t("fact.motion"), t(`motion.${mode}` as MessageKey)],
-    ...(mode === "vector" ? [[t("fact.line"), t(`line.${input.lineStyle ?? "outline"}` as MessageKey)] as [string, ReactNode]] : []),
+    ...(pack ? [[t("fact.pack"), pack.name[locale]] as [string, ReactNode]] : []),
+    ...(mode === "vector" ? [[t("fact.line"), t(`line.${input.lineStyle ?? pack?.lineStyle ?? "outline"}` as MessageKey)] as [string, ReactNode]] : []),
     [t("fact.tier"), t(`form.tier.${input.tier}` as MessageKey)],
     [t("fact.voice"), voice ? t(voice.label) : (state.voiceProviderId ?? "—")],
     [t("fact.created"), fmt.date(state.createdAt)],

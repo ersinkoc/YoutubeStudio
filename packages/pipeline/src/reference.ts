@@ -34,6 +34,8 @@ interface Candidate extends ReferenceSource {
 
 async function getJsonUrl<T>(fetchFn: typeof fetch, url: string): Promise<T | undefined> {
   const res = await fetchFn(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  // 429/5xx geçicidir: hata fırlatılır ki sonuç önbelleğe "referans yok" diye yazılmasın.
+  if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
   return res.ok ? ((await res.json()) as T) : undefined;
 }
 
@@ -94,10 +96,12 @@ export async function findReferences(
 
   const fetchFn = deps.fetch ?? fetch;
   const candidates: Candidate[] = [];
+  let searchFailed = false;
   for (const search of [wikipediaLead, commonsSearch]) {
     try {
       candidates.push(...(await search(fetchFn, q)));
     } catch (e) {
+      searchFailed = true;
       deps.log?.(`  referans araması başarısız (${search.name}): ${e instanceof Error ? e.message : String(e)}`);
     }
   }
@@ -110,7 +114,11 @@ export async function findReferences(
     seen.add(file);
     try {
       const res = await fetchFn(c.thumb, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        // 429/5xx geçici: sonuç önbelleğe yazılmasın ki sonraki çalıştırma yeniden denesin.
+        if (res.status === 429 || res.status >= 500) searchFailed = true;
+        continue;
+      }
       // Tek biçim ve boyut: JPEG, uzun kenar ≤ 768 (görsel model sınırları ve depo boyutu için).
       const jpeg = new Uint8Array(
         await sharp(Buffer.from(await res.arrayBuffer()))
@@ -125,10 +133,12 @@ export async function findReferences(
       out.sources.push({ title: c.title, url: c.url, license: c.license });
       out.keys.push(key);
     } catch (e) {
+      searchFailed = true;
       deps.log?.(`  referans indirilemedi (${c.title}): ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  await putJson(deps.store, `${dir}/index.json`, { query: q, sources: out.sources, keys: out.keys });
+  // Arama yarıda kaldıysa (ağ, 429/5xx) sonuç önbelleğe yazılmaz: geçici bir hata kalıcı "referans yok" olmasın.
+  if (!searchFailed) await putJson(deps.store, `${dir}/index.json`, { query: q, sources: out.sources, keys: out.keys });
   return out;
 }
 

@@ -372,10 +372,14 @@ export function progressOf(state: EpisodeState, now = Date.now()): Progress | un
   const running = STAGES.find((s) => !state.done[s] && state.stats?.[s] && !state.stats[s]!.endedAt);
   if (!running) return undefined;
   const counts: Partial<Record<Stage, [number, number]>> = {
-    concept: [
-      Object.values(state.concept?.candidates ?? {}).reduce((n, l) => n + l.length, 0),
-      (state.cast?.characters.length ?? 0) * 3 + (state.cast?.locations.length ?? 0) * 2,
-    ],
+    // Vektör modunda varlık başına tek çizim (seçilince bitmiş sayılır); görsel modda karakter 3, mekân 2 aday.
+    concept:
+      motionModeOf(state.input) === "vector"
+        ? [Object.keys(state.concept?.selected ?? {}).length, (state.cast?.characters.length ?? 0) + (state.cast?.locations.length ?? 0)]
+        : [
+            Object.values(state.concept?.candidates ?? {}).reduce((n, l) => n + l.length, 0),
+            (state.cast?.characters.length ?? 0) * 3 + (state.cast?.locations.length ?? 0) * 2,
+          ],
     voice: [Object.keys(state.voice ?? {}).length, state.script?.scenes.length ?? 0],
     keyframes: motionModeOf(state.input) === "vector"
       ? [
@@ -416,7 +420,8 @@ export function runStatusOf(state: EpisodeState, now = Date.now()): { status: Ru
   }
   if (state.lastError) return { status: "error", stage: state.lastError.stage };
   // İnceleme aşaması sonradan eklendi; videosu olan eski bölümler de bitmiş sayılır.
-  if (state.render || STAGES.every((s) => state.done[s])) return { status: "done" };
+  // Sonradan geçersizleştirilmiş (render'ı yeniden açılmış) bölüm bitmiş sayılmaz.
+  if ((state.render && state.done.render) || STAGES.every((s) => state.done[s])) return { status: "done" };
   const next = STAGES.find((s) => !state.done[s])!;
   // "--until script" gibi kısmi çalıştırmalar kapıya varmadan durur; bekleme yine de sıradaki aşamanın kapısından anlaşılır.
   const gate = gateBefore(next);

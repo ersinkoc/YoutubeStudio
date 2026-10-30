@@ -187,7 +187,8 @@ export class VeoAdapter implements ProviderAdapter {
         ],
         parameters: {
           aspectRatio: req.aspectRatio ?? "16:9",
-          durationSeconds: Math.round(req.durationSec ?? 8),
+          // Veo yalnız 4/6/8 sn üretir; faturalama ile aynı yuvarlama (2 sn adım, en az 4).
+          durationSeconds: Math.min(8, Math.max(4, Math.ceil((req.durationSec ?? 5) / 2) * 2)),
           ...(req.negativePrompt ? { negativePrompt: req.negativePrompt } : {}),
           ...(req.seed !== undefined ? { seed: req.seed } : {}),
         },

@@ -2,7 +2,7 @@
 
 import { statusLabel } from "../../../lib/status";
 import type { Stage } from "@ys/pipeline/light";
-import { ArrowLeft, Mic, Play, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, Mic, Pencil, Play, RefreshCw, Square } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { MessageKey } from "../../../lib/i18n";
@@ -11,7 +11,7 @@ import { useI18n } from "../../locale-provider";
 import { ActivityLine, ActivityTab } from "./activity";
 import { CostsTab } from "./costs-panel";
 import { OverviewTab } from "./overview";
-import { Badge, Bar, STAGE_GROUPS, STATUS_TONE, StatusIcon, stageKey, TABS, type Act, type Tab } from "./parts";
+import { Badge, Bar, modeOf, STAGE_GROUPS, STATUS_TONE, StatusIcon, stageKey, TABS, type Act, type Tab } from "./parts";
 import { ConceptTab, ScriptTab, ShotsTab } from "./steps";
 
 export function EpisodeView({ id }: { id: string }) {
@@ -59,14 +59,23 @@ export function EpisodeView({ id }: { id: string }) {
     async (action) => {
       setPending(true);
       setError(undefined);
-      const res = await fetch(`/api/episodes/${id}/action`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(action),
-      });
-      if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? t("common.actionFailed"));
-      await refresh();
-      setPending(false);
+      // Ağ hatası ya da HTML hata sayfası düğmeleri sonsuza dek kilitlemesin; başarı çağırana döner (not kutusu
+      // yalnız istek kabul edilince kapanır).
+      try {
+        const res = await fetch(`/api/episodes/${id}/action`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(action),
+        });
+        if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? t("common.actionFailed"));
+        return res.ok;
+      } catch {
+        setError(t("common.actionFailed"));
+        return false;
+      } finally {
+        await refresh().catch(() => {});
+        setPending(false);
+      }
     },
     [id, refresh, t],
   );
@@ -91,7 +100,7 @@ export function EpisodeView({ id }: { id: string }) {
 
   return (
     <div className="grid gap-5">
-      <Header data={data} />
+      <Header data={data} act={act} />
       <PipelineRail data={data} onStage={openStage} />
       <LivePanel data={data} busy={busy} act={act} onTab={setTab} />
       {error && <div className="rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">{error}</div>}
@@ -130,10 +139,49 @@ export function EpisodeView({ id }: { id: string }) {
 
 // ---------------- üst bilgi ----------------
 
-function Header({ data }: { data: EpisodeResponse }) {
+/** Seri etiketi: tıklayınca o serinin bölümleri; kalemle seri adı değiştirilir. */
+function SeriesTag({ series, act }: { series?: string; act: Act }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(series ?? "");
+  if (editing) {
+    return (
+      <form
+        className="flex items-center gap-1.5"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          await act({ type: "set-series", series: value });
+          setEditing(false);
+        }}
+      >
+        <input autoFocus className="field w-56 py-0.5 text-xs" value={value} maxLength={80} placeholder={t("series.placeholder")} onChange={(e) => setValue(e.target.value)} />
+        <button className="btn-primary py-0.5 text-xs">{t("series.save")}</button>
+        <button type="button" className="btn-ghost py-0.5 text-xs" onClick={() => setEditing(false)}>
+          {t("gate.cancel")}
+        </button>
+      </form>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      {series ? (
+        <Link href={`/?series=${encodeURIComponent(series)}`} className="rounded-full bg-accent/15 px-2 py-0.5 font-medium text-accent hover:bg-accent/25">
+          {t("series.label", { name: series })}
+        </Link>
+      ) : (
+        <span className="text-muted">{t("series.none")}</span>
+      )}
+      <button type="button" className="text-muted hover:text-white" title={t("series.edit")} onClick={() => setEditing(true)}>
+        <Pencil size={12} />
+      </button>
+    </span>
+  );
+}
+
+function Header({ data, act }: { data: EpisodeResponse; act: Act }) {
   const { t, fmt } = useI18n();
   const { state, spentUsd, claudeUsd, status } = data;
-  const mode = state.input.motionMode ?? "mixed";
+  const mode = modeOf(state.input);
   const pct = Math.min(100, (spentUsd / state.input.budgetUsd) * 100);
   return (
     <div className="grid gap-3">
@@ -142,7 +190,8 @@ function Header({ data }: { data: EpisodeResponse }) {
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-3">
+          <SeriesTag series={state.input.series} act={act} />
+          <div className="mt-1 flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">{state.story?.title ?? state.input.topic}</h1>
             <Badge status={status.status}>{statusLabel(t, status)}</Badge>
           </div>
@@ -171,7 +220,7 @@ function Header({ data }: { data: EpisodeResponse }) {
 function PipelineRail({ data, onStage }: { data: EpisodeResponse; onStage: (s: Stage) => void }) {
   const { t, fmt } = useI18n();
   const { state, status, progress } = data;
-  const est = data.estimates[state.input.motionMode ?? "mixed"];
+  const est = data.estimates[modeOf(state.input)];
   const actual = new Map(data.actual.byStage.map((g) => [g.key, g.micros / 1_000_000]));
   const estOf = (s: Stage) => est.rows.filter((r) => r.stage === s).reduce((n, r) => n + r.seconds, 0);
 
@@ -315,7 +364,8 @@ function LivePanel({ data, busy, act, onTab }: { data: EpisodeResponse; busy: bo
       break;
     case "error": {
       const err = state.lastError!;
-      const quota = /kota|quota/i.test(err.message);
+      // Ses sağlayıcısını değiştirmek yalnız ses aşamasındaki kota hatasında anlamlı: başka aşamada tüm sesi ve sonrasını siler.
+      const quota = err.stage === "voice" && /kota|quota/i.test(err.message);
       headline = t("ep.err.stopped", { stage: stageName });
       body = <p className="text-sm break-words text-muted">{err.message}</p>;
       actions = (

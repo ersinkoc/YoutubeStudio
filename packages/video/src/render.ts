@@ -37,7 +37,8 @@ export async function renderEpisode(opts: RenderOptions): Promise<string> {
   const inputProps = { timeline: opts.timeline };
   const composition = await selectComposition({ serveUrl, id: "Episode", inputProps });
 
-  const rawPath = opts.outputPath.replace(/\.mp4$/, ".raw.mp4");
+  // Uzantı ne olursa olsun ham dosya ayrı: aynı yol olursa ffmpeg kendi girdisinin üstüne yazar, rm sonucu siler.
+  const rawPath = `${opts.outputPath.replace(/\.mp4$/i, "")}.raw.mp4`;
   await renderMedia({
     serveUrl,
     composition,

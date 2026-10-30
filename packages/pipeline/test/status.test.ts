@@ -41,7 +41,9 @@ describe("bölüm durumu", () => {
 
   it("hata ve render edilmiş video", () => {
     expect(runStatusOf(state({ lastError: { stage: "voice", message: "x", at: at(NOW) } }), NOW)).toEqual({ status: "error", stage: "voice" });
-    expect(runStatusOf(state({ render: { path: "v.mp4", at: at(NOW) } }), NOW).status).toBe("done");
+    expect(runStatusOf(state({ render: { path: "v.mp4", at: at(NOW) }, done: { render: "x" } }), NOW).status).toBe("done");
+    // Render yeniden açıldıysa (ör. nesne kabul edildi) eski video "bitti" saydırmaz.
+    expect(runStatusOf(state({ render: { path: "v.mp4", at: at(NOW) } }), NOW).status).not.toBe("done");
   });
 
   it("render ilerlemesi yüzde olarak görünür", () => {

@@ -1,8 +1,9 @@
 "use client";
 
-import type { EpisodeEstimate, MotionMode } from "@ys/pipeline/light";
+import type { EpisodeEstimate, MotionMode, SeriesSummary } from "@ys/pipeline/light";
 import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { STYLE_AUTO, STYLE_CUSTOM, STYLE_PACKS, stylePackOf } from "@ys/core/styles";
 import { useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../lib/i18n";
 import { VOICES } from "../lib/voices";
@@ -30,9 +31,10 @@ function estimateInput(form: HTMLFormElement) {
   };
 }
 
-export function NewEpisodeForm() {
+export function NewEpisodeForm({ series = [], initialSeries }: { series?: SeriesSummary[]; initialSeries?: string }) {
   const router = useRouter();
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
+  const [pack, setPack] = useState<string>(STYLE_AUTO);
   const formRef = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -40,6 +42,30 @@ export function NewEpisodeForm() {
   const [mode, setMode] = useState<MotionMode>("animated");
   const [budget, setBudget] = useState(20);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const findSeries = (name: string) => series.find((s) => s.name.trim().toLocaleLowerCase("tr") === name.trim().toLocaleLowerCase("tr"));
+  const [matched, setMatched] = useState<SeriesSummary | undefined>(() => (initialSeries ? findSeries(initialSeries) : undefined));
+
+  // Var olan bir seri seçilince ayarlar serinin son bölümünden doldurulur (dil, süre, mod, paket, ses, bütçe).
+  function applySeries(name: string) {
+    const s = findSeries(name);
+    setMatched(s);
+    const f = formRef.current;
+    if (!s || !f) return;
+    const d = s.defaults;
+    const set = (field: string, value: string | number | undefined) => {
+      const el = f.elements.namedItem(field) as HTMLInputElement | HTMLSelectElement | null;
+      if (el && value !== undefined) el.value = String(value);
+    };
+    set("lang", d.lang);
+    set("minutes", d.minutes);
+    set("tier", d.tier);
+    set("motionMode", d.motionMode);
+    set("voiceId", d.voiceId);
+    set("budgetUsd", d.budgetUsd);
+    if (d.motionMode) setMode(d.motionMode);
+    if (d.stylePack) setPack(d.stylePack);
+    scheduleEstimate();
+  }
 
   // Form değiştikçe (400 ms gecikmeyle) maliyet/süre tahminini yenile. Para harcamaz.
   function scheduleEstimate() {
@@ -59,6 +85,8 @@ export function NewEpisodeForm() {
   }
 
   useEffect(() => {
+    // Seri sayfasından açıldıysa ayarlar o serinin son bölümünden doldurulur.
+    if (initialSeries) applySeries(initialSeries);
     scheduleEstimate();
     return () => clearTimeout(timer.current);
   }, []);
@@ -66,31 +94,38 @@ export function NewEpisodeForm() {
   async function submit(form: FormData) {
     setBusy(true);
     setError(undefined);
-    const res = await fetch("/api/episodes", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        topic: form.get("topic"),
-        lang: form.get("lang"),
-        minutes: Number(form.get("minutes")),
-        tier: form.get("tier"),
-        motionMode: form.get("motionMode"),
-        voiceId: form.get("voiceId"),
-        styleHint: form.get("styleHint"),
-        budgetUsd: Number(form.get("budgetUsd")),
-        vertical: form.get("vertical") === "on",
-        qa: form.get("qa") === "on",
-        realism: form.get("realism") === "on",
-        lineStyle: form.get("lineStyle") ?? undefined,
-      }),
-    });
-    const body = (await res.json()) as { id?: string; error?: string };
-    if (!res.ok || !body.id) {
-      setError(body.error ?? t("form.failed"));
+    try {
+      const res = await fetch("/api/episodes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          topic: form.get("topic"),
+          lang: form.get("lang"),
+          minutes: Number(form.get("minutes")),
+          tier: form.get("tier"),
+          motionMode: form.get("motionMode"),
+          voiceId: form.get("voiceId"),
+          styleHint: form.get("styleHint"),
+          series: form.get("series"),
+          budgetUsd: Number(form.get("budgetUsd")),
+          vertical: form.get("vertical") === "on",
+          qa: form.get("qa") === "on",
+          realism: form.get("realism") === "on",
+          lineStyle: form.get("lineStyle") || undefined,
+          stylePack: form.get("stylePack"),
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !body.id) {
+        setError(body.error ?? t("form.failed"));
+        setBusy(false);
+        return;
+      }
+      router.push(`/episodes/${body.id}`);
+    } catch {
+      setError(t("form.failed"));
       setBusy(false);
-      return;
     }
-    router.push(`/episodes/${body.id}`);
   }
 
   const est = estimates?.[mode];
@@ -100,8 +135,47 @@ export function NewEpisodeForm() {
     <form ref={formRef} action={submit} onChange={scheduleEstimate} className="card grid gap-4">
       <h2 className="text-lg font-semibold">{t("form.title")}</h2>
       <div>
+        <label className="label" htmlFor="series">{t("series.field")}</label>
+        <input
+          id="series"
+          name="series"
+          list="series-list"
+          maxLength={80}
+          defaultValue={initialSeries}
+          className="field"
+          placeholder={t("series.placeholder")}
+          onChange={(e) => applySeries(e.target.value)}
+        />
+        <datalist id="series-list">
+          {series.map((s) => (
+            <option key={s.name} value={s.name} />
+          ))}
+        </datalist>
+        <p className="mt-1 text-xs text-muted">{matched ? t("series.inherit", { n: matched.episodes }) : t("series.hint")}</p>
+      </div>
+      <div>
         <label className="label" htmlFor="topic">{t("form.topic")}</label>
         <textarea id="topic" name="topic" required rows={3} className="field" placeholder={t("form.topic.placeholder")} />
+      </div>
+      <div>
+        <label className="label" htmlFor="stylePack">{t("form.stylePack")}</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <select id="stylePack" name="stylePack" className="field max-w-sm" value={pack} onChange={(e) => setPack(e.target.value)}>
+            <option value={STYLE_AUTO}>{t("form.stylePack.auto")}</option>
+            {STYLE_PACKS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name[locale]}
+              </option>
+            ))}
+            <option value={STYLE_CUSTOM}>{t("form.stylePack.custom")}</option>
+          </select>
+          {stylePackOf(pack)?.palette.map((c) => (
+            <span key={c} title={c} className="h-6 w-6 rounded border border-line" style={{ background: c }} />
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">{stylePackOf(pack)
+            ? t("form.stylePack.line", { line: t(`line.${stylePackOf(pack)!.lineStyle}` as MessageKey) })
+            : t(pack === STYLE_CUSTOM ? "form.stylePack.customHint" : "form.stylePack.autoHint")}</p>
       </div>
       <div>
         <label className="label" htmlFor="styleHint">{t("form.style")}</label>
@@ -141,7 +215,8 @@ export function NewEpisodeForm() {
       {mode === "vector" && (
         <div>
           <label className="label" htmlFor="lineStyle">{t("form.lineStyle")}</label>
-          <select id="lineStyle" name="lineStyle" className="field" defaultValue="outline">
+          <select id="lineStyle" name="lineStyle" className="field" defaultValue="">
+            <option value="">{t("line.pack")}</option>
             {(["outline", "flat", "sketch", "ink"] as const).map((s) => (
               <option key={s} value={s}>{t(`line.${s}`)}</option>
             ))}
