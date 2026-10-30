@@ -56,6 +56,14 @@ const QA = { usd: 0.0012, ms: 3_000, redrawRate: 0.45 };
  */
 const VECTOR = { assetUsd: 0.065, assetSec: 30, sceneUsd: 0.1, sceneSec: 36, propUsd: 0.017, propSec: 12, propsPerScene: 2, renderX: 1.9, reviseRate: 0.4 };
 
+/**
+ * Kalite kapısı (30 Eki): her SVG kullanılmadan önce iki ucuz görsel çağrıyla (kör tahmin + kapı, Haiku) denetlenir;
+ * geçemeyen kusurlarla yeniden çizilir (en çok 3 çizim). Henüz ölçülmedi: denetim ~$0.003, varlık başı ~0,45 ek
+ * çizim varsayıldı (ilk bölümden sonra ölçümle güncellenecek).
+ */
+const GATE = { checkUsd: 0.003, extraDraws: 0.45 };
+const withReality = (drawUsd: number) => drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
+
 /** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
 const REVIEW = { perBatch: 6, batchUsd: 0.006, batchSec: 8, stillSec: 0.8 };
 
@@ -162,9 +170,9 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       providerId: "claude (SVG)",
       quantity: assets,
       unit: "varlık",
-      costUsd: assets * VECTOR.assetUsd,
+      costUsd: assets * withReality(VECTOR.assetUsd),
       seconds: (Math.ceil(assets / PARALLEL) * VECTOR.assetSec),
-      basis: `tahmin: varlık başı ~$${VECTOR.assetUsd}${castNote}`,
+      basis: `tahmin: varlık başı ~$${VECTOR.assetUsd}${castNote}; her çizim kalite kapısından geçer (~%${Math.round(GATE.extraDraws * 100)} ek çizim)`,
     });
   } else {
     add({
@@ -220,7 +228,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       providerId: "claude (SVG)",
       quantity: props,
       unit: "nesne",
-      costUsd: props * VECTOR.propUsd,
+      costUsd: props * withReality(VECTOR.propUsd),
       seconds: Math.ceil(props / PARALLEL) * VECTOR.propSec,
       basis: "tahmin: yeni nesneler; kütüphanede olanlar ücretsiz",
     });

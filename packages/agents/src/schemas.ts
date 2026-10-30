@@ -44,6 +44,9 @@ export const ScriptOut = z.object({
 });
 export type ScriptOut = z.infer<typeof ScriptOut>;
 
+/** Gerçek bir şeyin referans görseli için arama sorgusu (Wikipedia/Commons); tasarımcı görseli görerek çizer. */
+export const REFERENCE_QUERY_HINT = "For a REAL person, place, building, object, uniform, vehicle or artwork: a short English search query that finds a photo or painting of it on Wikipedia/Wikimedia (e.g. \"Intel C4004\", \"Hagia Sophia exterior\", \"Mehmed II Bellini portrait\", \"Janissary uniform 17th century\"). Omit for invented or generic things.";
+
 export const CastCharacter = z.object({
   id: z.string().describe("c1, c2, ..."),
   name: z.string(),
@@ -51,6 +54,7 @@ export const CastCharacter = z.object({
   visualDescription: z
     .string()
     .describe("English. Fixed look for the whole episode: age, build, face, hair/beard, clothing, colors, distinctive marks"),
+  reference: z.string().optional().describe("For a REAL person, place, building, object, uniform, vehicle or artwork: a short English search query that finds a photo or painting of it on Wikipedia/Wikimedia (e.g. \"Intel C4004\", \"Hagia Sophia exterior\", \"Mehmed II Bellini portrait\", \"Janissary uniform 17th century\"). Omit for invented or generic things."),
   scenes: z.array(z.string()),
 });
 
@@ -58,6 +62,7 @@ export const CastLocation = z.object({
   id: z.string().describe("l1, l2, ..."),
   name: z.string(),
   visualDescription: z.string().describe("English. Architecture, materials, props, light, time of day"),
+  reference: z.string().optional().describe("For a REAL person, place, building, object, uniform, vehicle or artwork: a short English search query that finds a photo or painting of it on Wikipedia/Wikimedia (e.g. \"Intel C4004\", \"Hagia Sophia exterior\", \"Mehmed II Bellini portrait\", \"Janissary uniform 17th century\"). Omit for invented or generic things."),
   scenes: z.array(z.string()),
 });
 

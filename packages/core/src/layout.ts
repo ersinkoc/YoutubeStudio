@@ -1,3 +1,4 @@
+import { READABLE_SIDE } from "./rules.ts";
 import type { VectorAsset, VectorLayer, VectorShot } from "./vector.ts";
 
 /**
@@ -22,11 +23,6 @@ export const STAGE = {
 const DEFAULT_REAL_HEIGHT: Record<VectorAsset["kind"], number> = { character: 1.7, prop: 0.8, background: 0 };
 /** Elde tutulan nesnenin varsayılan boyu (m). */
 const HELD_REAL_HEIGHT = 0.3;
-/**
- * Hikâye nesnesinin okunabilir en kısa "en uzun kenarı" (m, derinlik ölçeğiyle çarpılır). Fiziksel olarak doğru
- * ama ekranda 15 px kalan not, kitap, çip görünmez (30 Eki denemesi); çizgi filmdeki gibi abartılır.
- */
-const READABLE_SIDE = { held: 0.28, surface: 0.18, floor: 0.14 } as const;
 
 /** Nesnenin boyunu, en uzun kenarı okunabilir sınırın altına düşmeyecek şekilde büyütür. */
 function readableHeight(h: number, aspect: number, minSide: number, fixes: string[]): number {

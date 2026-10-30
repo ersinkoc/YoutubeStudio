@@ -1,8 +1,8 @@
 import { FlagSpec, MapSpec, RIG, VectorShot, type LineStyle } from "@ys/core";
 import { z } from "zod";
 import { indexWords } from "./agents.ts";
-import { lessonsBlock, models, runStructured, type AgentDeps, type AgentResult } from "./runner.ts";
-import type { CastOut, ScriptOut, StyleBibleOut } from "./schemas.ts";
+import { lessonsBlock, models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
+import { REFERENCE_QUERY_HINT, type CastOut, type ScriptOut, type StyleBibleOut } from "./schemas.ts";
 
 /**
  * Vektör modu ajanları. Claude yalnız yaratıcı işi yapar: varlık tasarımı (bir kez, kütüphanede saklanır)
@@ -55,6 +55,10 @@ export interface VectorAssetBrief {
   variation?: number;
   /** Önceki incelemelerden çıkan çizim kuralları. */
   lessons?: string[];
+  /** Gerçek öznenin referans görselleri (internetten bulunan fotoğraf/tablo); varsa ona bakarak çizilir. */
+  references?: AgentImage[];
+  /** Önceki çizimin referansla karşılaştırılmasından çıkan düzeltmeler. */
+  fix?: string;
 }
 
 /** Tek bir SVG varlığı tasarlar: iskeletli karakter, oda kabuğu (arka plan) ya da nesne. */
@@ -96,7 +100,12 @@ ${LINE_STYLE_RULES[brief.lineStyle ?? "outline"]}
 ${canvas}${isolated}
 ${SVG_RULES}${lessonsBlock(brief.lessons)}`,
       prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}
-${brief.description}${brief.variation ? `\nThis is variation #${brief.variation}: make a clearly different design while keeping the same identity.` : ""}`,
+${brief.description}${brief.variation ? `\nThis is variation #${brief.variation}: make a clearly different design while keeping the same identity.` : ""}${
+        brief.references?.length
+          ? `\n\nThe ${brief.references.length} attached image(s) show the REAL subject. Realism is mandatory: match its silhouette, proportions, colours, materials and the number and arrangement of its distinctive parts (pins, windows, arches, domes, buttons, stripes, headgear, beard, glasses). Simplify textures into flat vector shapes in the art style; do not copy readable text, logos or watermarks. If a reference shows extra things around the subject, draw only the subject.`
+          : ""
+      }${brief.fix ? `\n\nA quality reviewer rejected your previous drawing. Fix these problems:\n${brief.fix}` : ""}`,
+      images: brief.references,
     },
     deps,
   );
@@ -116,6 +125,7 @@ export const VectorSceneOut = z.object({
       z.object({
         id: z.string().describe('Short id starting with "p-", e.g. "p-desk"'),
         description: z.string(),
+        reference: z.string().optional().describe(REFERENCE_QUERY_HINT),
         flag: FlagSpec.optional().describe("Set for a real national/historical flag: generated exactly from real data instead of drawn"),
       }),
     )
@@ -126,6 +136,7 @@ export const VectorSceneOut = z.object({
       z.object({
         id: z.string().describe('Short id starting with "b-"'),
         description: z.string(),
+        reference: z.string().optional().describe(REFERENCE_QUERY_HINT),
         map: MapSpec.optional().describe("Set for a geographic map or globe: generated from real borders instead of drawn"),
       }),
     )
@@ -148,6 +159,7 @@ export interface VectorSceneInput {
 }
 
 export const STAGING_RULES = `Staging (code does the physics — do not give pixel y or height for things on the floor):
+- Real things (a named machine, building, landmark, artwork, uniform, vehicle) get "reference" so they are drawn from a real photo; generic things (a desk, a cup) do not need it.
 - Real-world facts are never drawn from memory. A map, globe, country outline, border, front line or route is a background with "map" (ISO alpha-3 country codes, cities as markers with lon/lat, journeys as routes; "globe" for planet scale); people can stand in front of it. A national flag is a prop with "flag" (ISO alpha-2 code, or "ottoman"); pole=true for a standing flag, false to hold it or hang it. Historical borders are not in the data: show a historical realm by highlighting the modern countries that roughly cover its core with a label like "≈ Osmanlı toprakları (1683)", plus its cities as markers.
 - Backgrounds are empty room shells. Furniture (desk, table, chair, machine, shelf) is a prop you place on the floor.
 - Floor placement: give x (0–1920, bottom-centre) and depth (0 = right at the camera, 0.3 = front of the room, 0.6 = middle, 1 = against the back wall). Code computes where the feet/base touch the floor, the perspective scale and the real size; things with larger depth are drawn behind.

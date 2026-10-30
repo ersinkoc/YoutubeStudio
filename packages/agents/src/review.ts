@@ -95,3 +95,91 @@ export function lessonCurator(target: LessonTarget, rules: string[], deps?: Agen
     deps,
   );
 }
+
+// ---------------- kalite kapısı ----------------
+
+export const AssetGuessOut = z.object({
+  guess: z.string().describe("What this drawing shows, in a few plain English words (e.g. 'a brown dog standing', 'a desk with drawers', 'unclear blob')"),
+  confidence: z.number().int().min(0).max(10).describe("How sure you are, 10 = obvious at a glance"),
+});
+export type AssetGuessOut = z.infer<typeof AssetGuessOut>;
+
+/**
+ * Kör tanıma: denetçi çizimin ne olduğunu, amaçlanan adı bilmeden söyler. "At" diye çizilen şey "köpek" diye
+ * tanınıyorsa kapı geçilmez (adı bilen denetçi iyimser davranır).
+ */
+export function assetGuess(drawing: AgentImage, deps?: AgentDeps): Promise<AgentResult<AssetGuessOut>> {
+  return runStructured(
+    {
+      name: "asset-guess",
+      model: models().cheap,
+      effort: "low",
+      schema: AssetGuessOut,
+      system:
+        "You see one flat vector illustration (an asset for an animated video) on a white background. Say plainly what it depicts. If it is an indistinct shape, a scribble or you cannot tell, say so and give low confidence. Do not be generous.",
+      prompt: "What does this drawing show?",
+      images: [drawing],
+    },
+    deps,
+  );
+}
+
+export const AssetGateOut = z.object({
+  recognizable: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .describe("Would a viewer recognise the intended subject in one second without a caption? 10 = unmistakable, ≤4 = blob, scribble, wrong thing or broken"),
+  fidelity: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .nullable()
+    .describe("Only when reference photos are attached: faithfulness to the real subject (shape, proportions, colours, distinctive parts). null without references"),
+  defects: z
+    .array(z.string())
+    .max(6)
+    .describe("Concrete, fixable defects, most important first (e.g. 'horse has 3 legs', 'head merges into the body', 'chip has 5 pins, real one has 8 per side')"),
+});
+export type AssetGateOut = z.infer<typeof AssetGateOut>;
+
+/**
+ * Kalite kapısı: çizim amaçlanan özne olarak tanınıyor mu, anatomisi/yapısı sağlam mı, referans varsa gerçeğe sadık
+ * mı. Karar kodda (QUALITY_GATE); bu ajan yalnız puanlar ve kusurları listeler.
+ */
+export function assetGate(
+  input: {
+    kind: "character" | "prop" | "background";
+    name: string;
+    description: string;
+    guess: AssetGuessOut;
+    drawing: AgentImage;
+    references?: AgentImage[];
+  },
+  deps?: AgentDeps,
+): Promise<AgentResult<AssetGateOut>> {
+  const refs = input.references ?? [];
+  const what =
+    input.kind === "character"
+      ? "a person (puppet character); check a believable human figure: one head, two arms, two legs, hands at the ends of arms, face features in place, nothing floating or detached"
+      : input.kind === "background"
+        ? "an intentionally EMPTY room shell or place backdrop (furniture is added separately, so emptiness is fine); check that the space reads as the intended kind of place, shapes are coherent and nothing is broken or garbled"
+        : "an object, animal or vehicle; check it has the correct parts in the correct number and arrangement (legs, wheels, handles…) and a silhouette that reads at a glance";
+  return runStructured(
+    {
+      name: "asset-gate",
+      model: models().cheap,
+      effort: "low",
+      schema: AssetGateOut,
+      system: `You are a strict quality gate for vector assets of an animated explainer channel. Flat, simplified cartoon style is expected and is not a defect. Wrong subject, broken anatomy, missing or extra parts, disconnected pieces and unreadable shapes are defects.
+The asset is ${what}.${refs.length ? ` The first ${refs.length} image(s) are real reference photos/paintings of the subject; the LAST image is the drawing.` : " The image is the drawing."}`,
+      prompt: `Intended subject: ${input.name}
+Description: ${input.description}
+A viewer who was NOT told the name looked at the drawing and said: "${input.guess.guess}" (confidence ${input.guess.confidence}/10). If that does not match the intended subject, recognizable must be low.`,
+      images: [...refs, input.drawing],
+    },
+    deps,
+  );
+}

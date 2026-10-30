@@ -1,5 +1,5 @@
 import type { CastOut, LessonTarget, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
-import type { Ambience, BudgetTier, FlagSpec, LineStyle, MapSpec, Timeline, VectorShot, WordTiming } from "@ys/core";
+import type { Ambience, AssetCheck, BudgetTier, FlagSpec, LineStyle, MapSpec, Timeline, VectorShot, WordTiming } from "@ys/core";
 
 export type { MotionMode };
 
@@ -178,7 +178,12 @@ export interface EpisodeState {
   /** Senaryo doktorunun düzelttiği sorunlar (bölümler arası öğrenme için saklanır). */
   scriptNotes?: string[];
   /** Vektör modunda çekimlerin kullandığı nesneler: kimlik → tarif ve çizildiyse SVG anahtarı. */
-  vectorProps?: Record<string, { description: string; key?: string; kind?: "prop" | "background"; map?: MapSpec; flag?: FlagSpec }>;
+  vectorProps?: Record<
+    string,
+    { description: string; key?: string; kind?: "prop" | "background"; map?: MapSpec; flag?: FlagSpec; reference?: string }
+  >;
+  /** Kalite kapısı sonuçları (varlık anahtarı → sonuç); reddedilenler de görünür. */
+  assetChecks?: Record<string, AssetCheck>;
   /** Elle istenen yeniden çizim sayısı (çekim başına); seed olarak kullanılır. */
   redraws?: Record<string, number>;
   /** Çekim başına kare denetimi sonucu. */

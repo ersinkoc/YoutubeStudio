@@ -42,6 +42,27 @@ export type VectorAssetKind = z.infer<typeof VectorAssetKind>;
  * Varlığın fiziksel bilgisi: sahne yerleşimi pikselle değil bunlarla hesaplanır (30 Eki: ayaklar masa üstünde
  * kalıyordu). Eski varlıklarda yoksa türe göre varsayılan kullanılır.
  */
+/** Kalite kapısının sonucu (her SVG kullanılmadan önce). Gerçek özneyse referans görseller ve kaynaklar da tutulur. */
+export const AssetCheck = z.object({
+  kind: z.enum(["character", "prop", "background"]),
+  name: z.string(),
+  /** Adı bilmeden bakan denetçinin tahmini ("kahverengi bir köpek"). */
+  guess: z.string().default(""),
+  recognizable: z.number(),
+  fidelity: z.number().optional(),
+  passed: z.boolean(),
+  defects: z.array(z.string()).default([]),
+  attempts: z.number().int().default(1),
+  /** Referans arama sorgusu (Wikipedia/Commons); yoksa referanssız denetlendi. */
+  query: z.string().optional(),
+  sources: z.array(z.object({ title: z.string(), url: z.string(), license: z.string().optional() })).default([]),
+  /** Depodaki referans görsel anahtarları. */
+  refs: z.array(z.string()).default([]),
+  /** Reddedildiyse en iyi denemenin SVG'si (Stüdyo'da göstermek için; üretimde kullanılmaz). */
+  rejectedKey: z.string().optional(),
+});
+export type AssetCheck = z.infer<typeof AssetCheck>;
+
 export const VectorAssetMeta = z.object({
   /** Gerçek yükseklik (metre): insan ~1,7, masa ~0,75, sandalye ~0,9, kitap ~0,25. */
   realHeight: z.number().positive().optional(),
@@ -56,6 +77,8 @@ export const VectorAssetMeta = z.object({
   routes: z.number().int().nonnegative().optional(),
   /** Gerçek veriden üretildi (harita, bayrak): çizgi stili ve zemin temizliği uygulanmaz, olduğu gibi gösterilir. */
   exact: z.boolean().optional(),
+  /** Kalite kapısı sonucu; olmayan (eski) varlık kullanılmadan önce denetlenir. */
+  check: AssetCheck.optional(),
 });
 export type VectorAssetMeta = z.infer<typeof VectorAssetMeta>;
 

@@ -156,6 +156,7 @@ Rules:
 - A character that changes over the story (e.g. chick → adult) is described in the look it has in most shots.
 - Never put readable text in a description (signs, notes, book pages): image models render it as letters. Say "a paper notice" instead of quoting it.
 - Historical/real figures: depict respectfully in the given art style; never depict prophets or religious figures.
+- Realism is mandatory: real people, places, buildings, objects and uniforms are described as they really looked (period-correct clothing, headgear, hair, beard, materials, colours, architecture). Set "reference" for every real one so the illustrator works from a real photo or painting; never invent the look of something real.
 Art style: ${style.artStyle}.`,
       prompt: script.scenes
         .map((s) => `## ${s.id} (location: ${s.location})\nVisual intent: ${s.visualIntent}\nNarration: ${s.narration}`)

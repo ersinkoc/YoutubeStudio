@@ -14,6 +14,7 @@ Plan ve mimari: `docs/PROJE_PLANI.md`. Büyük kararları değiştirmeden önce 
 - `packages/video`: Remotion; varlıklar `staticFile()` ile render klasörünün `public/` dizininden okunur. Vektör sahneler (`Vector.tsx`) model çıktısı SVG gömer: her SVG `sanitizeSvg()` ile temizlenir, tekrar eden hareketler koddadır (token harcanmaz).
 - Pipeline `this.log` satırları `state.activity`'ye (son 400) ve `heartbeatAt`'e yazılır; Stüdyo bölüm durumunu `runStatusOf()` ile durum dosyasından okur (CLI'dan başlayan işler de görünür, 15 dk kayıt yoksa "takıldı").
 - `apps/studio` istemci bileşenleri (`"use client"`) `@ys/pipeline/light`'tan sadece **tip** import eder; çalışma kodu `node:fs`'e ulaşır ve Turbopack çöker. Sunucu sayfası, istemci dosyasındaki düz fonksiyonu çağıramaz: ortak yardımcılar `src/lib/` altında.
+- **Kalite kapısı ve gerçeklik zorunlu:** hiçbir SVG denetlenmeden kullanılmaz (`designAsset` → `gateCheck`: kör tahmin + `assetGate`, eşikler `core/rules.ts`'te; Stüdyo Kurallar sayfası aynı sabitleri gösterir). Gerçek özneler ve her nesne internetten (Wikipedia/Commons) bulunan görsele bakılarak çizilir (`pipeline/src/reference.ts`). Eşik değiştirirken yalnız `QUALITY_GATE`'i değiştir.
 - Harita ve bayrak gibi gerçek dünya bilgisi Claude'a çizdirilmez: yönetmen `map`/`flag` tarifi verir, `pipeline/src/geo.ts` gerçek veriden üretir. Yeni "olgusal" varlık türü (logo, anıt, bina…) eklerken de önce gerçek veri kaynağı ara.
 - `apps/studio`: arayüz metinleri `src/lib/i18n.ts` sözlüğünden (TR + EN, ikisi de zorunlu); bileşenlerde sabit metin yazma.
 

@@ -15,6 +15,7 @@ import {
   type VectorLayer,
   type VectorMood,
   type VectorText,
+  TEXT_RULES,
 } from "@ys/core";
 import { useMemo, type CSSProperties } from "react";
 import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from "remotion";
@@ -395,12 +396,9 @@ const TEXT_STYLES: Record<VectorText["style"], CSSProperties> = {
   quote: { fontWeight: 600, fontStyle: "italic" },
 };
 
-/** Ekranda aynı anda en fazla bu kadar yazı. */
-const MAX_TEXTS = 2;
+/** Ekranda aynı anda en fazla bu kadar yazı; üst ve alt sınır (alttaki ~%25 altyazının). Stüdyo kurallarından. */
+const { maxTexts: MAX_TEXTS, top: TEXT_TOP, bottom: TEXT_BOTTOM } = TEXT_RULES;
 const TEXT_WIDTH = 1500;
-/** Yazı bloklarının üst ve alt sınırı: alttaki ~%25 altyazının (30 Eki: yazılar altyazıyla çakışıyordu). */
-const TEXT_TOP = 60;
-const TEXT_BOTTOM = 800;
 const TEXT_GAP = 24;
 
 interface PlacedText {

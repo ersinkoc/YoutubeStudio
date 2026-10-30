@@ -1,8 +1,10 @@
 "use client";
 
 import type { EpisodeState, PlannedShotState } from "@ys/pipeline/light";
+import { QUALITY_GATE } from "@ys/core/rules";
 import { Check, CheckSquare, ChevronLeft, ChevronRight, Clapperboard, Mic, RefreshCw, Square, Undo2, Wand2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { MessageKey } from "../../../lib/i18n";
 import type { EpisodeResponse, QuotaView } from "../../../lib/types";
 import { VOICES } from "../../../lib/voices";
 import { useI18n } from "../../locale-provider";
@@ -243,6 +245,8 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
         </div>
       )}
 
+      <QualityGate state={state} />
+
       {concept.previews && concept.previews.length > 0 && (
         <div>
           <div className="label">{t("concept.previews")}</div>
@@ -312,6 +316,96 @@ export function ConceptTab({ data, busy, act }: { data: EpisodeResponse; busy: b
             <span className="font-normal opacity-70">({costOf(est, AFTER_CONCEPT, fmt)})</span>
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------- kalite kapısı ----------------
+
+/**
+ * Her SVG'nin kapı sonucu: reddedilenler önce. Çizim (reddedildiyse en iyi deneme) ve internetten bulunan referanslar
+ * yan yana; adı bilmeyen denetçinin tahmini, puanlar, kusurlar ve kaynaklar.
+ */
+function QualityGate({ state }: { state: EpisodeState }) {
+  const { t } = useI18n();
+  const [all, setAll] = useState(false);
+  const checks = Object.entries(state.assetChecks ?? {}).sort(([, a], [, b]) => Number(a.passed) - Number(b.passed));
+  if (!checks.length) return null;
+  const rejected = checks.filter(([, c]) => !c.passed).length;
+  const shown = all ? checks : checks.slice(0, Math.max(4, rejected));
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="label">{t("gate.title")}</div>
+          <p className="text-xs text-muted">{t("gate.intro")}</p>
+        </div>
+        <span className={`text-xs font-medium ${rejected ? "text-bad" : "text-ok"}`}>{t("gate.summary", { passed: checks.length - rejected, rejected })}</span>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {shown.map(([key, c]) => {
+          const tone = (v: number, min: number) => (v >= min ? "text-ok" : "text-bad");
+          return (
+            <div key={key} className={`grid gap-2 rounded-xl border p-3 ${c.passed ? "border-line bg-panel-2/30" : "border-bad/60 bg-bad/8"}`}>
+              <div className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="truncate font-medium">
+                  {c.name} <span className="text-xs font-normal text-muted">· {t(`gate.kind.${c.kind}` as MessageKey)}</span>
+                </span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${c.passed ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}>
+                  {c.passed ? t("gate.passed") : t("gate.rejected")}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-3 text-xs tabular-nums">
+                <span className={tone(c.recognizable, QUALITY_GATE.recognizableMin[c.kind])}>{t("gate.recognizable", { score: c.recognizable })}</span>
+                {c.fidelity !== undefined && <span className={tone(c.fidelity, QUALITY_GATE.fidelityMin)}>{t("gate.fidelity", { score: c.fidelity })}</span>}
+                <span className="text-muted">{t("gate.attempts", { n: c.attempts })}</span>
+              </div>
+              {c.guess && <div className="text-xs text-muted">{t("gate.guess", { guess: c.guess })}</div>}
+              <div className="grid grid-cols-4 gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={asset(c.rejectedKey ?? key)}
+                  alt={c.name}
+                  className={`aspect-square w-full rounded-md border bg-white object-contain p-1 ${c.passed ? "border-accent/50" : "border-bad"}`}
+                />
+                {c.refs.slice(0, 3).map((r, i) => (
+                  <a key={r} href={c.sources[i]?.url} target="_blank" rel="noreferrer noopener" title={c.sources[i]?.title}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={asset(r)} alt={c.sources[i]?.title ?? ""} className="aspect-square w-full rounded-md bg-panel-2 object-cover" />
+                  </a>
+                ))}
+              </div>
+              {c.defects.length > 0 && (
+                <ul className="list-disc pl-4 text-xs text-muted">
+                  {c.defects.slice(0, 4).map((d) => (
+                    <li key={d}>{d}</li>
+                  ))}
+                </ul>
+              )}
+              {c.sources.length > 0 && (
+                <div className="text-[11px] text-muted">
+                  {t("gate.sources")}
+                  {c.query && ` ("${c.query}")`}:{" "}
+                  {c.sources.map((src, i) => (
+                    <span key={src.url}>
+                      {i > 0 && " · "}
+                      <a className="underline decoration-line hover:text-white" href={src.url} target="_blank" rel="noreferrer noopener">
+                        {src.title}
+                      </a>
+                      {src.license && ` (${src.license})`}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {checks.length > shown.length && (
+        <button className="justify-self-start text-xs text-muted hover:text-white" onClick={() => setAll(true)}>
+          {t("gate.showAll", { n: checks.length })}
+        </button>
       )}
     </div>
   );
