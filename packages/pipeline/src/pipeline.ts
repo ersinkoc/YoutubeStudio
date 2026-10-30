@@ -38,6 +38,7 @@ import {
   VectorAssetMeta,
   type AssetCheck,
   type GateScores,
+  type ModelSettings,
   type Timeline,
   type VectorAsset,
 } from "@ys/core";
@@ -53,6 +54,7 @@ import { getJson, putJson, type AssetStore } from "@ys/storage";
 import { renderEpisode, renderStills } from "@ys/video/render";
 import { readFile } from "node:fs/promises";
 import { curateLessons } from "./curate.ts";
+import { loadModelSettings } from "./settings.ts";
 import { loadLessons, mergeLessons, saveLessons, topLessons, type LessonBook } from "./lessons.ts";
 import { invalidateFrom, missingSelections, newEpisodeState } from "./actions.ts";
 import { mapLimit, normalizeClip, probeDurationMs } from "./media.ts";
@@ -156,6 +158,12 @@ export class EpisodePipeline {
   /** Kayıtlar sıraya konur: paralel alt adımlar eski durumu yenisinin üstüne yazmasın. */
   private saving: Promise<void> = Promise.resolve();
 
+  /** Kullanıcının model seçimi; her çalıştırmanın başında depodan okunur (Stüdyo'da değişince sonraki çalıştırmada geçerli). */
+  private models: ModelSettings = {};
+  private get agentDeps(): AgentDeps {
+    return { ...this.deps.agentDeps, models: { ...this.deps.agentDeps?.models, ...this.models } };
+  }
+
   constructor(private readonly deps: PipelineDeps) {
     this.log = (message) => {
       deps.log?.(message);
@@ -191,6 +199,9 @@ export class EpisodePipeline {
 
   async run(id: string, opts: RunEpisodeOptions = {}): Promise<EpisodeState> {
     const state = await this.load(id);
+    this.models = await loadModelSettings(this.deps.store);
+    const chosen = Object.entries(this.models);
+    if (chosen.length) this.log(`  model seçimi: ${chosen.map(([role, model]) => `${role} → ${model}`).join(", ")}`);
     if (opts.only) {
       this.currentStage = opts.only;
       this.log(`▶ ${opts.only} (sadece)`);
@@ -356,7 +367,7 @@ export class EpisodePipeline {
             imagePrompt: shot.imagePrompt,
             characters: cast.map((c) => c.name),
           },
-          this.deps.agentDeps,
+          this.agentDeps,
         ),
       );
       return judgeFrame(out, attempt);
@@ -405,13 +416,13 @@ export class EpisodePipeline {
     plan?: AssetPlan,
   ): Promise<GateResult> {
     const drawing = await rasterizeSvg(svg);
-    const guess = await this.agent(state, stage, assetGuess(drawing, this.deps.agentDeps));
+    const guess = await this.agent(state, stage, assetGuess(drawing, this.agentDeps));
     const gate = await this.agent(
       state,
       stage,
       assetGate(
         { kind: brief.kind, name: brief.name, description: gateDescription(brief.description, plan), guess, drawing, references },
-        this.deps.agentDeps,
+        this.agentDeps,
       ),
     );
     return {
@@ -454,7 +465,7 @@ export class EpisodePipeline {
     const makePlan = async (references: AgentImage[] | undefined) => {
       if (plan) return plan;
       try {
-        const out = await this.agent(state, stage, assetPlanner({ ...brief, references }, state.style!, this.deps.agentDeps));
+        const out = await this.agent(state, stage, assetPlanner({ ...brief, references }, state.style!, this.agentDeps));
         plan = AssetPlan.parse(out);
         await putJson(this.deps.store, planKey, plan);
         this.log(`  ${brief.name}: çizim planı → ${plan.subject}${plan.moved.length ? ` (bu çizime girmeyen: ${plan.moved.join("; ")})` : ""}`);
@@ -531,7 +542,7 @@ export class EpisodePipeline {
     for (let attempt = 1; attempt <= QUALITY_GATE.maxDraws; attempt++) {
       draws = attempt;
       const lessons = topLessons(await loadLessons(this.deps.store), "designer");
-      const out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix, plan }, state.style!, this.deps.agentDeps));
+      const out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix, plan }, state.style!, this.agentDeps));
       let svg: string;
       try {
         const clean = sanitizeSvg(out.svg);
@@ -644,7 +655,7 @@ export class EpisodePipeline {
     const out = await this.agent(
       state,
       "shots",
-      vectorDirector({ scene, durationSec, cast: cast!, props: known, lang: state.input.lang, lessons, feedback }, style!, this.deps.agentDeps),
+      vectorDirector({ scene, durationSec, cast: cast!, props: known, lang: state.input.lang, lessons, feedback }, style!, this.agentDeps),
     );
     for (const np of out.newProps) props[np.id] ??= { description: np.description, kind: "prop", flag: np.flag, reference: np.reference };
     for (const nb of out.newBackgrounds) props[nb.id] ??= { description: nb.description, kind: "background", map: nb.map, reference: nb.reference };
@@ -707,11 +718,7 @@ export class EpisodePipeline {
     known: string[],
   ): Promise<{ files: Record<string, string>; review: EpisodeReview }> {
     const shots = state.shots ?? [];
-    // Çekimin %80'i: giriş ve daktilo animasyonları bitmiş olur (ortadan alınca yarım yazı kusur sanılıyordu).
-    const frames = Object.fromEntries(timeline.visuals.map((v) => [v.shotId, v.fromFrame + Math.floor(v.durationInFrames * 0.8)]));
-    const outDir = join(dir, "stills");
-    await mkdir(outDir, { recursive: true });
-    const files = await renderStills({ timeline, publicDir: join(dir, "public"), frames, outDir });
+    const files = await this.renderShotStills(timeline, dir);
 
     // O anda duyulan anlatım ve kodun yaptığı yerleşim düzeltmeleri, karenin değerlendirilmesi için.
     const spoken = (startMs: number, endMs: number) =>
@@ -734,7 +741,7 @@ export class EpisodePipeline {
       );
       if (!items.length) return;
       try {
-        const out = await this.agent(state, stage, sceneCritic(items, known, this.deps.agentDeps));
+        const out = await this.agent(state, stage, sceneCritic(items, known, this.agentDeps));
         for (const s of out.shots) review.shots[s.shotId] = { score: s.score, issues: s.issues };
         review.lessons.push(...out.lessons);
       } catch (e) {
@@ -745,6 +752,56 @@ export class EpisodePipeline {
     return { files, review };
   }
 
+  /** Çekim başına bir kare (yerel Remotion, ücretsiz). `only` verilirse yalnız o çekimler. */
+  private async renderShotStills(timeline: Timeline, dir: string, only?: Set<string>): Promise<Record<string, string>> {
+    // Çekimin %80'i: giriş ve daktilo animasyonları bitmiş olur (ortadan alınca yarım yazı kusur sanılıyordu).
+    const frames = Object.fromEntries(
+      timeline.visuals.filter((v) => !only || only.has(v.shotId)).map((v) => [v.shotId, v.fromFrame + Math.floor(v.durationInFrames * 0.8)]),
+    );
+    const outDir = join(dir, "stills");
+    await mkdir(outDir, { recursive: true });
+    return renderStills({ timeline, publicDir: join(dir, "public"), frames, outDir });
+  }
+
+  /**
+   * Çekim önizlemelerini depoya yazar (Stüdyo Çekimler sekmesi). Anahtar içerik hash'li: aynı çekim yeniden
+   * çizildiğinde tarayıcı eski kareyi önbellekten göstermez.
+   */
+  private async storeStills(state: EpisodeState, files: Record<string, string>): Promise<void> {
+    state.stills ??= {};
+    for (const [shotId, file] of Object.entries(files)) {
+      const bytes = new Uint8Array(await readFile(file));
+      const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+      const key = `assets/stills/${state.id}/${shotId}-${hash}.jpg`;
+      await this.deps.store.put(key, bytes, "image/jpeg");
+      state.stills[shotId] = { key, mimeType: "image/jpeg" };
+    }
+  }
+
+  /** Taslak klasörü: ses dosyaları kopyalanır ki kareler render'dan önce çıkarılabilsin. */
+  private async draftDir(state: EpisodeState): Promise<string> {
+    const dir = resolve(this.deps.workDir, state.id, "draft");
+    for (const v of Object.values(state.voice ?? {})) {
+      const target = join(dir, "public", ...v.key.split("/"));
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, await this.bytes(v.key));
+    }
+    return dir;
+  }
+
+  /** Render beklemeden önizleme: taslak denetimi kapalıyken de Çekimler sekmesi boş kalmasın. */
+  private async vectorPreviews(state: EpisodeState, only?: Set<string>): Promise<void> {
+    try {
+      const dir = await this.draftDir(state);
+      const timeline = buildTimeline(state, (key) => key, await this.vectorAssets(state));
+      await this.storeStills(state, await this.renderShotStills(timeline, dir, only));
+      this.log(`  önizleme: ${only?.size ?? state.shots?.length ?? 0} çekim karesi`);
+    } catch (e) {
+      // Önizleme yardımcıdır; çıkarılamazsa üretim sürer.
+      this.log(`  önizleme kareleri çıkarılamadı (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+
   /**
    * Render öncesi "tekrar bak": taslak kareler çıkarılır, denetlenir; sorunlu sahneler eleştiriyle birlikte
    * yönetmene yeniden planlatılır (bir tur). Ses dosyaları taslak klasörüne kopyalanır, kareler ücretsizdir.
@@ -752,16 +809,15 @@ export class EpisodePipeline {
   private async vectorRevise(state: EpisodeState): Promise<void> {
     const { script, voice } = state;
     if (!script || !voice || !state.shots) return;
-    const dir = resolve(this.deps.workDir, state.id, "draft");
-    for (const v of Object.values(voice)) {
-      const target = join(dir, "public", ...v.key.split("/"));
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, await this.bytes(v.key));
-    }
+    const dir = await this.draftDir(state);
     const assets = await this.vectorAssets(state);
     const timeline = buildTimeline(state, (key) => key, assets);
     const book = await loadLessons(this.deps.store);
-    const { review } = await this.critiqueShots(state, "keyframes", timeline, dir, book.lessons.map((l) => l.rule));
+    const { files, review } = await this.critiqueShots(state, "keyframes", timeline, dir, book.lessons.map((l) => l.rule));
+    // Taslak kareler Çekimler sekmesinde hemen görünür (render beklenmez).
+    state.stills = {};
+    await this.storeStills(state, files);
+    await this.save(state);
 
     // Kodun yaptığı fizik düzeltmeleri de yönetmene söylenir (bir dahaki planda kendisi doğru versin).
     const fixes = new Map<string, string[]>();
@@ -805,12 +861,18 @@ export class EpisodePipeline {
     state.shots = resolveShotTimes(state.shotPlan!, script.scenes.map((s) => s.id), voice);
     // Düzeltilen planın yeni nesne/mekânları çizilir.
     await this.vectorPropsDraw(state);
+    // Yeniden planlanan sahnelerin eski kareleri artık geçersiz: yeni planla yeniden çıkarılır.
+    const revised = new Set(scenesToFix.map((s) => s.id));
+    const redo = new Set(state.shots.filter((s) => revised.has(s.sceneId)).map((s) => s.id));
+    const live = new Set(state.shots.map((s) => s.id));
+    for (const id of Object.keys(state.stills ?? {})) if (redo.has(id) || !live.has(id)) delete state.stills![id];
+    await this.vectorPreviews(state, redo);
   }
   /** Defter şişince benzer dersler birleştirilir; küratör başarısız olursa defter olduğu gibi kalır. */
   private async curate(state: EpisodeState, book: LessonBook): Promise<void> {
     try {
       await curateLessons(book, {
-        deps: this.deps.agentDeps,
+        deps: this.agentDeps,
         onCall: async (target, res, before) => {
           await this.agent(state, "review", Promise.resolve(res));
           this.log(`  dersler (${target}): ${before} → ${res.data.rules.length} kural`);
@@ -828,6 +890,10 @@ export class EpisodePipeline {
   private async vectorProps(state: EpisodeState): Promise<void> {
     await this.vectorPropsDraw(state);
     if (state.input.qa !== false) await this.vectorRevise(state);
+    else {
+      state.stills = {};
+      await this.vectorPreviews(state);
+    }
   }
 
   /** Çekimlerin istediği yeni nesne ve mekânları çizer (kütüphanedekiler ücretsiz). */
@@ -947,11 +1013,11 @@ export class EpisodePipeline {
 
   private readonly stages: Record<Stage, (state: EpisodeState, opts: RunEpisodeOptions) => Promise<void>> = {
     style: async (state) => {
-      state.style = await this.agent(state, "style", artDirector(this.brief(state), this.deps.agentDeps));
+      state.style = await this.agent(state, "style", artDirector(this.brief(state), this.agentDeps));
     },
 
     story: async (state) => {
-      state.story = await this.agent(state, "story", storyArchitect(this.brief(state), this.deps.agentDeps));
+      state.story = await this.agent(state, "story", storyArchitect(this.brief(state), this.agentDeps));
       this.log(`  "${state.story.title}" — ${state.story.beats.length} beat`);
     },
 
@@ -959,11 +1025,11 @@ export class EpisodePipeline {
       if (!state.story) throw new Error("story yok");
       const book = await loadLessons(this.deps.store);
       const brief = { ...this.brief(state), lessons: topLessons(book, "script") };
-      const draft = await this.agent(state, "script", screenwriter(brief, state.story, this.deps.agentDeps));
+      const draft = await this.agent(state, "script", screenwriter(brief, state.story, this.agentDeps));
       const count = (s: typeof draft) => s.scenes.reduce((n, sc) => n + sc.narration.split(/\s+/).length, 0);
       this.log(`  taslak: ${draft.scenes.length} sahne, ${count(draft)} kelime`);
       // İkinci geçiş: senaryo doktoru açılışı, temposu ve doğruluğu düzeltir. Sahne kimlikleri değişmez.
-      const doctored = await this.agent(state, "script", scriptDoctor(brief, state.story, draft, this.deps.agentDeps));
+      const doctored = await this.agent(state, "script", scriptDoctor(brief, state.story, draft, this.agentDeps));
       const ids = (s: typeof draft) => s.scenes.map((sc) => sc.id).join(",");
       state.script = ids(doctored.script) === ids(draft) ? doctored.script : draft;
       state.scriptNotes = doctored.notes;
@@ -975,7 +1041,7 @@ export class EpisodePipeline {
 
     cast: async (state) => {
       if (!state.script || !state.style) throw new Error("script/style yok");
-      state.cast = await this.agent(state, "cast", castingDirector(state.script, state.style, this.deps.agentDeps));
+      state.cast = await this.agent(state, "cast", castingDirector(state.script, state.style, this.agentDeps));
       if (motionModeOf(state.input) === "vector") {
         // Vektör karakteri insan iskeletli kukladır: at, köpek ya da çanta ona çizilirse iki ayaklı garip bir şey çıkar
         // (30 Eki Pony Express denemesi). İnsan olmayanlar iskeletsiz nesne olarak çizilir ve kalite kapısından geçer.
@@ -1115,7 +1181,7 @@ export class EpisodePipeline {
           style,
           durations,
           { aiClipRatio: state.input.aiClipRatio, motionMode, cast: state.cast },
-          this.deps.agentDeps,
+          this.agentDeps,
         ),
       );
       state.shots = resolveShotTimes(
@@ -1275,11 +1341,7 @@ export class EpisodePipeline {
       // Render klasörünün public/ dizini hazır; kareler yereldir.
       const { files, review } = await this.critiqueShots(state, "review", timeline, dir, book.lessons.map((l) => l.rule));
       state.stills = {};
-      for (const [shotId, file] of Object.entries(files)) {
-        const key = `assets/stills/${state.id}/${shotId}.jpg`;
-        await this.deps.store.put(key, new Uint8Array(await readFile(file)), "image/jpeg");
-        state.stills[shotId] = { key, mimeType: "image/jpeg" };
-      }
+      await this.storeStills(state, files);
       state.review = review;
       mergeLessons(book, review.lessons, state.id);
       await this.curate(state, book);

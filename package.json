@@ -1,5 +1,6 @@
 {
   "name": "youtube-studio",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
@@ -9,6 +10,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/studio/tsconfig.json",
     "studio": "pnpm --filter @ys/studio dev",
+    "studio:build": "pnpm --filter @ys/studio build",
+    "studio:start": "pnpm --filter @ys/studio start",
+    "release": "tsx scripts/release.ts",
     "test": "vitest run",
     "test:integration": "vitest run --mode integration packages/db",
     "ys": "tsx apps/cli/src/index.ts",

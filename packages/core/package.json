@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./rules": "./src/rules.ts"
+    "./rules": "./src/rules.ts",
+    "./models": "./src/models.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

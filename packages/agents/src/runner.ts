@@ -1,4 +1,5 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { modelFor, type ModelSettings } from "@ys/core";
 import { z } from "zod";
 
 export type QueryFn = typeof query;
@@ -41,6 +42,8 @@ export interface AgentResult<T> {
 export interface AgentDeps {
   queryFn?: QueryFn;
   log?: (message: string) => void;
+  /** Kullanıcının ajan başına model seçimi (Stüdyo → Modeller); ajanın varsayılanını ezer. */
+  models?: ModelSettings;
 }
 
 export class AgentError extends Error {}
@@ -87,12 +90,13 @@ async function* withImages(text: string, images: AgentImage[]): AsyncIterable<SD
  */
 export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {}): Promise<AgentResult<T>> {
   const queryFn = deps.queryFn ?? query;
-  deps.log?.(`ajan: ${call.name} (${call.model})`);
+  const model = modelFor(call.name, call.model, deps.models);
+  deps.log?.(`ajan: ${call.name} (${model})`);
 
   const q = queryFn({
     prompt: call.images?.length ? withImages(call.prompt, call.images) : call.prompt,
     options: {
-      model: call.model,
+      model,
       systemPrompt: call.system,
       outputFormat: { type: "json_schema", schema: toOutputSchema(call.schema) },
       tools: [],
@@ -119,7 +123,7 @@ export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {})
       data: parsed.data,
       name: call.name,
       costUsd: message.total_cost_usd,
-      model: call.model,
+      model,
       durationMs: message.duration_ms,
     };
   }

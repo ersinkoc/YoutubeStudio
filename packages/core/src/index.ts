@@ -4,3 +4,5 @@ export * from "./geo.ts";
 export * from "./rules.ts";
 export * from "./vector.ts";
 export * from "./layout.ts";
+export * from "./models.ts";
+export * from "./version.ts";

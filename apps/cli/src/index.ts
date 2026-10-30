@@ -21,7 +21,7 @@ import { episodeCommand, renderDemo } from "./episode.ts";
 const LEDGER_FILE = ".data/ledger.jsonl";
 const WORK_DIR = ".data/episodes";
 
-const HELP = `YoutubeStudio CLI (Faz 0)
+const HELP = `YoutubeStudio CLI
 
 Kullanım: pnpm ys <komut> [seçenekler]
 
@@ -34,6 +34,7 @@ Komutlar:
   sfx    --prompt "..." [--duration 3]
   music  --prompt "..." [--duration 60]
   cost   [--episode id]             Maliyet defteri özeti
+  version                           Çalışan sürüm
 
   episode new --topic "..." [--lang tr] [--minutes 3] [--tier economy] [--budget 10]
               [--clips 0.2] [--style "..."] [--voice id] [--vertical]
@@ -129,6 +130,12 @@ async function main(): Promise<void> {
 
   const { providers, skipped } = createProvidersFromEnv(process.env);
   const ledger = createLedger();
+
+  if (command === "version" || command === "--version") {
+    const { version } = JSON.parse(await readFile("package.json", "utf8")) as { version?: string };
+    console.log(`YoutubeStudio v${version ?? "0.0.0"}`);
+    return;
+  }
 
   if (command === "providers") {
     console.log("Etkin sağlayıcılar:");

@@ -184,7 +184,8 @@ Leave the stage band plain: between x 420–1500 and y 180–floorY the wall is 
 
   return runStructured(
     {
-      name: `vector-designer:${brief.kind}`,
+      // Düzeltme çizimi ayrı anahtar: Modeller sayfasında ilk çizimden bağımsız seçilebilir.
+      name: brief.fix ? "vector-designer:redraw" : `vector-designer:${brief.kind}`,
       // İlk karakter çizimi Opus (her sahnede kullanılır, kalite en çok burada fark ettirir); kalite kapısının kusur
       // listesiyle yapılan düzeltmeler Sonnet: 30 Eki denemesinde Opus yeniden çizimleri çizim başı $0.10–0.21 tuttu.
       model: brief.kind === "character" && !brief.fix ? models().creative : models().fast,
