@@ -5,6 +5,7 @@ import type { Stage } from "@ys/pipeline/light";
 import { ArrowLeft, Mic, Pencil, Play, RefreshCw, Square } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { errorKey } from "../../../lib/errors";
 import type { MessageKey } from "../../../lib/i18n";
 import type { EpisodeResponse } from "../../../lib/types";
 import { useI18n } from "../../locale-provider";
@@ -67,7 +68,11 @@ export function EpisodeView({ id }: { id: string }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(action),
         });
-        if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? t("common.actionFailed"));
+        if (!res.ok) {
+          const message = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+          const known = message ? errorKey(message) : undefined;
+          setError(known ? t(known.key, known.vars) : (message ?? t("common.actionFailed")));
+        }
         return res.ok;
       } catch {
         setError(t("common.actionFailed"));

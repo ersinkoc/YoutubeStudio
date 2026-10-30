@@ -46,7 +46,17 @@ export interface AgentDeps {
   models?: ModelSettings;
 }
 
-export class AgentError extends Error {}
+/** Ajan hatası; çağrı Claude'a ulaştıysa harcanan para da taşınır (deftere yazılsın diye). */
+export class AgentError extends Error {
+  constructor(
+    message: string,
+    readonly costUsd = 0,
+    readonly model?: string,
+    readonly agent?: string,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Claude Code'un --json-schema doğrulayıcısı draft 2020-12 meta-şemasını tanımıyor;
@@ -114,11 +124,11 @@ export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {})
   for await (const message of q) {
     if (message.type !== "result") continue;
     if (message.subtype !== "success") {
-      throw new AgentError(`${call.name}: ${message.subtype} (maliyet $${message.total_cost_usd.toFixed(4)})`);
+      throw new AgentError(`${call.name}: ${message.subtype} (maliyet $${message.total_cost_usd.toFixed(4)})`, message.total_cost_usd, model, call.name);
     }
     const parsed = call.schema.safeParse(message.structured_output);
     if (!parsed.success) {
-      throw new AgentError(`${call.name}: şemaya uymayan çıktı: ${z.prettifyError(parsed.error)}`);
+      throw new AgentError(`${call.name}: şemaya uymayan çıktı: ${z.prettifyError(parsed.error)}`, message.total_cost_usd, model, call.name);
     }
     deps.log?.(`ajan: ${call.name} bitti, $${message.total_cost_usd.toFixed(4)}`);
     return {

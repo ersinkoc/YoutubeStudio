@@ -68,6 +68,6 @@ export async function POST(req: Request) {
     fps: 30,
   });
   await repo().save(state);
-  startJob(state.id, "Senaryo yazılıyor", ["episode", "run", state.id, "--until", "script"]);
+  startJob(state.id, "job.script", ["episode", "run", state.id, "--until", "script"]);
   return Response.json({ id: state.id });
 }

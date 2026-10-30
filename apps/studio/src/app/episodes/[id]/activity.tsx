@@ -3,7 +3,7 @@
 import type { ActivityEntry, Stage } from "@ys/pipeline/light";
 import { AlertTriangle, ChevronRight, CircleAlert, Play } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { Translate } from "../../../lib/i18n";
+import type { MessageKey, Translate } from "../../../lib/i18n";
 import type { JobView } from "../../../lib/types";
 import { useI18n } from "../../locale-provider";
 import { stageKey } from "./parts";
@@ -97,7 +97,7 @@ export function ActivityTab({
       {job && job.log.length > 0 && (
         <details className="rounded-xl border border-line bg-panel-2/40">
           <summary className="cursor-pointer px-4 py-2.5 text-sm text-muted">
-            {t("act.raw")} · {job.label}
+            {t("act.raw")} · {job.label.startsWith("job.") ? t(job.label as MessageKey) : job.label}
           </summary>
           <pre className="max-h-80 overflow-auto border-t border-line px-4 py-3 font-mono text-xs leading-relaxed text-muted">
             {job.log.join("\n")}

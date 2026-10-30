@@ -317,3 +317,28 @@ Narration: ${annotated}`,
     deps,
   );
 }
+
+export const PropPhysicsOut = z.object({
+  realHeight: z.number().positive().describe("Real height of the object in metres (a desk ~0.75, a horse ~1.6, a letter ~0.28)"),
+  grounded: z.boolean().describe("true if it stands on the floor/ground (furniture, animals, vehicles); false if it is held or hangs"),
+  surface: z.number().min(0).max(1).nullable().describe("For furniture with a top that things stand on: that surface height as a fraction of the object height; else null"),
+});
+export type PropPhysicsOut = z.infer<typeof PropPhysicsOut>;
+
+/**
+ * Hazır (Commons) SVG'nin fiziksel bilgisi: tasarımcı çizmediği için boy ve zemin bilgisini ucuz bir ajan verir;
+ * yerleşim çözücüsü bunlarla ölçekler.
+ */
+export function propPhysics(name: string, description: string, deps?: AgentDeps): Promise<AgentResult<PropPhysicsOut>> {
+  return runStructured(
+    {
+      name: "prop-physics",
+      model: models().cheap,
+      effort: "low",
+      schema: PropPhysicsOut,
+      system: "You give the real-world physical size of an object for placing it correctly in an animated scene. Use typical real dimensions.",
+      prompt: `Object: ${name}\n${description}`,
+    },
+    deps,
+  );
+}

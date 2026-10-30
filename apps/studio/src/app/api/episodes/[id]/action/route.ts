@@ -51,18 +51,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // değişiklik kaybolur ya da işin ilerlemesini siler. İptal dışında hiçbir eylem iş sürerken yapılmaz.
     if (action.type !== "cancel") {
       const state = await episodes.load(id);
-      if (episodeBusy(id, state, runStatusOf(state).status)) throw new Error("Önce çalışan iş bitmeli");
+      if (await episodeBusy(id, state, runStatusOf(state).status)) throw new Error("Önce çalışan iş bitmeli");
     }
     switch (action.type) {
       case "generate-script":
-        startJob(id, "Senaryo yazılıyor", ["episode", "run", id, "--until", "script"]);
+        startJob(id, "job.script", ["episode", "run", id, "--until", "script"]);
         break;
       case "edit-narration":
         await episodes.update(id, (s) => editNarration(s, action.sceneId, action.narration));
         break;
       case "approve-script":
         await episodes.update(id, (s) => approve(s, "script"));
-        startJob(id, "Karakterler ve mekânlar hazırlanıyor", ["episode", "run", id, "--until", "concept"]);
+        startJob(id, "job.concept", ["episode", "run", id, "--until", "concept"]);
         break;
       case "revoke-script":
         await episodes.update(id, (s) => revokeApproval(s, "script"));
@@ -71,10 +71,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         await episodes.update(id, (s) => selectCandidate(s, action.entityId, action.index));
         break;
       case "regenerate-concept":
-        startJob(id, "Yeni adaylar üretiliyor", ["episode", "run", id, "--only", "concept"]);
+        startJob(id, "job.regenerate", ["episode", "run", id, "--only", "concept"]);
         break;
       case "preview":
-        startJob(id, "Deneme kareleri üretiliyor", ["episode", "preview", id]);
+        startJob(id, "job.preview", ["episode", "preview", id]);
         break;
       case "set-motion":
         if (!MOTION_MODES.includes(action.motionMode)) throw new Error("Geçersiz hareket modu");
@@ -82,14 +82,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         break;
       case "approve-concept":
         await episodes.update(id, (s) => approve(s, "concept"));
-        startJob(id, "Video üretiliyor", ["episode", "run", id]);
+        startJob(id, "job.produce", ["episode", "run", id]);
         break;
       case "change-voice":
         await episodes.update(id, (s) => changeVoice(s, action.voiceId));
         break;
       case "redraw":
         await episodes.update(id, (s) => redrawShots(s, action.shotIds));
-        startJob(id, `${action.shotIds.length} kare yeniden çiziliyor`, ["episode", "run", id]);
+        startJob(id, "job.redraw", ["episode", "run", id]);
         break;
       case "accept-asset":
       case "reject-asset": {
@@ -112,7 +112,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         await episodes.update(id, (s) => setRealism(s, action.enabled));
         break;
       case "resume":
-        startJob(id, "Kaldığı yerden devam", ["episode", "run", id]);
+        startJob(id, "job.resume", ["episode", "run", id]);
         break;
       case "cancel":
         cancelJob(id);

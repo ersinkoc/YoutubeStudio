@@ -11,6 +11,8 @@ import {
   scriptDoctor,
   storyArchitect,
   vectorDesigner,
+  AgentError,
+  propPhysics,
   assetGate,
   assetPlanner,
   gateDescription,
@@ -61,6 +63,7 @@ import { renderEpisode, renderStills } from "@ys/video/render";
 import { readFile } from "node:fs/promises";
 import { curateLessons } from "./curate.ts";
 import { loadModelSettings } from "./settings.ts";
+import { acquireLock } from "./lock.ts";
 import { listLibraryCharacters, noteCharacterUse, type LibraryCharacter } from "./library.ts";
 import { lineStyleOf } from "./state.ts";
 import { seriesEpisodeIds, seriesOf, seriesStylePack } from "./series.ts";
@@ -70,7 +73,7 @@ import { invalidateFrom, missingSelections, newEpisodeState } from "./actions.ts
 import { mapLimit, normalizeClip, probeDurationMs } from "./media.ts";
 import { anonymizeNames, castAliases } from "./names.ts";
 import { generateFlag, generateMap } from "./geo.ts";
-import { findReferences, rasterizeSvg, searchQuery, type References } from "./reference.ts";
+import { findReferences, findVectorSources, rasterizeSvg, searchQuery, type References } from "./reference.ts";
 import { frameRank, judgeFrame, QA_MAX_BYTES, redrawPrompt } from "./qa.ts";
 import {
   ACTIVITY_LIMIT,
@@ -208,6 +211,15 @@ export class EpisodePipeline {
   }
 
   async run(id: string, opts: RunEpisodeOptions = {}): Promise<EpisodeState> {
+    const release = await acquireLock(this.deps.store, id);
+    try {
+      return await this.runLocked(id, opts);
+    } finally {
+      await release().catch(() => {});
+    }
+  }
+
+  private async runLocked(id: string, opts: RunEpisodeOptions): Promise<EpisodeState> {
     const state = await this.load(id);
     this.models = await loadModelSettings(this.deps.store);
     const chosen = Object.entries(this.models);
@@ -276,7 +288,28 @@ export class EpisodePipeline {
   }
 
   private async agent<T>(state: EpisodeState, stage: Stage, call: Promise<AgentResult<T>>): Promise<T> {
-    const res = await call;
+    let res: AgentResult<T>;
+    try {
+      res = await call;
+    } catch (e) {
+      // Başarısız çağrı da ödendi (tur sınırı, şemaya uymayan çıktı): maliyeti görünmezse Claude harcaması eksik kalır.
+      if (e instanceof AgentError && e.costUsd > 0) {
+        state.agentCostUsd += e.costUsd;
+        this.log(`  ajan ${e.agent ?? "?"} başarısız · $${e.costUsd.toFixed(3)}`);
+        await this.deps.ledger.record({
+          at: new Date().toISOString(),
+          episodeId: state.id,
+          stage,
+          providerId: `claude:${e.model ?? "?"}`,
+          capability: "llm",
+          estimateMicros: usd(e.costUsd),
+          cacheHit: false,
+          requestHash: `${stage}:${state.id}`,
+          error: e.message.slice(0, 300),
+        });
+      }
+      throw e;
+    }
     state.agentCostUsd += res.costUsd;
     this.log(`  ajan ${res.name} · ${res.model.replace(/^claude-/, "")} · $${res.costUsd.toFixed(3)} · ${(res.durationMs / 1000).toFixed(0)} sn`);
     // Uzun aşamalarda (senaryo, sahne planı) her ajan çağrısı Stüdyo'da anında görünsün.
@@ -575,6 +608,12 @@ export class EpisodePipeline {
     }
 
     const references = await loadRefs();
+    // Nesneler için önce Commons'ta hazır, serbest lisanslı vektör çizim denenir; kapıdan geçen ilk aday kullanılır.
+    // İnsan bu varlığın bir çizimini reddettiyse (not var) hazır çizim aranmaz: insan belli bir şey istiyor.
+    if (brief.kind === "prop" && query && !humanFix) {
+      const found = await this.readyMadeProp(state, stage, brief, query, references, key, checkOf, scoreText);
+      if (found) return found;
+    }
     await makePlan(references);
     let best: { svg: string; out: VectorAssetOut; res: GateResult } | undefined;
     let lastError: unknown;
@@ -623,6 +662,53 @@ export class EpisodePipeline {
     record(check);
     this.log(`  ${brief.name}: çizildi (${(best.svg.length / 1024).toFixed(1)} KB, ${draws} deneme)`);
     return ref;
+  }
+
+  /**
+   * Hazır SVG (Commons, kamu malı/CC0): temizlenir, arka planı atılır, kapıdan geçerse fiziksel bilgisiyle kütüphaneye
+   * yazılır. Geçmezse undefined: tasarımcı çizer. Para: aday başına kapı (~$0.004) + bir kez boy ajanı (~$0.001).
+   */
+  private async readyMadeProp(
+    state: EpisodeState,
+    stage: Stage,
+    brief: AssetBrief,
+    query: string,
+    references: AgentImage[] | undefined,
+    key: string,
+    checkOf: (r: GateResult, attempts: number) => AssetCheck,
+    scoreText: (r: { scores: GateScores; guess: string }) => string,
+  ): Promise<AssetRef | undefined> {
+    let sources: Awaited<ReturnType<typeof findVectorSources>> = [];
+    try {
+      sources = await findVectorSources(query, { store: this.deps.store, log: this.log });
+    } catch (e) {
+      this.log(`  ${brief.name}: hazır SVG aranamadı (${e instanceof Error ? e.message : String(e)})`);
+    }
+    for (const candidate of sources) {
+      let svg: string;
+      try {
+        svg = stripBackdrop(candidate.svg, svgSize(candidate.svg));
+      } catch {
+        continue;
+      }
+      const res = await this.gateCheck(state, stage, brief, svg, references);
+      const passed = gatePasses(brief.kind, res.scores);
+      this.log(`  ${brief.name}: hazır SVG "${candidate.source.title}" (${candidate.source.license}) → ${scoreText(res)} ${passed ? "✓" : "✗"}`);
+      if (!passed) continue;
+      const physics = await this.agent(state, stage, propPhysics(brief.name, brief.description, this.agentDeps));
+      const base = checkOf(res, 0);
+      const check: AssetCheck = { ...base, sources: [candidate.source, ...base.sources] };
+      await this.deps.store.put(key, new TextEncoder().encode(svg), "image/svg+xml");
+      await putJson(this.deps.store, `${key}.json`, {
+        realHeight: physics.realHeight,
+        grounded: physics.grounded,
+        surface: physics.surface ?? undefined,
+        check,
+      });
+      (state.assetChecks ??= {})[key] = check;
+      return { key, mimeType: "image/svg+xml" };
+    }
+    return undefined;
   }
 
   /** Konsept: karakter ve mekânlar SVG olarak; her tur yeni bir çeşitleme ekler, eskiler seçilebilir kalır. */
@@ -1198,12 +1284,18 @@ export class EpisodePipeline {
       if (!cast) throw new Error("cast yok");
       if (motionModeOf(state.input) === "vector") return this.vectorConcept(state, opts.only === "concept");
       const previous = state.concept;
-      // Her yeniden üretim yeni bir tur: farklı seed → önbellek aynı görselleri döndürmez.
-      const round = previous ? (previous.round ?? 0) + 1 : 0;
+      // "Yeni adaylar üret" yeni tur açar: farklı seed → önbellek aynı görselleri döndürmez. Hata sonrası devam ise aynı
+      // turu sürdürür: aynı seed'li istekler önbellekten bedava gelir, yalnız eksikler ödenir.
+      const regenerate = opts.only === "concept";
+      const round = previous ? (previous.round ?? 0) + (regenerate ? 1 : 0) : 0;
       state.concept = { candidates: {}, selected: {}, round };
       const concept = state.concept;
-      // Önceki tur seçimi yeni turda da ilk aday olarak kalır (beğenilen görsel kaybolmasın).
-      for (const [id, sel] of Object.entries(previous?.selected ?? {})) concept.candidates[id] = [sel];
+      if (regenerate) {
+        // Önceki tur seçimi yeni turda da ilk aday olarak kalır (beğenilen görsel kaybolmasın).
+        for (const [id, sel] of Object.entries(previous?.selected ?? {})) concept.candidates[id] = [sel];
+      } else {
+        for (const [id, list] of Object.entries(previous?.candidates ?? {})) concept.candidates[id] = [...list];
+      }
 
       const jobs = [
         ...cast.characters.flatMap((c) =>
@@ -1235,8 +1327,10 @@ export class EpisodePipeline {
           },
           this.runOptions(state, "concept", opts.signal, job.id),
         );
-        (concept.candidates[job.id] ??= []).push({ key: res.files[0]!.key, mimeType: res.files[0]!.mimeType });
-        this.log(`  ${job.id} aday ✓ (${res.providerId})`);
+        const list = (concept.candidates[job.id] ??= []);
+        if (!list.some((r) => r.key === res.files[0]!.key)) list.push({ key: res.files[0]!.key, mimeType: res.files[0]!.mimeType });
+        this.log(`  ${job.id} aday ✓ (${res.providerId}${res.cacheHit ? ", önbellek" : ""})`);
+        await this.save(state);
       });
 
       // Önceki seçim korunur; otomatik onayda seçimsiz varlık için ilk aday seçilir.

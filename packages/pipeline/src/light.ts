@@ -6,3 +6,4 @@ export * from "./lessons.ts";
 export * from "./settings.ts";
 export * from "./library.ts";
 export * from "./series.ts";
+export * from "./lock.ts";

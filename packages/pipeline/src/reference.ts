@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentImage } from "@ys/agents";
-import { QUALITY_GATE } from "@ys/core";
+import { QUALITY_GATE, sanitizeSvg, svgSize } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import sharp from "sharp";
 
@@ -24,7 +24,31 @@ export interface References {
   keys: string[];
 }
 
-const UA = "YoutubeStudio/0.1 (vector illustration reference lookup)";
+// Wikimedia iletişim bilgisi olmayan istemcileri daha sıkı sınırlar; kişisel e-posta yerine herkese açık proje adresi.
+const UA = "YoutubeStudio/0.1 (https://github.com/ersinkoc/YoutubeStudio; vector illustration reference lookup)";
+
+/**
+ * Wikimedia istekleri sıraya girer (aralarında en az MIN_GAP_MS) ve 429'da Retry-After kadar (en çok 10 sn) bekleyip bir
+ * kez yeniden denenir: paralel varlık çizimleri art arda istek atıp geçici olarak engelleniyordu.
+ */
+const MIN_GAP_MS = 400;
+let lane: Promise<unknown> = Promise.resolve();
+let lastAt = 0;
+function wikimedia(fetchFn: typeof fetch, url: string, init: RequestInit): Promise<Response> {
+  const run = lane.then(async () => {
+    for (let attempt = 0; ; attempt++) {
+      const wait = lastAt + MIN_GAP_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastAt = Date.now();
+      const res = await fetchFn(url, init);
+      if (res.status !== 429 || attempt >= 1) return res;
+      const retryAfter = Math.min(10, Number(res.headers.get("retry-after")) || 3);
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+    }
+  });
+  lane = run.catch(() => {});
+  return run;
+}
 const MAX_IMAGES = QUALITY_GATE.maxReferences;
 const MAX_SIDE = 768;
 
@@ -33,7 +57,7 @@ interface Candidate extends ReferenceSource {
 }
 
 async function getJsonUrl<T>(fetchFn: typeof fetch, url: string): Promise<T | undefined> {
-  const res = await fetchFn(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  const res = await wikimedia(fetchFn, url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
   // 429/5xx geçicidir: hata fırlatılır ki sonuç önbelleğe "referans yok" diye yazılmasın.
   if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
   return res.ok ? ((await res.json()) as T) : undefined;
@@ -113,7 +137,7 @@ export async function findReferences(
     if (seen.has(file)) continue;
     seen.add(file);
     try {
-      const res = await fetchFn(c.thumb, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(20_000) });
+      const res = await wikimedia(fetchFn, c.thumb, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(30_000) });
       if (!res.ok) {
         // 429/5xx geçici: sonuç önbelleğe yazılmasın ki sonraki çalıştırma yeniden denesin.
         if (res.status === 429 || res.status >= 500) searchFailed = true;
@@ -165,4 +189,83 @@ export async function rasterizeSvg(svg: string): Promise<AgentImage> {
     .png()
     .toBuffer();
   return { data: new Uint8Array(png), mimeType: "image/png" };
+}
+
+/** Commons'tan bulunan hazır SVG: temizlenmiş, kaynağı ve lisansıyla. */
+export interface VectorSource {
+  svg: string;
+  source: ReferenceSource;
+}
+
+/** Yalnız atıf gerektirmeyen lisanslar: video açıklamasına atıf yazmadan kullanılabilsin. */
+const FREE_LICENSE = /public domain|^pd\b|cc0|no restrictions/i;
+const MAX_SVG_BYTES = 300_000;
+/** Çok ayrıntılı çizim (harita, teknik şema, fotogerçekçi) sahnede gürültü olur. */
+const MAX_ELEMENTS = 600;
+/** Nesne çizimi olmayan Commons dosyaları (şema, logo, arma, yazı tipi, harita…): kapıya hiç gönderilmez. */
+const NOT_OBJECT =
+  /diagram|schema|scheme|схема|logo|icon|coat of arms|coa|emblem|flag|map|font|sample|layout|keyboard|pattern|chart|graph|plot|point|sign|cypher|seal|badge|symbol|network|axle|crease/i;
+const STOP = new Set(["the", "a", "an", "of", "and", "with", "in", "on", "for", "to", "front", "view", "side"]);
+
+/**
+ * Nesne için Wikimedia Commons'ta hazır vektör çizim arar (kamu malı / CC0). Bulunanlar temizlenir ve kalite kapısına
+ * aday olur: Claude'un koordinat yazarak çizdiğinden genelde daha doğru ve ucuzdur. Sonuç kütüphanede saklanır.
+ */
+export async function findVectorSources(
+  query: string,
+  deps: { store: AssetStore; fetch?: typeof fetch; log?: (m: string) => void },
+  limit = 2,
+): Promise<VectorSource[]> {
+  const q = query.trim();
+  const dir = `library/vector-source/${createHash("sha256").update(q.toLowerCase()).digest("hex").slice(0, 24)}`;
+  const cached = await getJson<{ items: { key: string; source: ReferenceSource }[] }>(deps.store, `${dir}/index.json`);
+  if (cached) {
+    const items = await Promise.all(cached.items.map(async (i) => ({ bytes: await deps.store.get(i.key), source: i.source })));
+    return items.flatMap((i) => (i.bytes ? [{ svg: new TextDecoder().decode(i.bytes), source: i.source }] : []));
+  }
+
+  const fetchFn = deps.fetch ?? fetch;
+  const url = `https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url|mime|size|extmetadata&iiextmetadatafilter=LicenseShortName&gsrsearch=${encodeURIComponent(`filetype:drawing ${q}`)}`;
+  type Info = { url?: string; descriptionurl?: string; mime?: string; size?: number; extmetadata?: { LicenseShortName?: { value?: string } } };
+  let failed = false;
+  let pages: ({ title: string; imageinfo?: Info[] } & { index?: number })[] = [];
+  try {
+    pages = byIndex((await getJsonUrl<Pages<{ title: string; imageinfo?: Info[] }>>(fetchFn, url))?.query?.pages);
+  } catch (e) {
+    failed = true;
+    deps.log?.(`  hazır SVG araması başarısız: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const wanted = words(q).filter((w) => !STOP.has(w));
+  const out: VectorSource[] = [];
+  const items: { key: string; source: ReferenceSource }[] = [];
+  for (const p of pages) {
+    if (out.length >= limit) break;
+    const info = p.imageinfo?.[0];
+    const license = info?.extmetadata?.LicenseShortName?.value ?? "";
+    const title = p.title.replace(/^File:/, "");
+    if (!info?.url || info.mime !== "image/svg+xml" || (info.size ?? 0) > MAX_SVG_BYTES || !FREE_LICENSE.test(license)) continue;
+    // Başlık konuyla ilgili olmalı ("Horse silhouette.svg" ↔ "horse"); arama motoru açıklamadan alakasız dosya getirebiliyor.
+    const titleWords = new Set(words(title));
+    if (!wanted.some((w) => titleWords.has(w)) || NOT_OBJECT.test(title)) continue;
+    try {
+      const res = await wikimedia(fetchFn, info.url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) {
+        if (res.status === 429 || res.status >= 500) failed = true;
+        continue;
+      }
+      const svg = sanitizeSvg(await res.text());
+      svgSize(svg);
+      if ((svg.match(/</g) ?? []).length > MAX_ELEMENTS) continue;
+      const key = `${dir}/${items.length}.svg`;
+      await deps.store.put(key, new TextEncoder().encode(svg), "image/svg+xml");
+      const source = { title, url: info.descriptionurl ?? info.url, license };
+      items.push({ key, source });
+      out.push({ svg, source });
+    } catch (e) {
+      // Bozuk ya da viewBox'sız SVG atlanır; ağ hatası önbelleğe "yok" yazdırmaz.
+      if (!(e instanceof Error && /SVG/.test(e.message))) failed = true;
+    }
+  }
+  if (!failed) await putJson(deps.store, `${dir}/index.json`, { query: q, items });
+  return out;
 }

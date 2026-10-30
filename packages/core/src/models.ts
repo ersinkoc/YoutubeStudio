@@ -32,6 +32,7 @@ export const AGENT_ROLES = {
   "vector-designer:background": "fast",
   "vector-designer:prop": "fast",
   "vector-designer:redraw": "fast",
+  "prop-physics": "cheap",
   "asset-guess": "cheap",
   "asset-gate": "cheap",
   "scene-critic": "cheap",

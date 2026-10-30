@@ -31,7 +31,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     // Stüdyo'nun başlattığı süreç yaşıyorsa (ör. uzun bir ajan çağrısında) takılmış sayılmaz.
     if (job?.status === "running" && status.status === "stalled") status.status = "running";
     // İptal edilen/çöken Stüdyo işi aşamayı kapatamadı: dosyadaki "sürüyor" bayat, kullanıcı devam ettirebilsin.
-    if (status.status === "running" && !episodeBusy(id, state, "running")) status.status = job?.status === "error" ? "error" : "idle";
+    // Kilidin sahibi yaşıyorsa (uzun bir ajan çağrısı) "takıldı" değil; ölmüşse "sürüyor" bayat (iptal, çökme).
+    if (status.status === "stalled" && (await episodeBusy(id, state, "stalled"))) status.status = "running";
+    else if (status.status === "running" && !(await episodeBusy(id, state, "running"))) status.status = job?.status === "error" ? "error" : "idle";
     // Konsept sekmesinde "Kütüphaneden kullan": aynı stil ve çizgi stilindeki onaylı karakterler.
     const library =
       motionModeOf(state.input) === "vector" && state.style && state.cast && !state.approvals?.concept

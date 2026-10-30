@@ -7,6 +7,7 @@ import { STYLE_AUTO, STYLE_CUSTOM, STYLE_PACKS, stylePackOf } from "@ys/core/sty
 import { useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../lib/i18n";
 import { VOICES } from "../lib/voices";
+import { errorKey } from "../lib/errors";
 import { useI18n } from "./locale-provider";
 
 const LANGS = ["tr", "en", "es", "pt-BR", "de", "fr", "ar", "hi", "ja", "id"];
@@ -117,7 +118,8 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
       });
       const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
       if (!res.ok || !body.id) {
-        setError(body.error ?? t("form.failed"));
+        const known = body.error ? errorKey(body.error) : undefined;
+        setError(known ? t(known.key, known.vars) : (body.error ?? t("form.failed")));
         setBusy(false);
         return;
       }

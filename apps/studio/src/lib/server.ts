@@ -14,7 +14,7 @@ import {
   type ProviderAdapter,
   type Quota,
 } from "@ys/media-gateway";
-import { EpisodeRepo, type EstimateContext } from "@ys/pipeline/light";
+import { EpisodeRepo, liveLock, type EstimateContext } from "@ys/pipeline/light";
 import { createStoreFromEnv, type AssetStore } from "@ys/storage";
 
 /** Monorepo kökü: stüdyo apps/studio içinden çalışır, veriler kökteki .data altındadır. */
@@ -142,9 +142,12 @@ export function cancelJob(episodeId: string): void {
  * Bölümde iş sürüyor mu: Stüdyo'nun işi ya da durum dosyasına göre (CLI'dan başlayanlar). Stüdyo'nun işi durum dosyasının
  * son kaydından sonra bittiyse (iptal, çökme) dosyadaki "sürüyor" bayattır: süreç aşamayı kapatamadan öldü.
  */
-export function episodeBusy(episodeId: string, state: { heartbeatAt?: string }, fileStatus: string): boolean {
+export async function episodeBusy(episodeId: string, state: { heartbeatAt?: string }, fileStatus: string): Promise<boolean> {
   const job = init().jobs.get(episodeId);
   if (job?.status === "running") return true;
+  // Kesin bilgi: çalışma kilidi (CLI süreçleri dahil). Sahibi canlıysa "takıldı" görünse de iş sürüyor; ölmüşse
+  // dosyadaki "sürüyor" bayattır (iptal, çökme).
+  if (await liveLock(init().store, episodeId)) return true;
   if (fileStatus !== "running") return false;
   return !(job?.endedAt && job.endedAt >= (state.heartbeatAt ?? ""));
 }

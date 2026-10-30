@@ -83,3 +83,29 @@ describe("nesne tarifinden arama sorgusu", () => {
     expect(searchQuery("A brown horse standing, side view")).toBe("brown horse standing");
   });
 });
+
+describe("hazır SVG (Commons)", () => {
+  it("yalnız serbest lisanslı, konuyla ilgili, nesne çizimi olan dosyalar alınır", async () => {
+    const { findVectorSources } = await import("../src/reference.ts");
+    const { FsAssetStore } = await import("@ys/storage");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const page = (title: string, license: string, mime = "image/svg+xml") => ({
+      title: `File:${title}`,
+      imageinfo: [{ url: `https://x/${title}`, descriptionurl: `https://c/${title}`, mime, size: 1000, extmetadata: { LicenseShortName: { value: license } } }],
+    });
+    const pages = {
+      1: { ...page("Steam locomotive diagram.svg", "Public domain"), index: 1 },
+      2: { ...page("Steam locomotive (Fornari 1903).svg", "Public domain"), index: 2 },
+      3: { ...page("Steam locomotive.svg", "CC BY-SA 4.0"), index: 3 },
+      4: { ...page("Bicycle.svg", "CC0"), index: 4 },
+    };
+    const fetchFn = (async (url: string) =>
+      url.includes("api.php")
+        ? new Response(JSON.stringify({ query: { pages } }))
+        : new Response('<svg viewBox="0 0 10 10"><rect width="5" height="5" fill="#000"/></svg>')) as typeof fetch;
+    const found = await findVectorSources("steam locomotive", { store: new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-vs-"))), fetch: fetchFn });
+    expect(found.map((f) => f.source.title)).toEqual(["Steam locomotive (Fornari 1903).svg"]);
+  });
+});
