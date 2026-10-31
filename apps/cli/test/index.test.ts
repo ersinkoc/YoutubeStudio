@@ -158,10 +158,10 @@ describe("yardım, sürüm ve listeler", () => {
 
   it(".env dosyası yüklenir; version kök package.json'dan", async () => {
     writeFileSync(join(dir, ".env"), "YS_CLI_TEST_ENV=evet\n");
-    expect((await cli("version")).out).toBe("YoutubeStudio v4.5.6");
+    expect((await cli("version")).out).toBe("AI Video Factory v4.5.6");
     expect(process.env.YS_CLI_TEST_ENV).toBe("evet");
     writeFileSync(join(dir, "package.json"), "{}");
-    expect((await cli("--version")).out).toBe("YoutubeStudio v0.0.0");
+    expect((await cli("--version")).out).toBe("AI Video Factory v0.0.0");
   });
 
   it("styles tüm paketleri listeler", async () => {

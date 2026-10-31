@@ -22,7 +22,7 @@ import { episodeCommand, positive, renderDemo } from "./episode.ts";
 const LEDGER_FILE = ".data/ledger.jsonl";
 const WORK_DIR = ".data/episodes";
 
-const HELP = `YoutubeStudio CLI
+const HELP = `AI Video Factory CLI
 
 Kullanım: pnpm ys <komut> [seçenekler]
 
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
 
   if (command === "version") {
     const { version } = JSON.parse(await readFile("package.json", "utf8")) as { version?: string };
-    console.log(`YoutubeStudio v${version ?? "0.0.0"}`);
+    console.log(`AI Video Factory v${version ?? "0.0.0"}`);
     return;
   }
 

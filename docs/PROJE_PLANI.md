@@ -1,4 +1,4 @@
-# YoutubeStudio — AI Video Fabrikası: Proje Planı
+# AI Video Factory — AI Video Fabrikası: Proje Planı
 
 > Sürüm: v0.2 · Tarih: 29 Ekim 2026
 > Hedef: Niş konularda fikir üretip 8–20 dakikalık, animasyon ağırlıklı, içi tutarlı (karakterli veya özgün) YouTube videolarını **istenen her dilde** yarı otomatik üreten fabrika. Kapsam **maksimum**: çok dil, çok kanal, karakterli ve özgün mod, tüm bütçe seviyeleri, Shorts türevleri.
@@ -147,7 +147,7 @@ Tüm pazar haritası ve konumlandırma için bkz. **§17**.
 ### 3.1 Monorepo yapısı (pnpm + Turborepo)
 
 ```
-YoutubeStudio/
+AI-Video-Factory/
 ├─ apps/
 │  ├─ studio/               # Next.js 16 arayüz
 │  └─ worker/               # Trigger.dev task'ları (pipeline aşamaları)

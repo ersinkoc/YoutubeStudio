@@ -46,7 +46,7 @@ export async function updateInfo(): Promise<UpdateInfo & { available: boolean }>
 async function refresh(cached: (typeof g)["__ysUpdate"]): Promise<void> {
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "YoutubeStudio update check" },
+      headers: { accept: "application/vnd.github+json", "user-agent": "AI-Video-Factory update check" },
       signal: AbortSignal.timeout(4000),
       cache: "no-store",
     });

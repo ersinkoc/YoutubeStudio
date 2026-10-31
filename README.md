@@ -1,6 +1,8 @@
-# YoutubeStudio
+# AI Video Factory
 
 **English** · [Türkçe](README-TR.md)
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/ersinkoc/AI-Video-Factory)](https://github.com/ersinkoc/AI-Video-Factory/releases)
 
 An AI video factory that produces multilingual, animation-heavy YouTube videos from a single topic. Claude agents write the story and script, plan the shots, design the vector art and review their own output. Paid media APIs generate voice, images and video clips, and Remotion renders the final cut. A web Studio shows what is happening at every step and lets a human make the final call.
 
@@ -22,9 +24,13 @@ Architecture, provider choices and the roadmap are in [docs/PROJE_PLANI.md](docs
 - **Grounded in reality.** Real subjects are drawn from reference images found on Wikipedia and Wikimedia Commons. For objects, a ready-made public-domain/CC0 vector drawing from Commons is tried first; it is used only if it passes the same quality gate. Claude does not draw maps or flags: they are generated from real data (world-atlas, flag-icons).
 - **The human has the final say.** In the Studio you can accept a drawing the gate rejected, or reject one it passed and add a note for the designer. You can also turn the reality check off for one episode.
 - **24 ready-made style packs.** Examples include flat explainer, Ottoman miniature, film noir, blueprint, ukiyo-e, synthwave, chalkboard, watercolour and 8-bit pixel. In *Automatic* mode a cheap agent picks the pack that fits the topic; you can also choose one yourself, or choose *Custom* to let the art director design freely. A pack fixes the colours, drawing rules and line style, so all episodes in a pack look as if the same hand made them. Run `pnpm ys styles` to list them.
+- **Vector animation that obeys physics.** Characters are puppets on a rig, moved entirely in code: things on the floor never float, walk steps follow the distance travelled, held objects stay in the hand, and a character appears only once per shot. Gestures have anticipation and overshoot; pointing aims at its target, eyes follow the listener, and explaining uses one dominant hand. Optional side views let walking characters turn to profile. Close-ups reframe themselves when the subject would stay tiny.
+- **Clean on-screen text and optional subtitles.** Place, date and event lines sit in one info card at the top-left; name tags stay next to their person. Subtitles are always written as an `.srt` next to the video, and burning them in is a per-episode switch.
+- **Character bank.** Keep topic-independent characters (a presenter, a scientist, a child…) and use them as the on-screen presenter, add them to a cast, or make them a series mascot. They are never redrawn.
 - **Character reuse.** Approved characters are kept in a library together with their identity. When the same person appears again in the same style (for example a real historical figure or the channel's host), the casting agent reuses the drawing instead of redrawing it. In the Studio you can also pick one with *Use from library*. Run `pnpm ys library` to list them.
 - **Series.** Episodes can belong to a series. The home page filters by series. A new episode in an existing series inherits that series' settings and style pack, and the series' own characters are offered first for reuse. Use `--series "Name"` in the CLI.
 - **Learning loop.** After each render the frames are reviewed, and lessons are written to a rule book that later episodes follow.
+- **Many media models, one router.** Paid calls go through one gateway that ranks providers by quality and price for the episode's budget tier, caches by content hash and falls back when a provider fails. Available today: fal (FLUX, Kontext, Seedream 4.5, Kling 3 / 2.6, MiniMax H3 Max Turbo, PixVerse V6, Vidu Q3 Turbo, Seedance 2), Gemini (Nano Banana image models, TTS, Omni Flash video as an opt-in), ElevenLabs (voice, sound effects, music) and a local ComfyUI. Run `pnpm ys plan` to see the ranking without spending money.
 - **Cost first.** Estimates are shown before any money is spent. Requests are cached by content hash, so the same request is never paid twice. A per-episode budget cap applies to paid image, voice and video APIs. Claude agent calls are shown separately and do not count toward the cap.
 - **Choose a model per agent.** The Studio **Models** page sets which Claude model each agent uses (for example Sonnet instead of Haiku for the quality gate).
 - **Bilingual Studio.** The Studio is in Turkish and English. Videos can be in any language the voice provider supports.
@@ -39,6 +45,8 @@ Architecture, provider choices and the roadmap are in [docs/PROJE_PLANI.md](docs
 ## Setup
 
 ```bash
+git clone https://github.com/ersinkoc/AI-Video-Factory.git
+cd AI-Video-Factory
 pnpm install
 cp .env.example .env          # fill in the keys you have; empty providers are disabled
 pnpm ys providers             # which providers are active?
@@ -102,6 +110,7 @@ Useful options for `episode new`:
 - `--no-realism`: turn off the reality check.
 - `--side-views`: vector mode only. Characters that walk get a second, profile drawing and turn to it while walking. Each one costs a designer call and a gate check (about $0.15–0.35) and is kept in the library.
 - `--vertical`: render in 9:16.
+- `--no-captions`: do not burn subtitles into the video (the `.srt` is still written).
 
 Character bank (vector mode): every approved character is kept in a library and shown on the Studio's **Characters** page. You can have Claude draw a topic-independent character there (a presenter, a scientist, a child…; about $0.15–0.35 each, gate-checked) and make any character a series mascot. When you start an episode you can pick a bank character as the on-screen presenter (it speaks the narration and appears in most shots) or add bank characters to the cast. They are not redrawn: the episode switches to their style pack. CLI: `pnpm ys bank [list|add|mascot]`, `episode new --presenter <id> --with <id,id>`.
 
@@ -117,6 +126,7 @@ Keys and switches live in `.env` (see `.env.example`). Notable ones:
 | `ANTHROPIC_API_KEY` | Claude agents. If empty, the Claude Code login is used. |
 | `YS_MODEL_CREATIVE` / `_FAST` / `_CHEAP` | Default model for each tier. Per-agent choices on the Models page override these. |
 | `STORE=s3`, `LEDGER=db` | Use S3 and Postgres instead of local files. |
+| `GEMINI_OMNI_VIDEO=1` | Enable Gemini Omni Flash video (the Veo replacement; not yet verified with a real run). |
 | `YS_UPDATE_CHECK=0` | Turn off the Studio's update check. |
 
 ## Versions and updates

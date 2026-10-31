@@ -1,4 +1,4 @@
-# YoutubeStudio: Claude için proje notları
+# AI Video Factory: Claude için proje notları
 
 Plan ve mimari: `docs/PROJE_PLANI.md`. Büyük kararları değiştirmeden önce oradaki ilgili bölüme bak ve gerekirse güncelle.
 README İngilizce (`README.md`), Türkçesi `README-TR.md`: birini değiştirirken diğerini de güncelle. CHANGELOG ve release notları İngilizce.

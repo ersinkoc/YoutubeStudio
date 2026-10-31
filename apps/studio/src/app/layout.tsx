@@ -9,7 +9,7 @@ import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
-  return { title: "YoutubeStudio", description: t("app.tagline") };
+  return { title: "AI Video Factory", description: t("app.tagline") };
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -22,7 +22,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center justify-between gap-3 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 font-semibold">
                 <span className="inline-block h-3 w-3 rounded-full bg-accent" />
-                YoutubeStudio
+                AI Video Factory
                 <span className="text-xs font-normal text-muted">v{update.current}</span>
               </Link>
               <div className="flex flex-wrap items-center justify-end gap-3">

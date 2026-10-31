@@ -1,6 +1,8 @@
-# YoutubeStudio
+# AI Video Factory
 
 [English](README.md) · **Türkçe**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/ersinkoc/AI-Video-Factory)](https://github.com/ersinkoc/AI-Video-Factory/releases)
 
 Tek bir konudan çok dilli, animasyon ağırlıklı YouTube videoları üreten bir AI video fabrikası. Hikâyeyi ve senaryoyu Claude ajanları yazar; çekimleri planlar, vektör çizimleri tasarlar ve kendi çıktılarını denetler. Ses, görsel ve video kliplerini ücretli medya API'leri üretir, son kurguyu Remotion render eder. Web tabanlı Stüdyo her adımda ne olduğunu gösterir ve son kararı insana bırakır.
 
@@ -22,9 +24,13 @@ Mimari, sağlayıcı seçimi ve yol haritası: [docs/PROJE_PLANI.md](docs/PROJE_
 - **Gerçeğe dayalı.** Gerçek özneler Wikipedia ve Wikimedia Commons'ta bulunan referans görsellere bakılarak çizilir. Nesneler için önce Commons'taki kamu malı/CC0 hazır vektör çizimler denenir; ancak aynı kalite kapısından geçerse kullanılır. Harita ve bayrakları Claude çizmez; gerçek veriden üretilir (world-atlas, flag-icons).
 - **Son söz insanın.** Stüdyo'da kapının reddettiği bir çizimi kabul edebilir, geçirdiğini de tasarımcıya bir notla reddedebilirsin. Gerçeklik denetimini bir bölüm için kapatabilirsin.
 - **24 hazır stil paketi.** Örneğin düz anlatım, Osmanlı minyatürü, kara film, teknik çizim, ukiyo-e, synthwave, kara tahta, suluboya ve 8-bit piksel. *Otomatik* modda ucuz bir ajan konuya uyan paketi seçer; istersen kendin seçebilir ya da *Özel* ile sanat yönetmenine serbest tasarım yaptırabilirsin. Paket renkleri, çizim kurallarını ve çizgi stilini sabitler; aynı paketteki bölümler aynı elden çıkmış görünür. Liste için: `pnpm ys styles`.
+- **Fiziğe uyan vektör animasyon.** Karakterler iskeletli kuklalardır, tamamen kodla hareket eder: yerdeki şey havalanmaz, yürüyüş adımları alınan yoldan sayılır, elde tutulan nesne elde kalır ve bir karakter çekimde yalnız bir kez görünür. Jestlerde hazırlık ve taşma vardır; işaret hedefe uzanır, gözler konuşulan kişiyi izler, anlatırken baskın el kullanılır. İsteğe bağlı yan görünüşle yürüyen karakter profile döner. Özne çok küçük kalacaksa yakın çekim kendini yeniden çerçeveler.
+- **Düzenli ekran yazıları ve isteğe bağlı altyazı.** Mekân, tarih ve olay satırları sol üstte tek bir bilgi kartında, kişi etiketleri kişinin yanında durur. Altyazı her zaman videonun yanına `.srt` olarak yazılır; videoya gömülmesi bölüm başına bir anahtardır.
+- **Karakter bankası.** Konudan bağımsız karakterleri (sunucu, bilim insanı, çocuk…) sakla; ekrandaki sunucu yap, kadroya ekle ya da seri maskotu yap. Hiçbir zaman yeniden çizilmezler.
 - **Karakterleri tekrar kullanma.** Onaylı karakterler kimlikleriyle birlikte kütüphanede tutulur. Aynı kişi aynı stilde yeniden geçerse (ör. gerçek bir tarihî kişi ya da kanalın sunucusu) casting ajanı çizimi yeniden çizdirmek yerine tekrar kullanır. Stüdyo'da *Kütüphaneden kullan* ile kendin de seçebilirsin. Liste için: `pnpm ys library`.
 - **Seriler.** Bölümler bir seriye ait olabilir. Ana sayfa seriye göre filtreler. Var olan bir seriye eklenen yeni bölüm serinin ayarlarını ve stil paketini devralır; tekrar kullanım için önce o serinin karakterleri önerilir. CLI'da `--series "Ad"`.
 - **Öğrenme döngüsü.** Her render'dan sonra kareler incelenir; çıkan dersler sonraki bölümlerin uyduğu kural defterine yazılır.
+- **Çok sayıda medya modeli, tek yönlendirici.** Ücretli çağrılar tek bir ağ geçidinden geçer: sağlayıcılar bölümün bütçe seviyesine göre kalite ve fiyatla sıralanır, istekler içerik hash'iyle önbelleğe alınır, bir sağlayıcı düşerse sıradakine geçilir. Bugün kullanılabilenler: fal (FLUX, Kontext, Seedream 4.5, Kling 3 / 2.6, MiniMax H3 Max Turbo, PixVerse V6, Vidu Q3 Turbo, Seedance 2), Gemini (Nano Banana görsel modelleri, TTS, isteğe bağlı Omni Flash video), ElevenLabs (ses, efekt, müzik) ve yerel ComfyUI. Para harcamadan sıralamayı görmek için: `pnpm ys plan`.
 - **Önce maliyet.** Para harcanmadan önce tahmin gösterilir. İstekler içerik hash'iyle önbelleğe alınır, aynı istek iki kez ödenmez. Bölüm bütçe tavanı ücretli görsel, ses ve video API'leri içindir. Claude ajan çağrıları ayrıca gösterilir ve tavana sayılmaz.
 - **Ajan başına model seçimi.** Stüdyo'nun **Modeller** sayfasından her ajanın hangi Claude modeliyle çalışacağını seçersin (ör. kalite kapısı için Haiku yerine Sonnet).
 - **İki dilli Stüdyo.** Arayüz Türkçe ve İngilizce. Videolar ses sağlayıcısının desteklediği her dilde üretilebilir.
@@ -39,6 +45,8 @@ Mimari, sağlayıcı seçimi ve yol haritası: [docs/PROJE_PLANI.md](docs/PROJE_
 ## Kurulum
 
 ```bash
+git clone https://github.com/ersinkoc/AI-Video-Factory.git
+cd AI-Video-Factory
 pnpm install
 cp .env.example .env          # elindeki anahtarları doldur; boş olan sağlayıcılar devre dışı kalır
 pnpm ys providers             # hangi sağlayıcılar etkin?
@@ -102,6 +110,7 @@ pnpm ys version
 - `--no-realism`: gerçeklik denetimini kapatır.
 - `--side-views`: yalnız vektör modunda. Yürüyen karakterlere ikinci, yandan bir çizim yapılır ve yürürken ona döner. Her biri bir tasarımcı çağrısı ve kapı denetimi tutar (~$0,15–0,35), kütüphanede saklanır.
 - `--vertical`: 9:16 render eder.
+- `--no-captions`: altyazıyı videoya gömmez (`.srt` yine yazılır).
 
 Karakter bankası (vektör modu): onaylanan her karakter kütüphanede saklanır ve Stüdyo'nun **Karakterler** sayfasında görünür. Orada Claude'a konudan bağımsız bir karakter çizdirebilirsin (sunucu, bilim insanı, çocuk…; tanesi ~$0,15–0,35, kalite kapısından geçer) ve herhangi bir karakteri seri maskotu yapabilirsin. Bölüm açarken bankadan bir karakteri ekrandaki sunucu seçebilirsin (anlatımı o konuşur, çekimlerin çoğunda görünür) ya da kadroya ekleyebilirsin. Seçilenler yeniden çizilmez; bölüm onların stil paketine geçer. CLI: `pnpm ys bank [list|add|mascot]`, `episode new --presenter <kimlik> --with <kimlik,kimlik>`.
 
@@ -117,6 +126,7 @@ Anahtarlar ve ayarlar `.env` dosyasında durur (bkz. `.env.example`). Önemliler
 | `ANTHROPIC_API_KEY` | Claude ajanları. Boşsa Claude Code girişi kullanılır. |
 | `YS_MODEL_CREATIVE` / `_FAST` / `_CHEAP` | Her sınıfın varsayılan modeli. Modeller sayfasındaki ajan başına seçimler bunları ezer. |
 | `STORE=s3`, `LEDGER=db` | Yerel dosyalar yerine S3 ve Postgres kullanır. |
+| `GEMINI_OMNI_VIDEO=1` | Gemini Omni Flash videoyu açar (Veo'nun yerine; henüz gerçek çağrıyla doğrulanmadı). |
 | `YS_UPDATE_CHECK=0` | Stüdyo'nun güncelleme kontrolünü kapatır. |
 
 ## Sürümler ve güncelleme

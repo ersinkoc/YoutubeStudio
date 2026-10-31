@@ -8,7 +8,7 @@ export type Locale = (typeof LOCALES)[number];
 export const LOCALE_COOKIE = "ys-lang";
 
 const tr = {
-  "app.tagline": "AI video fabrikası",
+  "app.tagline": "Tek konudan bitmiş videoya: AI video fabrikası",
   "nav.episodes": "Bölümler",
   "nav.costs": "Maliyetler",
   "nav.pricing": "Fiyatlar",
@@ -523,7 +523,7 @@ const tr = {
 export type MessageKey = keyof typeof tr;
 
 const en: Record<MessageKey, string> = {
-  "app.tagline": "AI video factory",
+  "app.tagline": "From one topic to a finished video: an AI video factory",
   "nav.episodes": "Episodes",
   "nav.costs": "Costs",
   "nav.pricing": "Pricing",

@@ -442,14 +442,14 @@ describe("Bölüm sayfası", () => {
 describe("Kök yerleşim", () => {
   it("başlık ve açıklama seçilen dilde", async () => {
     fake.cookie = "en";
-    expect(await layout.generateMetadata()).toEqual({ title: "YoutubeStudio", description: "AI video factory" });
+    expect(await layout.generateMetadata()).toEqual({ title: "AI Video Factory", description: "From one topic to a finished video: an AI video factory" });
   });
 
   it("gezinti, sürüm ve güncelleme yoksa uyarısız", async () => {
     const h = await html(layout.default({ children: <p>içerik</p> }));
     expect(h).toContain('<html lang="tr">');
     expect(h).toContain('data-locale="tr"');
-    expect(text(h)).toContain("YoutubeStudio v1.2.3");
+    expect(text(h)).toContain("AI Video Factory v1.2.3");
     expect(h).toContain("data-nav");
     expect(h).toContain("<p>içerik</p>");
     expect(text(h)).not.toContain("Yeni sürüm");
