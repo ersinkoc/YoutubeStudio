@@ -305,9 +305,13 @@ describe("vektör ajanları", () => {
     };
     const a = await capture((d) => vectorDirector(input, style, d));
     expect(a.prompt).toBe(
-      "Assets:\n- c1 (character, rigged): Billy, rider\n- l1 (background room shell): Station\n- p-desk (prop): oak desk\n- b-desert (background room shell): open desert\n\n" +
+      "Assets:\n- c1 (character, rigged): Billy, rider\n- l1 (background room shell, planned place of this scene): Station\n- p-desk (prop): oak desk\n- b-desert (background room shell): open desert\n\n" +
         "## s1 (9.9 s, location: station, emotion: tense)\nVisual intent: rider arrives\nNarration: [0]Bir [1]gün [2]atlı [3]geldi",
     );
+    expect(a.system).toContain("Never stage an event in a room where it did not happen.");
+    // Başka sahnenin mekânı işaretlenmez.
+    const other = await capture((d) => vectorDirector({ ...input, scene: { ...input.scene, id: "s2" } }, style, d));
+    expect(other.prompt).toContain("- l1 (background room shell): Station\n");
     expect(a.system).not.toContain("VERTICAL VIDEO");
     expect(a.system).not.toContain("A reviewer looked");
     expect(a.system).toContain('in language "tr"');

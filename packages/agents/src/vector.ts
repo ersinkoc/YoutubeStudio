@@ -315,7 +315,8 @@ export function vectorDirector(
   const { annotated } = indexWords(input.scene.narration);
   const assets = [
     ...input.cast.characters.map((c) => `- ${c.id} (character, rigged${c.id === input.presenter ? ", ON-SCREEN PRESENTER" : ""}): ${c.name}, ${c.role}`),
-    ...input.cast.locations.map((l) => `- ${l.id} (background room shell): ${l.name}`),
+    // Kadro mekânının bu sahne için planlandığı söylenir: yönetmen olayı ilgisiz bir odada sahnelemesin (Apple bölümü, 31 Eki).
+    ...input.cast.locations.map((l) => `- ${l.id} (background room shell${l.scenes.includes(input.scene.id) ? ", planned place of this scene" : ""}): ${l.name}`),
     ...Object.entries(input.props).map(([id, d]) => `- ${id} (${id.startsWith("b-") ? "background room shell" : "prop"}): ${d}`),
   ].join("\n");
 
@@ -341,7 +342,8 @@ ${
       }
 - On-screen texts: at most 2 per shot, ≤ 5 words each, in language "${input.lang}". Only dates, numbers, names or one key term; never repeat the narration sentence. style: title (place/date/event), subtitle (second line under it), number, quote — code shows these in one fixed info card at the top-left, so their x/y are ignored; label = a person's name tag: give x/y just above that person's head. Many shots need no text at all.
 - Show what the narration says: every concrete object, document, device or action named in a shot must be visible in that shot. Reuse listed assets; if one is missing, use a new id starting with "p-" and describe it in newProps (front view, no text on it). Up to 6 new props per scene.
-- Avoid repetition: consecutive shots must differ in background, framing or layout. Mix wide shots (whole room), medium shots (zoom ~1.3 on people) and close-ups (zoom 1.6–2.2 with focusX/focusY on a face or object). New places: id "b-…" in newBackgrounds (up to 2 per scene).
+- The background is where the narrated moment happens. Use the scene's planned place for shots set there; when the narration moves to a place that is not listed (a shop, another company's office, a street, a factory, a stage), add it as a new place (id "b-…" in newBackgrounds, up to 2 per scene) instead of reusing an unrelated room. Never stage an event in a room where it did not happen.
+- Avoid repetition: consecutive shots must differ in background, framing or layout. Mix wide shots (whole room), medium shots (zoom ~1.3 on people) and close-ups (zoom 1.6–2.2 with focusX/focusY on a face or object).
 ${
         input.vertical
           ? `- VERTICAL VIDEO (9:16): the 1920×1080 canvas is shown centre-cropped, only about x 240–1680 is visible. Keep every character, prop and text inside x 360–1560; stack instead of spreading side by side; at most 2 characters per shot; prefer medium shots and close-ups.
