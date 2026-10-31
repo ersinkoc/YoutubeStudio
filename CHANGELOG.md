@@ -2,6 +2,10 @@
 
 Releases are cut with `pnpm release`. The Studio shows an update banner when a newer GitHub release exists.
 
+## v0.1.1 (2026-10-31)
+
+- Rename the product to AI Video Factory and refresh the READMEs
+
 ## v0.1.0 (2026-10-31)
 
 First public release.
