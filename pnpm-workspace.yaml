@@ -27,3 +27,7 @@ minimumReleaseAgeExclude:
   - '@trigger.dev/sdk@4.8.2'
   - trigger.dev@4.8.2
   - lucide-react@1.64.0
+overrides:
+  # Güvenlik: trigger.dev zincirindeki eski tar/zod (aynı büyük sürüm içinde yükseltme).
+  tar@<7.5.22: 7.5.22
+  zod@>=4 <4.6.6: 4.6.7
