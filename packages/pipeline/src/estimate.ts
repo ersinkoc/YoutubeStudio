@@ -24,14 +24,17 @@ export const STAGE_LABELS: Record<Stage, string> = {
   review: "İnceleme",
 };
 
-/** Ölçüm yokken çağrı başı süre (ms). 29 Eki çalıştırmalarından. */
-const DEFAULT_LATENCY_MS: Partial<Record<Capability, number>> = {
+/** Ölçüm yokken çağrı başı süre (ms). 29 Eki çalıştırmalarından. Tahminde fiyatlanan her yetenek burada. */
+const DEFAULT_LATENCY_MS = {
   t2i: 12_000,
   i2i_multiref: 15_000,
   i2v: 140_000,
   tts: 10_000,
   tts_timestamps: 8_000,
-};
+} satisfies Partial<Record<Capability, number>>;
+
+/** Tahminin fiyatladığı istek: süresi bilinen yeteneklerden biri. */
+type PricedRequest = GenerationRequest & { capability: keyof typeof DEFAULT_LATENCY_MS };
 
 /** Ajan aşamaları: sabit + dakika başı (gerçek ölçümler: 3 dk senaryo $0.14/~50 sn, stil $0.014/12 sn). */
 const AGENT_MODEL: Partial<Record<Stage, { usd: number; usdPerMin: number; sec: number; secPerMin: number }>> = {
@@ -124,18 +127,18 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const shotCount = shotList?.length ?? Math.max(1, Math.round(videoSec / avgShotSec));
 
   /** Bir isteği router'dan geçirip tek çağrının maliyet ve süresini verir. */
-  const price = (req: GenerationRequest) => {
+  const price = (req: PricedRequest) => {
     const top = rankProviders(ctx.providers, req, policy)[0];
     if (!top) {
       warnings.push(`"${req.capability}" için uygun sağlayıcı yok (anahtar eksik olabilir)`);
-      return { providerId: undefined, usd: 0, ms: DEFAULT_LATENCY_MS[req.capability] ?? 10_000, basis: "sağlayıcı yok", units: 0, unit: "" };
+      return { providerId: undefined, usd: 0, ms: DEFAULT_LATENCY_MS[req.capability], basis: "sağlayıcı yok", units: 0, unit: "" };
     }
     const bill = billing(top.adapter.price, req);
     const measured = ctx.latency[top.adapter.id];
     return {
       providerId: top.adapter.id,
       usd: bill.micros / 1_000_000,
-      ms: measured?.avgMs ?? DEFAULT_LATENCY_MS[req.capability] ?? 10_000,
+      ms: measured?.avgMs ?? DEFAULT_LATENCY_MS[req.capability],
       basis: measured ? `ölçüm (n=${measured.n})` : "varsayılan",
       units: bill.units,
       unit: bill.unitLabel,
@@ -199,7 +202,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     state.script?.scenes.reduce((n, s) => n + s.narration.length, 0) ??
     Math.round(minutes * (WPM_DEFAULT[lang] ?? 140) * CHARS_PER_WORD);
   const scenes = state.script?.scenes.length ?? Math.max(1, Math.round(videoSec / 30));
-  const vReq: GenerationRequest = {
+  const vReq: PricedRequest = {
     capability: "tts_timestamps",
     quality: "standard",
     text: "x".repeat(narrationChars),

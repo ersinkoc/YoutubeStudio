@@ -314,7 +314,10 @@ const rot = ([x, y]: readonly [number, number], deg: number): [number, number] =
 /** İskelet pozundan sağ elin tuval üzerindeki yeri: elde tutulan nesne her karede bunu izler. */
 function handPoint(placed: PlacedLayer, layer: VectorLayer, p: number, t: number, prefix: string): [number, number] {
   const pose = rigPose(layer.anims, p, t, prefix, placed.sitting, layer.expression);
+  // rigPose kolları her zaman pozlar; "?? 0" yalnız tip için (Partial).
+  /* v8 ignore next */
   const a = pose["arm-r"]?.rotate ?? 0;
+  /* v8 ignore next */
   const f = pose["forearm-r"]?.rotate ?? 0;
   const [sx, sy] = RIG.pivots["arm-r"];
   const [ex, ey] = RIG.pivots["forearm-r"];
@@ -664,6 +667,8 @@ export function VectorScene({
             if (pl.heldBy !== undefined) {
               // Tutan karakterin eli her karede yeniden hesaplanır; nesne avucun ortasından tutulur.
               const holder = placed.find((h) => h.index === pl.heldBy);
+              // resolveLayout heldBy'ı yalnız yerleştirilmiş bir karakter için yazar; tutan bulunamaması savunma amaçlı.
+              /* v8 ignore else */
               if (holder) {
                 const [hx, hy] = handPoint(holder, spec.layers[holder.index]!, p, t, `${visual.shotId}-${holder.index}-`);
                 at = { ...pl, x: hx, y: hy + pl.height * 0.45 };

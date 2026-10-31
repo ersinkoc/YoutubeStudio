@@ -46,6 +46,7 @@ import {
   VectorAssetMeta,
   type AssetCheck,
   type GateScores,
+  type LineStyle,
   type ModelSettings,
   type Timeline,
   type VectorAsset,
@@ -423,7 +424,7 @@ export class EpisodePipeline {
   // ---------------- vektör modu ----------------
 
   /** Kütüphane anahtarı: aynı tarif, stil ve çizgi stili için SVG bir kez çizilir, bölümler arasında yeniden kullanılır. */
-  private libraryKey(state: EpisodeState, brief: AssetBrief): string {
+  private libraryKey(state: EpisodeState, brief: AssetBrief & { lineStyle: LineStyle }): string {
     const style = state.style!;
     const hash = createHash("sha256")
       .update(
@@ -436,7 +437,7 @@ export class EpisodePipeline {
           style.palette,
           // Tasarım kuralları değişince (iskelet, oda kabuğu, fizik bilgisi) varlık yeniden çizilir.
           ASSET_VERSION[brief.kind],
-          brief.lineStyle ?? "outline",
+          brief.lineStyle,
           // Referanstan çizilenler ayrı anahtar alır; referanssız eski varlıkların anahtarı değişmez.
           ...(brief.reference ? [`ref:${brief.reference.trim().toLowerCase()}`] : []),
         ]),
@@ -741,7 +742,7 @@ export class EpisodePipeline {
       if (!hit || concept.candidates[c.id]?.some((r) => r.key === hit.key)) continue;
       (concept.candidates[c.id] ??= []).push({ key: hit.key, mimeType: "image/svg+xml" });
       concept.selected[c.id] ??= { key: hit.key, mimeType: "image/svg+xml" };
-      const check = VectorAssetMeta.parse((await getJson(this.deps.store, `${hit.key}.json`)) ?? {}).check;
+      const check = VectorAssetMeta.parse(/* v8 ignore next -- kütüphane listesi yalnız metası olan karakterleri verir */ (await getJson(this.deps.store, `${hit.key}.json`)) ?? {}).check;
       if (check) (state.assetChecks ??= {})[hit.key] = { ...check, entityId: c.id };
       this.log(`  ♻ ${c.name}: kütüphaneden (${hit.episodes.length} bölümde kullanıldı), çizilmedi`);
     }
@@ -863,9 +864,9 @@ export class EpisodePipeline {
     const lessons = topLessons(await loadLessons(this.deps.store), "director");
     const planned = new Map<string, ShotPlanOut["scenes"][number]["shots"]>();
     await mapLimit(script.scenes, this.deps.concurrency ?? 3, async (scene) => {
-      planned.set(scene.id, await this.planVectorScene(state, scene, durations[scene.id] ?? 0, lessons));
+      planned.set(scene.id, await this.planVectorScene(state, scene, /* v8 ignore next -- süreler senaryonun bütün sahnelerinden kurulur */ durations[scene.id] ?? 0, lessons));
     });
-    state.shotPlan = { scenes: script.scenes.map((s) => ({ sceneId: s.id, shots: planned.get(s.id) ?? [] })) };
+    state.shotPlan = { scenes: script.scenes.map((s) => ({ sceneId: s.id, shots: /* v8 ignore next -- her sahne planlanır; planlanamazsa mapLimit zaten fırlatır */ planned.get(s.id) ?? [] })) };
     state.shots = resolveShotTimes(state.shotPlan, script.scenes.map((s) => s.id), voice);
     state.keyframes = {};
     state.qa = {};
@@ -884,6 +885,7 @@ export class EpisodePipeline {
     dir: string,
     known: string[],
   ): Promise<{ files: Record<string, string>; review: EpisodeReview }> {
+    /* v8 ignore next -- iki çağıran da (taslak denetimi, inceleme) çekimleri önceden denetler */
     const shots = state.shots ?? [];
     const files = await this.renderShotStills(timeline, dir);
 
@@ -968,7 +970,7 @@ export class EpisodePipeline {
       const dir = await this.draftDir(state);
       const timeline = buildTimeline(state, (key) => key, await this.vectorAssets(state));
       await this.storeStills(state, await this.renderShotStills(timeline, dir, only));
-      this.log(`  önizleme: ${only?.size ?? state.shots?.length ?? 0} çekim karesi`);
+      this.log(`  önizleme: ${/* v8 ignore next -- çekim yoksa buildTimeline daha önce fırlatır */ only?.size ?? state.shots?.length ?? 0} çekim karesi`);
     } catch (e) {
       // Önizleme yardımcıdır; çıkarılamazsa üretim sürer.
       this.log(`  önizleme kareleri çıkarılamadı (${e instanceof Error ? e.message : String(e)})`);
@@ -1036,7 +1038,7 @@ export class EpisodePipeline {
         })
         .filter(Boolean)
         .join("\n");
-      const replanned = await this.planVectorScene(state, scene, durations[scene.id] ?? 0, lessons, feedback);
+      const replanned = await this.planVectorScene(state, scene, /* v8 ignore next -- süreler senaryonun bütün sahnelerinden kurulur */ durations[scene.id] ?? 0, lessons, feedback);
       const entry = state.shotPlan!.scenes.find((s) => s.sceneId === scene.id);
       if (entry) entry.shots = replanned;
     });
@@ -1047,7 +1049,7 @@ export class EpisodePipeline {
     const revised = new Set(scenesToFix.map((s) => s.id));
     const redo = new Set(state.shots.filter((s) => revised.has(s.sceneId)).map((s) => s.id));
     const live = new Set(state.shots.map((s) => s.id));
-    for (const id of Object.keys(state.stills ?? {})) if (redo.has(id) || !live.has(id)) delete state.stills![id];
+    for (const id of Object.keys(/* v8 ignore next -- kareler yukarıda state.stills'e yazıldı */ state.stills ?? {})) if (redo.has(id) || !live.has(id)) delete state.stills![id];
     await this.vectorPreviews(state, redo);
   }
   /** Defter şişince benzer dersler birleştirilir; küratör başarısız olursa defter olduğu gibi kalır. */
@@ -1082,8 +1084,10 @@ export class EpisodePipeline {
   private async vectorPropsDraw(state: EpisodeState): Promise<void> {
     const props = state.vectorProps ?? {};
     // Yalnız güncel çekimlerin kullandığı nesneler çizilir: atılan/yeniden planlanan sahnelerin nesnelerine para gitmez.
+    /* v8 ignore next -- iki çağıran da (kare aşaması, taslak denetimi) çekim ister */
+    const shots = state.shots ?? [];
     const used = new Set(
-      (state.shots ?? []).flatMap((s) => (s.vector ? [s.vector.background, ...s.vector.layers.map((l) => l.asset)].filter(Boolean) : [])),
+      shots.flatMap((s) => (s.vector ? [s.vector.background, ...s.vector.layers.map((l) => l.asset)].filter(Boolean) : [])),
     );
     const todo = Object.entries(props).filter(([id, p]) => !p.key && (!state.shots || used.has(id)));
     const failed: string[] = [];
@@ -1111,6 +1115,7 @@ export class EpisodePipeline {
    * aynı harita başka bölümde tekrar üretilmez.
    */
   private async realWorldAsset(state: EpisodeState, id: string, p: NonNullable<EpisodeState["vectorProps"]>[string]): Promise<string> {
+    /* v8 ignore next -- tek çağıran kare aşamasıdır ve stil ister */
     const palette = state.style?.palette ?? [];
     const source = p.map ? { map: p.map, lang: state.input.lang, palette } : { flag: p.flag };
     const hash = createHash("sha256").update(JSON.stringify({ v: GEO_VERSION, ...source })).digest("hex").slice(0, 32);

@@ -125,6 +125,8 @@ export async function renderEpisode(opts: RenderOptions): Promise<string> {
         return await withTempDir(tempDir, () => renderOnce(opts));
       } catch (e) {
         if (attempt >= 1 || !isTransientRenderFailure(e)) throw e;
+        // split en az bir parça döndürür; "?? ''" yalnız tip için (at() tipte undefined dönebilir).
+        /* v8 ignore next */
         opts.onRetry?.((e as Error).message.split("\n").at(-1) ?? "");
       }
     }

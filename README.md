@@ -142,6 +142,7 @@ The release script only runs on `main` with a clean working tree, after typechec
 | `pnpm ys …` | CLI |
 | `pnpm typecheck` | TypeScript 7 check |
 | `pnpm test` | Unit tests (Vitest) |
+| `pnpm test:coverage` | Unit tests with coverage; fails below 100% lines/branches/functions/statements |
 | `pnpm test:integration` | Postgres and RustFS tests (needs Docker) |
 | `pnpm release` | Version bump, changelog and tag |
 | `pnpm db:generate` / `db:migrate` | Drizzle migrations |

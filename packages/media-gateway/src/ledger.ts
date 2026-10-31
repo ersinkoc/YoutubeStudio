@@ -131,6 +131,8 @@ export function measuredLatency(entries: readonly CostEntry[]): Record<string, {
     entries.filter((e) => e.durationMs !== undefined && !e.cacheHit && !e.error),
     (e) => e.providerId,
   )) {
+    // Süzülmüş kayıtların hepsi başarılı çağrıdır: her grupta calls ≥ 1 (sıfıra bölme koruması).
+    /* v8 ignore else */
     if (g.calls > 0) out[g.key] = { avgMs: Math.round(g.durationMs / g.calls), n: g.calls };
   }
   return out;

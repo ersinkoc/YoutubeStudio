@@ -38,6 +38,6 @@ README İngilizce (`README.md`), Türkçesi `README-TR.md`: birini değiştirirk
 - **Maliyet önce:** Yeni sağlayıcı eklerken `price` ve `qualityPrior` zorunlu. Fiyat kaynağını yorumda belirt. Yerel (ComfyUI) seçenek varsa önce o.
 - Endpoint veya alan adlarından emin değilsen spec'i `verified: false` ekle.
 - Kod yorumları ve pipeline logları Türkçe; Stüdyo arayüzü Türkçe + İngilizce (sözlükten).
-- Her değişiklikten sonra: `pnpm typecheck && pnpm test`.
+- Her değişiklikten sonra: `pnpm typecheck && pnpm test`. Test kapsamı %100 (satır, dal, fonksiyon, ifade; eşik `vitest.config.ts`'te): yeni kod testiyle gelir, `pnpm test:coverage` düşerse kırmızıdır. Testlerde gerçek ağ/Claude/Chrome/ffmpeg yok (sahte `fetch`, `queryFn`, `vi.mock`). Stüdyo istemci bileşenleri `apps/studio/test/client` (happy-dom), sunucu tarafı `apps/studio/test/server`. `/* v8 ignore */` yalnız gerçekten ulaşılamayan savunma kodu için ve gerekçesiyle; oxc değişken başlatıcısı, parantezli ifade ya da dizi öğesi içindeki yorumu siler, bu yüzden ipucu orada etkisizdir: deyimden önceki satıra yaz.
 - Bütçe tavanı yalnız ücretli görsel/ses/video API'leri içindir (`ledger.spent` "llm" kayıtlarını saymaz). Claude ajan çağrıları tavanı aşabilir (kullanıcı kararı, 30 Eki); maliyetleri Stüdyo'da ayrıca gösterilir. Bu yüzden Claude çağrısını tavanla durdurma.
 - Gerçek API çağrısı (para harcar) yapan komutları kullanıcı istemeden çalıştırma. Para harcamadan kontrol için `pnpm ys plan`.

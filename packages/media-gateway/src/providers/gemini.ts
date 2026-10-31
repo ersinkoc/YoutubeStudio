@@ -131,6 +131,8 @@ export class GeminiTtsAdapter implements ProviderAdapter {
       },
     );
     const audio = inlineParts(res)[0];
+    // inlineParts boş listede zaten hata verir; bu satır yalnız tip daraltması için.
+    /* v8 ignore next */
     if (!audio) throw new Error("Gemini TTS ses döndürmedi");
     const rate = Number(/rate=(\d+)/.exec(audio.mimeType)?.[1] ?? 24_000);
     return { files: [{ bytes: toWav(fromBase64(audio.data), rate), mimeType: "audio/wav" }] };

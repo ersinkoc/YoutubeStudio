@@ -171,7 +171,8 @@ export async function findReferences(
  * workbench". Yönetmen referans sorgusu vermediyse kullanılır (her nesne gerçek bir örneğe bakılarak çizilsin).
  */
 export function searchQuery(description: string): string {
-  const head = description.split(/[,.;:(]|\b(?:with|front view|side view|seen|no text)\b/i)[0] ?? description;
+  // split her zaman en az bir parça döndürür.
+  const head = description.split(/[,.;:(]|\b(?:with|front view|side view|seen|no text)\b/i)[0]!;
   return head
     .replace(/^\s*(an?|the)\s+/i, "")
     .split(/\s+/)
@@ -255,7 +256,8 @@ export async function findVectorSources(
       }
       const svg = sanitizeSvg(await res.text());
       svgSize(svg);
-      if ((svg.match(/</g) ?? []).length > MAX_ELEMENTS) continue;
+      // Temizlenmiş SVG her zaman <svg ile başlar: eşleşme vardır.
+      if (svg.match(/</g)!.length > MAX_ELEMENTS) continue;
       const key = `${dir}/${items.length}.svg`;
       await deps.store.put(key, new TextEncoder().encode(svg), "image/svg+xml");
       const source = { title, url: info.descriptionurl ?? info.url, license };

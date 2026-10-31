@@ -60,7 +60,8 @@ export function resolveShotTimes(
       const idx = i === 0 ? 0 : Math.min(Math.max(shot.startWord, lastIdx + 1), v.words.length - 1);
       if (idx <= lastIdx) continue; // kelime kalmadı; bu çekimi düşür
       lastIdx = idx;
-      kept.push({ startMs: i === 0 ? sceneStart : sceneStart + (v.words[idx]?.startMs ?? 0), shot });
+      // idx burada 0 < idx < words.length: kelime her zaman vardır.
+      kept.push({ startMs: i === 0 ? sceneStart : sceneStart + v.words[idx]!.startMs, shot });
     }
 
     kept.forEach(({ startMs, shot }, i) => {

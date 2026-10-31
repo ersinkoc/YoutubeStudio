@@ -117,7 +117,8 @@ export class ComfyUiAdapter implements ProviderAdapter {
           if (f.type !== "output") continue;
           const qs = new URLSearchParams({ filename: f.filename, subfolder: f.subfolder, type: f.type });
           const { bytes } = await requestBytes(ctx.fetch, `${this.baseUrl}/view?${qs}`, { signal: ctx.signal });
-          const ext = f.filename.split(".").pop()?.toLowerCase() ?? "";
+          // split her zaman en az bir parça döndürür.
+          const ext = f.filename.split(".").pop()!.toLowerCase();
           files.push({ bytes, mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream" });
         }
       }

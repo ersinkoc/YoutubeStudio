@@ -28,7 +28,11 @@ const KNOWN: [RegExp, MessageKey, string[]?][] = [
 export function errorKey(message: string): { key: MessageKey; vars: Record<string, string> } | undefined {
   for (const [re, key, names] of KNOWN) {
     const m = re.exec(message);
-    if (m) return { key, vars: Object.fromEntries((names ?? []).map((n, i) => [n, m[i + 1] ?? ""])) };
+    if (!m) continue;
+    // Adlandırılan gruplar zorunlu (.+): "" yalnız tip için (ulaşılamaz).
+    /* v8 ignore next */
+    const group = (i: number) => m[i + 1] ?? "";
+    return { key, vars: Object.fromEntries((names ?? []).map((n, i) => [n, group(i)])) };
   }
   return undefined;
 }

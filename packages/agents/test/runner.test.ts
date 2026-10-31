@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { AgentError, indexWords, runStructured, wordsPerMinute, type QueryFn } from "../src/index.ts";
 
@@ -92,7 +92,11 @@ describe("alt süreç çökmesi", () => {
         yield { type: "result", subtype: "success", duration_ms: 1, total_cost_usd: 0.001, structured_output: { ok: true } };
       })();
     }) as unknown as QueryFn;
-    const res = await runStructured({ name: "t", model: "m", system: "", prompt: "", schema: z.object({ ok: z.boolean() }) }, { queryFn: flaky });
+    vi.useFakeTimers();
+    const pending = runStructured({ name: "t", model: "m", system: "", prompt: "", schema: z.object({ ok: z.boolean() }) }, { queryFn: flaky });
+    await vi.advanceTimersByTimeAsync(2000);
+    const res = await pending;
+    vi.useRealTimers();
     expect(res.data.ok).toBe(true);
     expect(calls).toBe(2);
 
@@ -105,5 +109,5 @@ describe("alt süreç çökmesi", () => {
     }) as unknown as QueryFn;
     await expect(runStructured({ name: "t", model: "m", system: "", prompt: "", schema: z.object({}) }, { queryFn: turns })).rejects.toThrow(AgentError);
     expect(modelCalls).toBe(1);
-  }, 15_000);
+  });
 });

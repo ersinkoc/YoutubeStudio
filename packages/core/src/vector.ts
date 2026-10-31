@@ -350,7 +350,8 @@ export function sanitizeSvg(raw: string): string {
     const attrs: string[] = [];
     let a: RegExpExecArray | null;
     attr.lastIndex = 0;
-    while ((a = attr.exec(rawAttrs ?? ""))) {
+    // Grup 3 bir `*` niceleyicisini sarar: eşleşmede her zaman (boş da olsa) vardır.
+    while ((a = attr.exec(rawAttrs!))) {
       const attrName = a[1]!.toLowerCase();
       let value = a[2] ?? a[3] ?? a[4] ?? "";
       if (!ALLOWED_ATTRS.has(attrName)) continue;
@@ -461,7 +462,8 @@ export function applyLineStyle(svg: string, style: LineStyle): string {
     const fillNone = /\sfill="none"/.test(attrs);
     let next = attrs;
     if (style === "flat") {
-      const strokeAttrs = (a: string) => (a.match(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g) ?? []).join("");
+      // Yalnız koyu stroke="" taşıyan grupta çağrılır: eşleşme her zaman vardır.
+      const strokeAttrs = (a: string) => a.match(/\sstroke(-width|-linejoin|-linecap|-opacity)?="[^"]*"/g)!.join("");
       if (tag === "g") {
         const dark = stroke && stroke !== "none" && darkColor(stroke);
         const carried = dark ? strokeAttrs(attrs) : parent;

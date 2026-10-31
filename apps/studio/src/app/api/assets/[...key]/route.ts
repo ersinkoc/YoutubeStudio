@@ -23,6 +23,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ key: string[] 
   }
   const bytes = await store().get(key.join("/"));
   if (!bytes) return new Response("Yok", { status: 404 });
+  // Yukarıdaki denetim en az bir dolu parça garanti eder; "" yalnız tip için (ulaşılamaz).
+  /* v8 ignore next */
   const ext = key.at(-1)?.split(".").pop()?.toLowerCase() ?? "";
   return new Response(new Uint8Array(bytes), {
     headers: {

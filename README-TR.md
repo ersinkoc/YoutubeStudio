@@ -142,6 +142,7 @@ Release betiği yalnız `main` dalında, commit edilmemiş değişiklik yokken, 
 | `pnpm ys …` | CLI |
 | `pnpm typecheck` | TypeScript 7 kontrolü |
 | `pnpm test` | Birim testleri (Vitest) |
+| `pnpm test:coverage` | Kapsamlı birim testleri; satır/dal/fonksiyon/ifade %100 altına düşerse başarısız |
 | `pnpm test:integration` | Postgres ve RustFS testleri (Docker gerekir) |
 | `pnpm release` | Sürüm artırma, değişiklik günlüğü ve etiket |
 | `pnpm db:generate` / `db:migrate` | Drizzle migration'ları |
