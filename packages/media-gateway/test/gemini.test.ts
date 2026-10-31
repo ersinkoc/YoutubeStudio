@@ -3,6 +3,7 @@ import {
   ContentRejectedError,
   GeminiImageAdapter,
   GeminiTtsAdapter,
+  OmniVideoAdapter,
   SubmittedJobError,
   VeoAdapter,
   pcm16ToWav,
@@ -308,5 +309,87 @@ describe("VeoAdapter", () => {
       message: expect.stringContaining("bilinmiyor"),
     });
     expect(await failing({ response: { generateVideoResponse: { generatedSamples: [] } } })).toBeInstanceOf(SubmittedJobError);
+  });
+});
+
+describe("OmniVideoAdapter", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const adapter = new OmniVideoAdapter(cfg("gemini:omni-video", "gemini-omni-1.1-flash"));
+  const frame = (role: "first_frame" | "last_frame" | "character", b: number) => ({ role, bytes: new Uint8Array([b]), mimeType: "image/png" });
+  const output = (content: unknown[]) => ({ id: "int1", status: "completed", steps: [{ type: "user_input" }, { type: "model_output", content }] });
+
+  it("ilk/son kareyle görselden video ister; süre ve sessizlik metne yazılır; base64 video döner", async () => {
+    const { fetch, calls } = mockFetch(() => json(output([{ type: "text", text: "ok" }, { type: "video", data: b64([7]), mime_type: "video/mp4" }])));
+    const res = await adapter.generate(
+      {
+        capability: "first_last_frame",
+        quality: "hero",
+        prompt: "kuş uçar",
+        negativePrompt: "bulanık",
+        durationSec: 6.4,
+        aspectRatio: "9:16",
+        refs: [frame("last_frame", 2), frame("first_frame", 1)],
+      },
+      { fetch },
+    );
+    expect(res).toEqual({ files: [{ bytes: new Uint8Array([7]), mimeType: "video/mp4" }], providerMeta: { requestId: "int1" } });
+    expect(calls[0]).toMatchObject({ url: `${BASE}/interactions`, method: "POST", headers: { "x-goog-api-key": "sahte-anahtar" } });
+    expect(calls[0]!.body).toEqual({
+      model: "gemini-omni-1.1-flash",
+      input: [
+        { type: "image", data: b64([1]), mime_type: "image/png" },
+        { type: "image", data: b64([2]), mime_type: "image/png" },
+        {
+          type: "text",
+          text: "kuş uçar\n\nAvoid: bulanık\nDuration: about 6 seconds.\nNo dialogue, no music.\nTransition from the first image to the second image.",
+        },
+      ],
+      generation_config: { video_config: { task: "image_to_video" } },
+      response_format: { type: "video", aspect_ratio: "9:16", resolution: "720p" },
+    });
+  });
+
+  it("görselsiz istekte görev alanı yok; ses istenirse sessizlik notu eklenmez; mime yoksa mp4", async () => {
+    const { fetch, calls } = mockFetch(() => json({ steps: [{ type: "model_output", content: [{ type: "video", data: b64([1]) }] }] }));
+    const res = await adapter.generate({ capability: "t2v", quality: "hero", prompt: "deniz", withAudio: true }, { fetch });
+    expect(res.files[0]!.mimeType).toBe("video/mp4");
+    expect(calls[0]!.body).toEqual({
+      model: "gemini-omni-1.1-flash",
+      input: [{ type: "text", text: "deniz\nDuration: about 5 seconds." }],
+      response_format: { type: "video", aspect_ratio: "16:9", resolution: "720p" },
+    });
+  });
+
+  it("büyük çıktı dosya adresiyle gelir: ACTIVE olana dek beklenir ve indirilir", async () => {
+    let polls = 0;
+    const { fetch, calls } = mockFetch((url) => {
+      if (url.endsWith("/interactions")) return json(output([{ type: "video", uri: `${BASE}/files/abc123` }]));
+      if (url === `${BASE}/files/abc123`) return json({ state: ++polls < 2 ? "PROCESSING" : "ACTIVE" });
+      if (url === `${BASE}/files/abc123:download?alt=media`) return new Response(new Uint8Array([5]));
+      throw new Error(`beklenmeyen ${url}`);
+    });
+    const p = adapter.generate({ capability: "i2v", quality: "hero", prompt: "p", refs: [frame("character", 1)] }, { fetch });
+    await vi.runAllTimersAsync();
+    expect(await p).toEqual({ files: [{ bytes: new Uint8Array([5]), mimeType: "video/mp4" }], providerMeta: { requestId: "int1" } });
+    expect(polls).toBe(2);
+    expect(calls.at(-1)!.headers).toMatchObject({ "x-goog-api-key": "sahte-anahtar" });
+  });
+
+  it("hatalar: API hatası, videosuz yanıt (içerik reddi), tanınmayan adres, işlenemeyen dosya (ücretlenmiş)", async () => {
+    const run = (body: unknown, file?: unknown) =>
+      adapter.generate(
+        { capability: "i2v", quality: "hero", prompt: "p" },
+        { fetch: mockFetch((url) => (url.endsWith("/interactions") ? json(body) : json(file))).fetch },
+      );
+    await expect(run({ error: { message: "kota" } })).rejects.toThrow("Gemini Omni hatası: kota");
+    await expect(run({ status: "failed", steps: [{ type: "model_output" }] })).rejects.toBeInstanceOf(ContentRejectedError);
+    await expect(run({ status: "failed" })).rejects.toThrow("Gemini Omni video döndürmedi (durum: failed)");
+    await expect(run({})).rejects.toThrow("Gemini Omni video döndürmedi (durum: bilinmiyor)");
+    await expect(run(output([{ type: "video", uri: "https://baska/yer" }]))).rejects.toThrow("Gemini Omni dosya adresi tanınmadı: https://baska/yer");
+    const failed = run({ steps: [{ type: "model_output", content: [{ type: "video", uri: `${BASE}/files/x9` }] }] }, { state: "FAILED" });
+    await expect(failed).rejects.toBeInstanceOf(SubmittedJobError);
+    await expect(failed).rejects.toThrow("Gemini Omni videosu işlenemedi (files/x9)");
   });
 });

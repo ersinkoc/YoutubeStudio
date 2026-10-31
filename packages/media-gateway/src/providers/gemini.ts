@@ -147,6 +147,106 @@ export class GeminiTtsAdapter implements ProviderAdapter {
   }
 }
 
+/** Omni video üretimi dakikalar sürebilir; eşzamanlı çağrı bu sınırla beklenir. */
+const OMNI_TIMEOUT_MS = 900_000;
+
+interface OmniContent {
+  type: string;
+  data?: string;
+  uri?: string;
+  mime_type?: string;
+  text?: string;
+}
+
+interface OmniInteraction {
+  id?: string;
+  status?: string;
+  steps?: { type: string; content?: OmniContent[] }[];
+  error?: { message?: string };
+}
+
+interface GeminiFile {
+  state?: "PROCESSING" | "ACTIVE" | "FAILED";
+}
+
+/**
+ * Gemini Omni 1.1 Flash ile video (Gemini API'de kapatılan Veo'nun önerilen yerine geçeni). Kaynak:
+ * https://ai.google.dev/gemini-api/docs/omni (31 Eki 2026). POST /interactions eşzamanlıdır: görsel(ler) ve metin
+ * `input` listesinde, görev `generation_config.video_config.task = "image_to_video"`, en-boy ve çözünürlük
+ * `response_format`'ta. İki görsel verilirse ilk ve son kare arası geçiş üretir. Süre parametresi yok: istenen süre
+ * metne yazılır, klip render'da çekim süresine kırpılır. Video `steps[type=model_output].content[type=video]`
+ * içinde base64 (`data`) ya da büyükse dosya adresi (`uri`; dosya ACTIVE olana dek beklenir) olarak gelir.
+ *
+ * DOĞRULANMADI: yanıt biçimi yalnız belgeden; gerçek bir çağrıyla denenmedi. registry yalnız GEMINI_OMNI_VIDEO=1 iken kurar.
+ */
+export class OmniVideoAdapter implements ProviderAdapter {
+  readonly local = false;
+  readonly capabilities: readonly Capability[] = ["t2v", "i2v", "first_last_frame"];
+  readonly limits: ProviderLimits = { maxRefs: 2, minDurationSec: 2, maxDurationSec: 10, aspectRatios: ["16:9", "9:16"] };
+  readonly id: string;
+  readonly qualityPrior: number;
+  readonly price: PriceRule;
+  readonly priceSource?: PriceSource;
+
+  constructor(private readonly cfg: GeminiModelConfig) {
+    this.id = cfg.id;
+    this.qualityPrior = cfg.qualityPrior;
+    this.price = cfg.price;
+    this.priceSource = cfg.priceSource;
+  }
+
+  async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
+    const headers = { "x-goog-api-key": this.cfg.apiKey, "Content-Type": "application/json" };
+    const first = req.refs?.find((r) => r.role === "first_frame" || r.role === "character");
+    const last = req.refs?.find((r) => r.role === "last_frame");
+    const images = [first, last].flatMap((r) => (r ? [{ type: "image", data: toBase64(r.bytes), mime_type: r.mimeType }] : []));
+    const seconds = Math.round(req.durationSec ?? 5);
+    // Süre ve ses alanı yok: ikisi de metinle yönlendirilir (belge önerisi). Ses kendi hattımızdan gelir.
+    const text = [
+      promptWithAvoid(req.prompt, req.negativePrompt),
+      `Duration: about ${seconds} seconds.`,
+      req.withAudio ? "" : "No dialogue, no music.",
+      last ? "Transition from the first image to the second image." : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const res = await requestJson<OmniInteraction>(ctx.fetch, `${BASE}/interactions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: this.cfg.model,
+        input: [...images, { type: "text", text }],
+        ...(images.length ? { generation_config: { video_config: { task: "image_to_video" } } } : {}),
+        response_format: { type: "video", aspect_ratio: req.aspectRatio ?? "16:9", resolution: "720p" },
+      }),
+      signal: ctx.signal,
+      timeoutMs: OMNI_TIMEOUT_MS,
+    });
+    if (res.error?.message) throw new LocalizedError(msg("gw.omni.error", { error: res.error.message }));
+    const video = (res.steps ?? []).flatMap((s) => (s.type === "model_output" ? (s.content ?? []) : [])).find((c) => c.type === "video");
+    if (!video?.data && !video?.uri) throw new ContentRejectedError(msg("gw.omni.noVideo", { status: res.status ?? msg("gw.unknown") }));
+    if (video.data) return { files: [{ bytes: fromBase64(video.data), mimeType: video.mime_type ?? "video/mp4" }], providerMeta: { requestId: res.id } };
+
+    // Büyük çıktı dosya olarak gelir: işlenmesi bitene dek beklenir, sonra indirilir.
+    const uri = video.uri!;
+    const name = /files\/[^/?:]+/.exec(uri)?.[0];
+    if (!name) throw new LocalizedError(msg("gw.omni.badUri", { uri }));
+    return afterSubmit(res.id ?? name, async () => {
+      await pollUntil(
+        async () => {
+          const f = await requestJson<GeminiFile>(ctx.fetch, `${BASE}/${name}`, { headers, signal: ctx.signal });
+          if (f.state === "FAILED") throw new LocalizedError(msg("gw.omni.fileFailed", { name }));
+          return f.state === "ACTIVE" ? f : undefined;
+        },
+        { intervalMs: 5_000, signal: ctx.signal },
+      );
+      const file = await requestBytes(ctx.fetch, `${BASE}/${name}:download?alt=media`, { headers: { "x-goog-api-key": this.cfg.apiKey }, signal: ctx.signal });
+      return { files: [{ bytes: file.bytes, mimeType: "video/mp4" }], providerMeta: { requestId: res.id } };
+    });
+  }
+}
+
 interface VeoOperation {
   name: string;
   done?: boolean;

@@ -57,6 +57,14 @@ export const GATEWAY_MESSAGES = {
     en: "{id} (unverified; enable with FAL_ENABLE_UNVERIFIED=1)",
   },
   "gw.skip.noKey": { tr: "{scope} ({key} yok)", en: "{scope} (no {key})" },
+  "gw.omni.error": { tr: "Gemini Omni hatası: {error}", en: "Gemini Omni error: {error}" },
+  "gw.omni.noVideo": { tr: "Gemini Omni video döndürmedi (durum: {status})", en: "Gemini Omni returned no video (status: {status})" },
+  "gw.omni.badUri": { tr: "Gemini Omni dosya adresi tanınmadı: {uri}", en: "Unrecognised Gemini Omni file URI: {uri}" },
+  "gw.omni.fileFailed": { tr: "Gemini Omni videosu işlenemedi ({name})", en: "Gemini Omni video failed to process ({name})" },
+  "gw.skip.omni": {
+    tr: "gemini:omni-video (doğrulanmadı; GEMINI_OMNI_VIDEO=1 ile aç)",
+    en: "gemini:omni-video (unverified; enable with GEMINI_OMNI_VIDEO=1)",
+  },
   "gw.skip.veoShutDown": {
     tr: "gemini:veo ({model} Gemini API'de kapatıldı; yerine gemini-omni-1.1-flash öneriliyor)",
     en: "gemini:veo ({model} was shut down on the Gemini API; gemini-omni-1.1-flash is the suggested replacement)",

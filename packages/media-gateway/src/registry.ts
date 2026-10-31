@@ -5,7 +5,7 @@ import { ComfyUiAdapter, type ComfyWorkflowSpec } from "./providers/comfyui.ts";
 import { ElevenLabsMusicAdapter, ElevenLabsSfxAdapter, ElevenLabsTtsAdapter } from "./providers/elevenlabs.ts";
 import { FalAdapter } from "./providers/fal.ts";
 import { FAL_MODELS } from "./providers/fal-models.ts";
-import { GeminiImageAdapter, GeminiTtsAdapter, VeoAdapter } from "./providers/gemini.ts";
+import { GeminiImageAdapter, GeminiTtsAdapter, OmniVideoAdapter, VeoAdapter } from "./providers/gemini.ts";
 import { msg, type Msg } from "@ys/core";
 import type { ProviderAdapter } from "./types.ts";
 
@@ -128,6 +128,23 @@ export function createProvidersFromEnv(
     );
     // veo-3.1-generate-preview 22 Eki 2026'da kapatıldı (https://ai.google.dev/gemini-api/docs/deprecations; yerine
     // gemini-omni-1.1-flash önerilir, o ayrı bir API). Veo yalnız açıkça model verilince kurulur, doğrulanmamış sayılır.
+    // Veo'nun yerine Gemini Omni Flash: yanıt biçimi gerçek çağrıyla doğrulanana dek yalnız açıkça.
+    if (env.GEMINI_OMNI_VIDEO === "1") {
+      providers.push(
+        new OmniVideoAdapter({
+          id: "gemini:omni-video",
+          model: env.GEMINI_OMNI_MODEL ?? "gemini-omni-1.1-flash",
+          apiKey,
+          // Kling 3 standardın (0.75) üstünde, Kling 3 Pro'nun (0.85) altında: denenene dek tahmin.
+          qualityPrior: 0.8,
+          // $17.50/1M video çıktı tokeni ≈ 720p'de $0.10/sn (belgedeki tahmin). Süre istenemediği için en az 5 sn sayılır.
+          price: { unit: "per_second", usd: 0.1, minSec: 5 },
+          priceSource: { url: GEMINI_PRICING, checked: "2026-10-31", note: msg("price.note.omni") },
+        }),
+      );
+    } else {
+      skipped.push(msg("gw.skip.omni"));
+    }
     if (env.GEMINI_VEO_MODEL && VEO_SHUT_DOWN.has(env.GEMINI_VEO_MODEL)) {
       skipped.push(msg("gw.skip.veoShutDown", { model: env.GEMINI_VEO_MODEL }));
     } else if (env.GEMINI_VEO_MODEL) {

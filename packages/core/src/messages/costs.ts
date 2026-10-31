@@ -53,6 +53,10 @@ export const COSTS_MESSAGES = {
     tr: "768P standart fiyat (16 Kas 2026'dan); öncesinde %30–35 kampanya",
     en: "768P standard rate (from 16 Nov 2026); 30–35% promo before that",
   },
+  "price.note.omni": {
+    tr: "$17,50/1M video tokeni ≈ 720p'de $0,10/sn (tahmin); süre istenemez",
+    en: "$17.50/1M video tokens ≈ $0.10/s at 720p (estimate); duration cannot be requested",
+  },
   "price.note.vidu": { tr: "720p; ses fiyatı değiştirmez", en: "720p; audio does not change the price" },
   "price.note.nanoBanana21": {
     tr: "1K; $30/1M görsel token. Batch API'de $0.0168",

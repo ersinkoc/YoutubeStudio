@@ -10,4 +10,4 @@ export { ComfyUiAdapter, fillPlaceholders, type ComfyWorkflowSpec } from "./prov
 export { ElevenLabsMusicAdapter, ElevenLabsSfxAdapter, ElevenLabsTtsAdapter } from "./providers/elevenlabs.ts";
 export { FalAdapter, type FalModelSpec } from "./providers/fal.ts";
 export { FAL_MODELS } from "./providers/fal-models.ts";
-export { GeminiImageAdapter, GeminiTtsAdapter, VeoAdapter } from "./providers/gemini.ts";
+export { GeminiImageAdapter, GeminiTtsAdapter, OmniVideoAdapter, VeoAdapter } from "./providers/gemini.ts";

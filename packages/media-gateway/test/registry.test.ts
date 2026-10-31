@@ -95,6 +95,13 @@ describe("createProvidersFromEnv", () => {
     expect(def.providers.map((p) => p.id)).toEqual(ids);
     // veo-3.1-generate-preview 22 Eki 2026'da kapandı: varsayılan kurulmaz, sıralamaya/tahmine girmez.
     expect(def.skipped).toContain("gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)");
+    // Omni Flash (Veo'nun yerine) doğrulanana dek yalnız açıkça; model env ile değişebilir.
+    expect(def.skipped).toContain("gemini:omni-video (doğrulanmadı; GEMINI_OMNI_VIDEO=1 ile aç)");
+    const omni = createProvidersFromEnv({ GEMINI_API_KEY: "g", GEMINI_OMNI_VIDEO: "1" }, dir).providers.find((p) => p.id === "gemini:omni-video")!;
+    expect(omni).toMatchObject({ qualityPrior: 0.8, price: { unit: "per_second", usd: 0.1, minSec: 5 }, capabilities: ["t2v", "i2v", "first_last_frame"] });
+    expect((omni as unknown as { cfg: { model: string } }).cfg.model).toBe("gemini-omni-1.1-flash");
+    const other = createProvidersFromEnv({ GEMINI_API_KEY: "g", GEMINI_OMNI_VIDEO: "1", GEMINI_OMNI_MODEL: "omni-x" }, dir).providers.find((p) => p.id === "gemini:omni-video")!;
+    expect((other as unknown as { cfg: { model: string } }).cfg.model).toBe("omni-x");
     // Kapatılmış kimlik yazılıysa Veo kurulmaz, nedeni raporlanır.
     const dead = createProvidersFromEnv({ GEMINI_API_KEY: "g", GEMINI_VEO_MODEL: "veo-3.1-generate-preview" }, dir);
     expect(dead.providers.some((p) => p.id === "gemini:veo")).toBe(false);
