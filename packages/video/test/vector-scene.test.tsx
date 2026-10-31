@@ -167,11 +167,9 @@ describe("vektör sahne: katman animasyonları", () => {
     expect(boxAt([{ type: "spin" }], 300).tr.rotate).toBeCloseTo(360);
   });
 
-  it("cheer zıplatır, surprised irkiltir; pencere dışında etkisizdir", () => {
-    const t = 150 / 30;
-    expect(boxAt([{ type: "cheer" }], 150).tr.y).toBeCloseTo(-Math.abs(Math.sin(t * 6)) * 18);
-    expect(boxAt([{ type: "surprised" }], 150).tr.y).toBeCloseTo(-10);
-    expect(boxAt([{ type: "surprised", start: 0, end: 0.2 }], 150).tr.y).toBe(0);
+  it("karakter jestleri (cheer, surprised) nesneyi zıplatmaz", () => {
+    expect(boxAt([{ type: "cheer" }], 150).tr).toEqual({ x: 0, y: 0, rotate: 0, sx: 1, sy: 1 });
+    expect(boxAt([{ type: "surprised" }], 10).tr).toEqual({ x: 0, y: 0, rotate: 0, sx: 1, sy: 1 });
   });
 
   it("move hedefe gider; verilmeyen eksen yerinde kalır", () => {
@@ -180,11 +178,13 @@ describe("vektör sahne: katman animasyonları", () => {
     expect(boxAt([{ type: "move", toX: 1460, toY: 600 }], 150).tr).toMatchObject({ x: 250, y: 50 });
   });
 
-  it("walk hedefe giderken adımla sekter, bittikten sonra sekmez", () => {
-    const t = 140 / 30;
-    const mid = boxAt([{ type: "walk", toX: 1460 }], 140).tr;
-    expect(mid.y).toBeCloseTo(-Math.abs(Math.sin(t * 7)) * 8);
-    expect(mid.x).toBeGreaterThan(0);
+  it("walk hedefe giderken adımla sekter (en çok boyunun %1,2'si), bittikten sonra sekmez", () => {
+    const ys = [10, 15, 20, 25, 30].map((f) => boxAt([{ type: "walk", toX: 1460 }], f).tr);
+    expect(Math.min(...ys.map((tr) => tr.y))).toBeLessThan(-0.5);
+    expect(Math.min(...ys.map((tr) => tr.y))).toBeGreaterThanOrEqual(-200 * 0.012 - 1e-9);
+    expect(ys.every((tr) => tr.x > 0)).toBe(true);
+    expect(boxAt([{ type: "walk", toX: 1460, start: 0, end: 0.5 }], 200).tr).toMatchObject({ x: 500, y: 0 });
+    // Hedefsiz yürüyüş yerinde adım atar, pencere bitince durur.
     expect(boxAt([{ type: "walk", start: 0, end: 0.5 }], 200).tr).toMatchObject({ x: 0, y: 0 });
   });
 
@@ -228,25 +228,104 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect(g("arm-r").rotate).toBeCloseTo(-150, 1);
     expect(g("brows").ty).toBeCloseTo(-4, 1);
     g = at("point");
-    expect([g("arm-r").rotate, g("forearm-r").rotate, g("head").rotate]).toEqual([-82, -6, -4]);
+    // Hedef yoksa öne-yana yatay (omuz hizasında).
+    expect([g("arm-r").rotate, g("forearm-r").rotate, g("head").rotate, g("eyes").tx]).toEqual([-90, -6, -4, 5]);
     g = at("think");
     expect([g("forearm-r").rotate, g("head").rotate, g("eyes").tx]).toEqual([162, 7, 5]);
     g = at("cheer");
     expect([g("forearm-l").rotate, g("forearm-r").rotate, g("brows").ty, g("mouth").sy]).toEqual([-15, 15, -8, 1.5]);
     g = at("surprised");
-    expect([g("arm-l").rotate, g("forearm-r").rotate, g("eyes").sy, g("mouth").sy]).toEqual([28, 45, 1.25, 1.6]);
+    expect([g("arm-l").rotate, g("forearm-l").rotate, g("forearm-r").rotate, g("eyes").sy, g("mouth").sy]).toEqual([30, 115, -115, 1.25, 1.6]);
     g = at("shrug");
-    expect([g("arm-l").rotate, g("forearm-l").rotate, g("head").rotate, g("brows").ty]).toEqual([22, -70, -6, -6]);
+    expect([g("arm-l").rotate, g("arm-l").ty, g("forearm-l").rotate, g("forearm-r").rotate, g("head").rotate]).toEqual([16, -7, 62, -62, -6]);
     const t = 5;
     g = at("explain");
-    expect(g("forearm-r").rotate).toBeCloseTo(120 + Math.sin(t * 3.4) * 14, 1);
+    expect(g("forearm-r").rotate).toBeCloseTo(-75 + Math.sin(t * 3.4) * 14, 1);
     expect(g("brows").ty).toBeCloseTo(-3 + Math.sin(t * 3) * 2, 1);
+    // Yerinde yürüyüş (hedefsiz): adımlar rahat tempoda; kalkan bacağın uyluğu kısalır, baldır boyunu korur.
     g = at("walk");
-    const s = Math.sin(t * 7);
-    expect(g("leg-l").rotate).toBeCloseTo(s * 22, 1);
-    expect(g("leg-r").rotate).toBeCloseTo(-s * 22, 1);
-    expect(g("shin-l").rotate).toBeCloseTo(Math.max(0, -s) * -28, 1);
-    expect(g("shin-r").rotate).toBeCloseTo(Math.max(0, s) * -28, 1);
+    const s = Math.sin(Math.PI * ((t * 1.3) / 0.7));
+    const lift = (k: number) => 1 - 0.3 * Math.max(0, k);
+    expect(g("leg-l").sy).toBeCloseTo(lift(s), 2);
+    expect(g("leg-r").sy).toBeCloseTo(lift(-s), 2);
+    expect(g("shin-l").sy).toBeCloseTo(1 / lift(s), 2);
+    // Yer değiştirmeden yürürken yön yok: bacak yana açılmaz.
+    expect(g("leg-l").rotate).toBeCloseTo(0, 5);
+  });
+
+  it("yürüyüşte adımlar alınan yoldan gelir: yol iki katına çıkınca adım sayısı da iki katına çıkar", () => {
+    // Bir bacağın kalkıp indiği her geçiş bir adımdır; geçişleri sayarız.
+    const stepsTo = (toX: number) => {
+      let steps = 0;
+      let prev = 0;
+      for (let f = 0; f <= 300; f += 1) {
+        const { get, c: root } = heroAt(f, { anims: [{ type: "walk", toX }] });
+        const css = root.querySelector("style")!.textContent!;
+        const sy = (part: string) => (css.includes(`s1-0-${part}{`) ? get(part).sy : 1);
+        const lifted = sy("leg-l") < 0.97 ? 1 : sy("leg-r") < 0.97 ? 2 : 0;
+        if (lifted && lifted !== prev) steps++;
+        if (lifted) prev = lifted;
+        cleanup();
+      }
+      return steps;
+    };
+    const short = stepsTo(960 + 280 * 4); // 4 adımlık yol (0,7 m × 400 px)
+    const long = stepsTo(960 - 280 * 8); // 8 adım, sola
+    expect(short).toBeGreaterThanOrEqual(3);
+    expect(short).toBeLessThanOrEqual(5);
+    expect(long).toBeGreaterThanOrEqual(7);
+    expect(long).toBeLessThanOrEqual(9);
+  });
+
+  it("yürürken gövde gidiş yönüne eğilir, durunca bacaklar iner ve poz almaz", () => {
+    const right = transformOf(heroAt(20, { anims: [{ type: "walk", toX: 1500 }] }).box).rotate;
+    cleanup();
+    const left = transformOf(heroAt(20, { anims: [{ type: "walk", toX: 400 }] }).box).rotate;
+    cleanup();
+    expect(right).toBeGreaterThan(1.5);
+    expect(left).toBeLessThan(-1.5);
+    // Kalkan bacak gidiş yönüne açılır; aynalanan çizimde dönüş ters verilir ki ekranda yine gidiş yönüne açılsın.
+    const legTilt = (flip: boolean) => {
+      let tilt = 0;
+      for (let f = 3; f < 45 && !tilt; f += 3) {
+        const { get } = heroAt(f, { anims: [{ type: "walk", toX: 1500 }], flip });
+        tilt = get("leg-l").rotate || get("leg-r").rotate;
+        cleanup();
+      }
+      return tilt;
+    };
+    expect(legTilt(false)).toBeGreaterThan(0);
+    expect(legTilt(true)).toBeLessThan(0);
+    // Varınca (pencere sonu) adım biter: bacak parçaları CSS'te poz almaz.
+    const css = heroAt(300, { anims: [{ type: "walk", toX: 1500, end: 0.6 }] }).c.querySelector("style")!.textContent!;
+    expect(css).not.toContain("s1-0-leg-l{");
+  });
+
+  it("slide_in ve move ile gelen karakter de yürür (kaymaz)", () => {
+    for (const anim of [{ type: "slide_in", from: "right", end: 0.6 }, { type: "move", toX: 1500 }]) {
+      const css = heroAt(20, { anims: [anim] }).c.querySelector("style")!.textContent!;
+      expect(css).toContain("s1-0-leg-l{");
+      cleanup();
+    }
+  });
+
+  it("surprised karakteri pencere başında bir kez zıplatır ve yere indirir", () => {
+    const y = (frame: number) => {
+      const r = transformOf(heroAt(frame, { anims: [{ type: "surprised", start: 0.5, end: 1 }] }).box).y;
+      cleanup();
+      return r;
+    };
+    // 10 sn'lik çekimde pencere 150. karede başlar; sıçrayış 0,45 sn (~13 kare) sürer.
+    expect(y(149)).toBe(0);
+    expect(y(157)).toBeLessThan(-10);
+    expect(y(170)).toBe(0);
+    expect(y(250)).toBe(0);
+  });
+
+  it("karakter cheer ile zıplar", () => {
+    const t = 150 / 30;
+    const tr = transformOf(heroAt(150, { anims: [{ type: "cheer" }] }).box);
+    expect(tr.y).toBeCloseTo(-Math.abs(Math.sin(t * 6)) * 18, 1);
   });
 
   it("nod başı mevcut salınımın üstüne sallar", () => {
@@ -290,9 +369,9 @@ describe("vektör sahne: karakter iskeleti", () => {
     for (let f = 0; f < 180; f += 2) {
       const { get } = heroAt(f, {}, "g1");
       if (get("eyes").sy === 0.1) blinks++;
-      // Doğal duruşta ön kol ±13°; jestte 75°'ye kadar kalkar.
-      if (get("forearm-r").rotate > 30) right++;
-      if (get("forearm-l").rotate < -30) left++;
+      // Doğal duruşta ön kol ±13° (hafif içe); jestte el dışa açılır: sağdaki ön kol eksiye, soldaki artıya.
+      if (get("forearm-r").rotate < -30) right++;
+      if (get("forearm-l").rotate > 30) left++;
       cleanup();
     }
     expect(blinks).toBeGreaterThan(0);
@@ -304,17 +383,16 @@ describe("vektör sahne: karakter iskeleti", () => {
   it("kolu meşgul eden jest sürerken kendiliğinden el hareketi yapılmaz", () => {
     for (let f = 0; f < 300; f += 3) {
       const { get } = heroAt(f, { anims: [{ type: "nod" }, { type: "think", start: 0, end: 1 }] }, "g1");
-      expect(get("forearm-l").rotate).toBeGreaterThan(-30);
+      expect(get("forearm-l").rotate).toBeLessThan(30);
       cleanup();
     }
   });
 
-  it("ayaktayken gövde hafifçe salınır; sit animasyonu uyluğu kısaltır", () => {
+  it("ayaktayken gövde hafifçe salınır; oturacak yer yoksa sit animasyonu yok sayılır (havada çömelmez)", () => {
     expect(transformOf(heroAt(10).box).rotate).not.toBe(0);
     cleanup();
-    const { get } = heroAt(150, { anims: [{ type: "sit" }] });
-    expect(get("leg-l").sy).toBe(0.35);
-    expect(get("shin-r").sy).toBeCloseTo(1 / 0.35, 3);
+    const css = heroAt(150, { anims: [{ type: "sit" }] }).c.querySelector("style")!.textContent!;
+    expect(css).not.toContain("s1-0-leg-l{");
   });
 
   it("sandalyedeki karakter oturur: salınmaz, ayakları yerde kalacak kadar iner", () => {
@@ -325,6 +403,63 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect(tr.rotate).toBe(0);
     expect(tr.y).toBeCloseTo((630 - 520) * (1 - 0.35) * (h / RIG.height));
     expect(pose(c, "leg-r", "s1-1-").sy).toBe(0.35);
+  });
+});
+
+describe("vektör sahne: dikkat (işaret ve bakış)", () => {
+  /** Ortadaki karakter ve verilen diğer katmanlar; kare 150'de karakterin iskelet pozu. */
+  const withOthers = (hero: object, others: object[], frame = 150) => {
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, ...hero }, ...others] }, { frame });
+    const css = c.querySelector("style")!.textContent!;
+    cleanup();
+    return (part: string) => pose(css, part);
+  };
+  const point = { anims: [{ type: "point" }] };
+
+  it("point yanındaki nesneyi hedefler: sağdaki için sağ kol, soldaki için sol kol omuzdan ona uzanır", () => {
+    const right = withOthers(point, [{ asset: "box", x: 1500, y: 300, height: 100 }]);
+    expect(right("arm-r").rotate).toBeLessThan(-90); // omuzdan yukarı-sağa
+    expect(right("eyes").tx).toBe(5);
+    const left = withOthers(point, [{ asset: "box", x: 400, y: 300, height: 100 }]);
+    expect(left("arm-l").rotate).toBeGreaterThan(90); // yukarı-sola
+    expect(left("head").rotate).toBeGreaterThan(0);
+    expect(left("eyes").tx).toBe(-5);
+  });
+
+  it("aşağıdaki hedefe aşağı doğru gösterir; aynalanan karakterde de hedef ekranda aynı yandadır", () => {
+    const low = withOthers(point, [{ asset: "chair", x: 1500, depth: 0 }]);
+    expect(low("arm-r").rotate).toBeGreaterThan(-90);
+    expect(low("arm-r").rotate).toBeLessThan(0);
+    // Aynalanınca ekranın sağı iskeletin solu olur: sol kol kalkar (çizim aynalandığı için ekranda yine sağa).
+    const flipped = withOthers({ ...point, flip: true }, [{ asset: "box", x: 1500, y: 300, height: 100 }]);
+    expect(flipped("arm-l").rotate).toBeGreaterThan(90);
+  });
+
+  it("target verilmişse en yakını değil o katmanı gösterir; gövdesinin önündeki nesne hedef sayılmaz", () => {
+    const others = [
+      { asset: "box", x: 1300, y: 300, height: 100 },
+      { asset: "cup", x: 300, y: 300, height: 100 },
+    ];
+    expect(withOthers({ anims: [{ type: "point", target: 2 }] }, others)("arm-l").rotate).toBeGreaterThan(90);
+    expect(withOthers(point, others)("arm-r").rotate).toBeLessThan(-90);
+    // Tam önündeki nesne atlanır; yazı varsa ona gösterir.
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, ...point }, { asset: "box", x: 980, y: 900, height: 100 }], texts: [{ text: "1923", x: 400, y: 200 }] }, { frame: 150 });
+    expect(pose(c, "arm-l").rotate).toBeGreaterThan(90);
+  });
+
+  it("sahnede başka karakter varsa gözler çoğunlukla ona döner", () => {
+    let toward = 0;
+    let away = 0;
+    for (let f = 0; f < 300; f += 15) {
+      const c = scene({ layers: [{ asset: "hero", x: 600, depth: 0.2 }, { asset: "hero", x: 1400, depth: 0.2 }] }, { frame: f });
+      const tx = pose(c, "eyes").tx;
+      // Göz kırpma ya da kendiliğinden jest bakışı değiştirmez; sağdaki karaktere bakan göz sağa (artı) kayar.
+      if (tx > 2) toward++;
+      if (tx < -2) away++;
+      cleanup();
+    }
+    expect(toward).toBeGreaterThan(away);
+    expect(toward).toBeGreaterThan(8);
   });
 });
 
@@ -350,8 +485,22 @@ describe("vektör sahne: elde tutulan nesne", () => {
     expect(a.top).toBeCloseTo(b.top);
   });
 
-  it("nesnenin kendi move animasyonu yok sayılır (hareketi tutandan gelir)", () => {
+  it("nesnenin kendi yer değiştiren animasyonları yok sayılır (hareketi tutandan gelir)", () => {
     expect(held({}, [{ type: "move", toX: 100, toY: 100 }])).toEqual(held({}));
+    for (const type of ["float", "sway", "shake", "slide_in", "walk"]) expect(held({}, [{ type }])).toEqual(held({}));
+  });
+
+  it("tutan yürürken nesne elde kalır", () => {
+    for (const frame of [60, 150, 240]) {
+      const c = scene({ layers: [{ asset: "hero", x: 600, depth: 0, anims: [{ type: "walk", toX: 1300 }] }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame });
+      const hero = layerBox(c, "body");
+      const cup = layerBox(c, "cup");
+      const heroX = parseFloat(hero.style.left) + parseFloat(hero.style.width) / 2 + transformOf(hero).x;
+      const cupX = parseFloat(cup.style.left) + parseFloat(cup.style.width) / 2;
+      // Sağ el gövde ekseninden en çok yarım gövde genişliği uzaktadır.
+      expect(Math.abs(cupX - heroX)).toBeLessThan(parseFloat(hero.style.width) / 2);
+      cleanup();
+    }
   });
 
   it("oturan karakterin eli de aşağı iner", () => {
@@ -372,6 +521,44 @@ describe("vektör sahne: elde tutulan nesne", () => {
   it("karakter olmayan tutan yok sayılır, nesne kendi yerinde kalır", () => {
     const c = scene({ layers: [{ asset: "box", x: 400, y: 500, height: 200 }, { asset: "cup", x: 1200, y: 400, height: 100, heldBy: 0 }] });
     expect(layerBox(c, "cup").style.left).toBe("1150px");
+  });
+});
+
+describe("vektör sahne: yerçekimi", () => {
+  /** Yerde duran sandalye (derinlikle yerleşir). */
+  const chairAt = (anims: object[], frame: number) => {
+    const c = scene({ layers: [{ asset: "chair", x: 960, depth: 0.3, anims }] }, { frame });
+    const tr = transformOf(layerBox(c, "chair"));
+    cleanup();
+    return tr;
+  };
+
+  it("yerdeki nesne dikeyde hareket etmez: toY yok sayılır, yalnız yatay hedef kalır", () => {
+    // Bölüm verisi: at ve araba "toY: 0" ile ekranın tepesine uçuyordu.
+    expect(chairAt([{ type: "move", toY: 0 }], 300)).toMatchObject({ x: 0, y: 0 });
+    expect(chairAt([{ type: "move", toX: 1460, toY: 0 }], 300)).toMatchObject({ x: 500, y: 0 });
+  });
+
+  it("yerdeki nesne süzülmez; yukarıdan/aşağıdan kayarak gelen yerinde belirir", () => {
+    expect(chairAt([{ type: "float" }], 60)).toMatchObject({ x: 0, y: 0 });
+    const slid = (from: string) => {
+      const c = scene({ layers: [{ asset: "chair", x: 960, depth: 0.3, anims: [{ type: "slide_in", from, end: 0.5 }] }] }, { frame: 75 });
+      const el = layerBox(c, "chair");
+      cleanup();
+      return { tr: transformOf(el), opacity: Number(el.style.opacity) };
+    };
+    for (const from of ["top", "bottom"]) {
+      const r = slid(from);
+      expect(r.tr).toMatchObject({ x: 0, y: 0 });
+      expect(r.opacity).toBeCloseTo(0.5);
+    }
+    // Yandan gelen yine kayar.
+    expect(slid("left").tr.x).toBeLessThan(0);
+  });
+
+  it("havadaki nesne süzülür ve dikeyde hareket edebilir", () => {
+    expect(boxAt([{ type: "float" }], 60).tr.y).not.toBe(0);
+    expect(boxAt([{ type: "move", toY: 600 }], 300).tr.y).toBe(100);
   });
 });
 

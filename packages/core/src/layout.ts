@@ -45,6 +45,11 @@ export interface PlacedLayer {
   z: number;
   /** Karakter bir şeyin üstünde oturuyor. */
   sitting: boolean;
+  /**
+   * Yerde ya da bir yüzeyin üstünde duruyor (karakter, mobilya, masadaki nesne): yerçekimine uyar, render'da havaya
+   * kalkmaz (yalnız yatay hareket, süzülme yok). Duvardaki/havadaki ve elde tutulan nesnelerde false.
+   */
+  grounded: boolean;
   /** Bu nesneyi tutan karakter katmanı; konum her karede eline göre hesaplanır. */
   heldBy?: number;
   /** Yerleşimi koddan düzeltildiyse nedeni (inceleme ve testler için). */
@@ -106,21 +111,21 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
       // Elde: boy tutanın ölçeğiyle; konum render'da elden gelir, burada el hizası yaklaşık.
       const real = readableHeight(asset.meta.realHeight ?? HELD_REAL_HEIGHT, aspect, READABLE_SIDE.held, fixes);
       const h = real * STAGE.pxPerMeter * holder.scale;
-      out = { index: i, x: holder.x, y: holder.y - holder.height * 0.3, height: h, scale: holder.scale, z: holder.z + 0.3, sitting: false, heldBy: holder.index, fixes };
+      out = { index: i, x: holder.x, y: holder.y - holder.height * 0.3, height: h, scale: holder.scale, z: holder.z + 0.3, sitting: false, grounded: false, heldBy: holder.index, fixes };
     } else if (base) {
       const baseAsset = assets[spec.layers[base.index]!.asset]!;
       const sized = asset.kind === "character" ? real : readableHeight(real, aspect, READABLE_SIDE.surface, fixes);
       const h = sized * STAGE.pxPerMeter * base.scale;
       if (asset.kind === "character") {
         // Sandalyede/bankta oturur: ayaklar yerde, oturağın önünde.
-        out = { index: i, x: base.x, y: base.y + 2, height: h, scale: base.scale, z: base.z + 0.5, sitting: true, fixes };
+        out = { index: i, x: base.x, y: base.y + 2, height: h, scale: base.scale, z: base.z + 0.5, sitting: true, grounded: true, fixes };
       } else {
         // Yüzeyin üstünde: yüzey yüksekliği tabanın boyundan; yüzeyden taşmasın.
         const surfaceY = base.y - base.height * (baseAsset.meta.surface ?? (baseAsset.kind === "character" ? 0.5 : 1));
         const halfBase = base.width / 2;
         const x = clamp(layer.x, base.x - halfBase * 0.8, base.x + halfBase * 0.8);
         if (x !== layer.x) fixes.push("yüzeyin dışına taşıyordu, içeri alındı");
-        out = { index: i, x, y: surfaceY, height: h, scale: base.scale, z: base.z + 0.4, sitting: false, fixes };
+        out = { index: i, x, y: surfaceY, height: h, scale: base.scale, z: base.z + 0.4, sitting: false, grounded: true, fixes };
       }
     } else if (isGrounded(layer, asset, floorY)) {
       let depth = layer.depth;
@@ -130,12 +135,12 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
       }
       const { y, scale } = depthToFloor(depth, floorY);
       const sized = asset.kind === "prop" ? readableHeight(real, aspect, READABLE_SIDE.floor, fixes) : real;
-      out = { index: i, x: layer.x, y, height: sized * STAGE.pxPerMeter * scale, scale, z: 100 * (1 - depth), sitting: false, fixes };
+      out = { index: i, x: layer.x, y, height: sized * STAGE.pxPerMeter * scale, scale, z: 100 * (1 - depth), sitting: false, grounded: true, fixes };
       if (layer.height !== undefined && Math.abs(layer.height - out.height) > out.height * 0.15) fixes.push("boy gerçek ölçüye göre düzeltildi");
     } else {
       // Duvarda/havada: verilen y ve boy; hepsi yerdeki öğelerin arkasında.
       const h = layer.height ?? real * STAGE.pxPerMeter * 0.8;
-      out = { index: i, x: layer.x, y: layer.y ?? floorY - 60, height: h, scale: 1, z: -10 + i * 0.01, sitting: false, fixes };
+      out = { index: i, x: layer.x, y: layer.y ?? floorY - 60, height: h, scale: 1, z: -10 + i * 0.01, sitting: false, grounded: false, fixes };
     }
     if (layer.z !== undefined) out.z = layer.z;
     const result: PlacedLayer = { ...out, width: out.height * aspect };

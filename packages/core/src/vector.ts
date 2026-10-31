@@ -184,6 +184,8 @@ export const VectorAnim = z.object({
   /** move/walk hedefi (1920×1080 tuval). */
   toX: z.number().optional(),
   toY: z.number().optional(),
+  /** point hedefi: aynı çekimdeki katmanın indeksi (yoksa yanındaki en yakın şey). */
+  target: z.number().int().nonnegative().optional(),
 });
 export type VectorAnim = z.infer<typeof VectorAnim>;
 

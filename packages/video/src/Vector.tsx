@@ -14,11 +14,14 @@ import {
   type VectorAsset,
   type VectorLayer,
   type VectorMood,
+  type VectorShot,
   type VectorText,
+  STAGE,
   TEXT_RULES,
 } from "@ys/core";
 import { useMemo, type CSSProperties } from "react";
 import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from "remotion";
+import { gaitOf, hop, paceWalks, physicalAnims, type Gait } from "./motion.ts";
 
 /**
  * Vektör sahne: Claude'un JSON tarifini deterministik olarak çizer. Bütün hareket burada hesaplanır;
@@ -65,8 +68,15 @@ interface Transform {
   opacity: number;
 }
 
-/** Katman/yazı düzeyindeki animasyonlar: hepsi zaman ve tohumdan türetilir. */
-function layerTransform(anims: VectorAnim[], p: number, t: number, seed: string, base: { x: number; y: number }): Transform {
+/** Katman/yazı düzeyindeki animasyonlar: hepsi zaman ve tohumdan türetilir. dur: çekim süresi (sn), height: katman boyu (px). */
+function layerTransform(
+  anims: VectorAnim[],
+  p: number,
+  t: number,
+  seed: string,
+  base: { x: number; y: number },
+  size: { dur: number; height: number } = { dur: 0, height: 0 },
+): Transform {
   const tr: Transform = { x: 0, y: 0, scale: 1, rotate: 0, opacity: 1 };
   for (const a of anims) {
     const q = local(p, a);
@@ -111,14 +121,14 @@ function layerTransform(anims: VectorAnim[], p: number, t: number, seed: string,
         tr.y -= Math.abs(Math.sin(t * 6)) * 18 * envelope(p, a);
         break;
       case "surprised":
-        tr.y -= 10 * envelope(p, a, 0.08);
+        // İrkilme: pencere başında bir kez boyunun ~%3,5'i kadar sıçrar ve yerçekimiyle iner (havada asılı kalmaz).
+        tr.y -= hop(((p - a.start) * size.dur) / 0.45) * 0.035 * size.height;
         break;
       case "move":
       case "walk": {
         const k = ease(q);
         if (a.toX !== undefined) tr.x += (a.toX - base.x) * k;
         if (a.toY !== undefined) tr.y += (a.toY - base.y) * k;
-        if (a.type === "walk" && active(p, a)) tr.y -= Math.abs(Math.sin(t * 7)) * 8;
         break;
       }
       default:
@@ -136,8 +146,18 @@ interface PartPose {
   ty: number;
 }
 
-/** Kolu meşgul eden jestler; bunlardan biri sürerken kendiliğinden el hareketi yapılmaz. */
-const ARM_GESTURES: VectorAnimType[] = ["wave", "point", "explain", "think", "cheer", "shrug", "surprised", "walk"];
+/** Kolu meşgul eden jestler; bunlardan biri sürerken (ya da yürürken) kendiliğinden el hareketi yapılmaz. */
+const ARM_GESTURES: VectorAnimType[] = ["wave", "point", "explain", "think", "cheer", "shrug", "surprised"];
+
+const STILL: Gait = { steps: 0, amount: 0, dir: 0 };
+
+/** Karakterin dikkati: işaret edeceği nokta ve gözlerinin yönü (iskelet koordinatı; aynalama hesaba katılmış). */
+interface Attention {
+  /** point hedefi (iskelet tuvali, 400×800). */
+  aim?: readonly [number, number];
+  /** Sahnedeki en yakın diğer karakterin yönü: −1 sol, 1 sağ. */
+  lookDir?: number;
+}
 
 /** İskelet parçalarının bu karedeki pozu: sürekli canlılık + Claude'un istediği jestler. */
 /**
@@ -161,6 +181,9 @@ function rigPose(
   seed: string,
   sitting = false,
   expression: VectorExpression = "neutral",
+  gait: Gait = STILL,
+  flip = false,
+  attention: Attention = {},
 ): Partial<Record<RigPart, PartPose>> {
   const pose: Partial<Record<RigPart, PartPose>> = {};
   const part = (k: RigPart) => (pose[k] ??= { rotate: 0, sx: 1, sy: 1, tx: 0, ty: 0 });
@@ -184,35 +207,58 @@ function rigPose(
   part("arm-r").rotate += face.droop;
   const blinkEvery = 3 + r("b") * 2.5;
   if ((t + r("bp") * blinkEvery) % blinkEvery < 0.12) part("eyes").sy = 0.1;
-  // Bakış her ~2,5 sn'de bir yön değiştirir; düşünürken bir yana sabitlenir.
+  // Bakış her ~2,5 sn'de bir yön değiştirir; düşünürken bir yana sabitlenir. Sahnede başka biri varsa çoğunlukla ona
+  // bakar (ara ara kameraya döner): rastgele gezinen gözler karakterleri birbirinden kopuk gösteriyordu.
   const look = Math.floor(t / 2.5 + r("lk") * 3);
-  part("eyes").tx = face.lookX ?? (random(`${seed}-look-${look}`) - 0.5) * 8;
+  const glance = random(`${seed}-look-${look}`);
+  part("eyes").tx = face.lookX ?? (attention.lookDir && glance < 0.75 ? attention.lookDir * 5 + (glance - 0.375) * 3 : (glance - 0.5) * 8);
 
   // --- kendiliğinden jest: kolu meşgul eden bir animasyon yoksa ara ara anlatır gibi el hareketi
-  const armsBusy = anims.some((a) => ARM_GESTURES.includes(a.type) && active(p, a));
+  const armsBusy = gait.amount > 0.05 || anims.some((a) => ARM_GESTURES.includes(a.type) && active(p, a));
   if (!armsBusy) {
     const every = 4 + r("g") * 2.5;
     const phase = (t + r("gp") * every) % every;
     if (phase < 1.4) {
       const k = Math.sin((phase / 1.4) * Math.PI);
       const right = random(`${seed}-gs-${Math.floor((t + r("gp") * every) / every)}`) < 0.6;
+      // El dışa, avuç yukarı açılır. (Eski işaretler ters: el karna gidiyordu.) Dönüş ekranda saat yönü artıdır; sarkan
+      // kol artıda ekranın soluna döner, yani sağdaki kol (arm-r) eksiyle, soldaki artıyla dışa açılır.
       if (right) {
-        part("arm-r").rotate -= 18 * k;
-        part("forearm-r").rotate += 75 * k + Math.sin(t * 5) * 6 * k;
+        part("arm-r").rotate -= 14 * k;
+        part("forearm-r").rotate -= 62 * k + Math.sin(t * 5) * 6 * k;
       } else {
-        part("arm-l").rotate += 18 * k;
-        part("forearm-l").rotate -= 75 * k + Math.sin(t * 5) * 6 * k;
+        part("arm-l").rotate += 14 * k;
+        part("forearm-l").rotate += 62 * k + Math.sin(t * 5) * 6 * k;
       }
       part("brows").ty = face.brows - 3 * k;
     }
   }
 
-  if (sitting || anims.some((a) => a.type === "sit" && active(p, a))) {
+  if (sitting) {
     // Ön görünüşte oturuş: uyluk kısalır, baldır dik kalır (iç içe grup; ebeveynin ölçeği geri alınır).
     for (const side of ["l", "r"] as const) {
       part(`leg-${side}`).sy = SIT_THIGH;
       part(`shin-${side}`).sy = 1 / SIT_THIGH;
     }
+  }
+
+  if (gait.amount > 0) {
+    // Ön görünüşte adım: diz öne gelir, uyluk kısalır ve ayak yerden kalkar (baldır boyunu korur); bacak gidiş yönüne
+    // hafifçe açılır. Eski makas salınımı (±22°) bacakları çaprazlıyor ve hızdan bağımsız olduğu için ayak kayıyordu.
+    const s = Math.sin(Math.PI * gait.steps);
+    const toward = gait.dir * (flip ? -1 : 1);
+    for (const [side, lift] of [
+      ["l", Math.max(0, s)],
+      ["r", Math.max(0, -s)],
+    ] as const) {
+      const k = lift * gait.amount;
+      part(`leg-${side}`).sy = 1 - 0.3 * k;
+      part(`shin-${side}`).sy = 1 / (1 - 0.3 * k);
+      part(`leg-${side}`).rotate = toward * 7 * k;
+    }
+    // Kollar karşı bacakla birlikte salınır.
+    part("arm-l").rotate -= 6 * s * gait.amount;
+    part("arm-r").rotate -= 6 * s * gait.amount;
   }
 
   // --- Claude'un istediği jestler; envelope ile yumuşak girip çıkar
@@ -229,16 +275,25 @@ function rigPose(
         mix("forearm-r", "rotate", Math.sin(t * 9) * 28);
         mix("brows", "ty", -4);
         break;
-      case "point":
-        mix("arm-r", "rotate", -82);
-        mix("forearm-r", "rotate", -6);
-        mix("head", "rotate", -4);
+      case "point": {
+        // Hedefe doğru: hedef hangi yandaysa o yandaki kol, omuzdan hedefe uzanır; baş ve gözler de hedefe döner.
+        // Hedef yoksa (boş sahne) öne-yana yatay.
+        const [ax, ay] = attention.aim ?? [RIG.width * 3, RIG.pivots["arm-r"][1]];
+        const side = ax >= RIG.width / 2 ? "r" : "l";
+        const [sx, sy] = RIG.pivots[`arm-${side}`];
+        const toward = side === "r" ? 1 : -1;
+        mix(`arm-${side}`, "rotate", (Math.atan2(-(ax - sx), ay - sy) * 180) / Math.PI);
+        mix(`forearm-${side}`, "rotate", -6 * toward);
+        mix("head", "rotate", -4 * toward);
+        mix("eyes", "tx", 5 * toward);
         break;
+      }
       case "explain":
-        mix("arm-r", "rotate", -22 + Math.sin(t * 3) * 6);
-        mix("forearm-r", "rotate", 120 + Math.sin(t * 3.4) * 14);
-        mix("arm-l", "rotate", 14 + Math.sin(t * 2.6 + 1) * 5);
-        mix("forearm-l", "rotate", -60 - Math.sin(t * 3 + 1) * 12);
+        // Anlatırken eller dışa açılır (avuç yukarı), konuşma ritmiyle iner kalkar.
+        mix("arm-r", "rotate", -24 + Math.sin(t * 3) * 5);
+        mix("forearm-r", "rotate", -75 + Math.sin(t * 3.4) * 14);
+        mix("arm-l", "rotate", 16 + Math.sin(t * 2.6 + 1) * 4);
+        mix("forearm-l", "rotate", 55 + Math.sin(t * 3 + 1) * 10);
         mix("brows", "ty", -3 + Math.sin(t * 3) * 2);
         break;
       case "think":
@@ -257,19 +312,23 @@ function rigPose(
         mix("mouth", "sy", 1.5);
         break;
       case "surprised":
-        mix("arm-l", "rotate", 28);
-        mix("arm-r", "rotate", -28);
-        mix("forearm-l", "rotate", -45);
-        mix("forearm-r", "rotate", 45);
+        // Eller omuz hizasına kalkar, avuçlar dışa.
+        mix("arm-l", "rotate", 30);
+        mix("arm-r", "rotate", -30);
+        mix("forearm-l", "rotate", 115);
+        mix("forearm-r", "rotate", -115);
         mix("brows", "ty", -10);
         mix("eyes", "sy", 1.25);
         mix("mouth", "sy", 1.6);
         break;
       case "shrug":
-        mix("arm-l", "rotate", 22);
-        mix("arm-r", "rotate", -22);
-        mix("forearm-l", "rotate", -70);
-        mix("forearm-r", "rotate", 70);
+        // Omuzlar kalkar, ön kollar dışa yatay açılır (avuç yukarı), baş yana eğilir.
+        mix("arm-l", "rotate", 16);
+        mix("arm-r", "rotate", -16);
+        mix("arm-l", "ty", -7);
+        mix("arm-r", "ty", -7);
+        mix("forearm-l", "rotate", 62);
+        mix("forearm-r", "rotate", -62);
         mix("head", "rotate", -6);
         mix("brows", "ty", -6);
         break;
@@ -281,19 +340,6 @@ function rigPose(
         part("mouth").sy = Math.sign(face.mouth) * (0.35 + Math.abs(Math.sin(t * 13)) * 0.9 * w + (1 - w) * 0.65);
         part("brows").ty += Math.sin(t * 4) * 2 * w;
         break;
-      case "walk": {
-        const s = Math.sin(t * 7);
-        mix("leg-l", "rotate", s * 22);
-        mix("leg-r", "rotate", -s * 22);
-        // Diz yalnız bacak geriye giderken bükülür.
-        mix("shin-l", "rotate", Math.max(0, -s) * -28);
-        mix("shin-r", "rotate", Math.max(0, s) * -28);
-        mix("arm-l", "rotate", -s * 16);
-        mix("arm-r", "rotate", s * 16);
-        mix("forearm-l", "rotate", -12);
-        mix("forearm-r", "rotate", 12);
-        break;
-      }
       default:
         break;
     }
@@ -311,65 +357,136 @@ const rot = ([x, y]: readonly [number, number], deg: number): [number, number] =
   return [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)];
 };
 
-/** İskelet pozundan sağ elin tuval üzerindeki yeri: elde tutulan nesne her karede bunu izler. */
-function handPoint(placed: PlacedLayer, layer: VectorLayer, p: number, t: number, prefix: string): [number, number] {
-  const pose = rigPose(layer.anims, p, t, prefix, placed.sitting, layer.expression);
-  // rigPose kolları her zaman pozlar; "?? 0" yalnız tip için (Partial).
+/** Karakterin sahnedeki ilgi noktaları (tuval koordinatı): işaret hedefi ve bakacağı diğer karakterin x'i. */
+export interface Focus {
+  aim?: readonly [number, number];
+  lookX?: number;
+}
+
+/**
+ * point hedefi: animasyonda "target" verilmişse o katman; yoksa yanında (gövdesinin dışında) duran en yakın nesne ya da
+ * karakter; o da yoksa ekrandaki yazı. Kendi tuttuğu nesne ve arka plan hedef olmaz.
+ */
+export function focusOf(spec: VectorShot, placed: PlacedLayer[], index: number, kinds: (i: number) => string | undefined): Focus {
+  const self = placed.find((pl) => pl.index === index)!;
+  const center = (pl: PlacedLayer): [number, number] => [pl.x, pl.y - pl.height / 2];
+  const others = placed.filter((pl) => pl.index !== index && pl.heldBy !== index);
+  const near = (list: PlacedLayer[]) =>
+    list.sort((a, b) => Math.abs(a.x - self.x) - Math.abs(b.x - self.x))[0];
+  const people = others.filter((pl) => kinds(pl.index) === "character");
+  const target = spec.layers[index]!.anims.find((a) => a.type === "point" && a.target !== undefined)?.target;
+  const explicit = others.find((pl) => pl.index === target);
+  const beside = near(others.filter((pl) => Math.abs(pl.x - self.x) > self.width * 0.4));
+  const text = spec.texts[0];
+  const aim = explicit ? center(explicit) : beside ? center(beside) : text ? ([text.x, text.y] as const) : undefined;
+  return { aim, lookX: near(people)?.x };
+}
+
+/** Katmanın bu karedeki hareketi: katman dönüşümü ve (karakterse) iskelet pozu. */
+interface Motion {
+  tr: Transform;
+  pose?: Partial<Record<RigPart, PartPose>>;
+}
+
+/**
+ * Katmanın hareketi fiziğe uydurulmuş animasyonlardan hesaplanır (motion.ts): yerdeki şey havalanmaz, elde tutulan
+ * süzülmez. Yürüyen karakterin adımları alınan yoldan gelir; gövde adımla hafifçe yükselir ve gidiş yönüne eğilir.
+ */
+function motionOf(
+  layer: VectorLayer,
+  asset: VectorAsset,
+  placed: PlacedLayer,
+  p: number,
+  t: number,
+  prefix: string,
+  dur: number,
+  focus: Focus = {},
+): Motion {
+  const pxPerMeter = STAGE.pxPerMeter * placed.scale;
+  const anims = paceWalks(
+    physicalAnims(layer.anims, { kind: asset.kind, grounded: placed.grounded, held: placed.heldBy !== undefined, sitting: placed.sitting }),
+    placed.x,
+    pxPerMeter,
+    dur,
+    asset.kind === "character",
+  );
+  const tr = layerTransform(anims, p, t, prefix, { x: placed.x, y: placed.y }, { dur, height: placed.height });
+  const walks = (asset.kind === "character" && !placed.sitting) || anims.some((a) => a.type === "walk");
+  const gait = walks ? gaitOf(anims, p, t, placed.x, pxPerMeter, dur) : STILL;
+  // Gövde, salınan bacak altından geçerken en yüksekte (adım başına bir kez).
+  tr.y -= Math.abs(Math.sin(Math.PI * gait.steps)) * 0.012 * placed.height * gait.amount;
+  if (asset.kind !== "character") return { tr };
+  tr.rotate += gait.dir * 2.5 * gait.amount;
+  // Ayakta dururken ağırlık aktarma: tüm gövde ayak hizasından hafifçe salınır (yürürken adım bunun yerini alır).
+  // Aynalanan karakterde salınım da aynalanır (iskelet pozu gibi).
+  const mirror = layer.flip ? -1 : 1;
+  if (!placed.sitting) tr.rotate += Math.sin(t * 0.7 + random(prefix) * 6) * 0.9 * (1 - gait.amount) * mirror;
+  else tr.y += SIT_DROP * (placed.height / RIG.height);
+  // Tuval noktası → iskelet tuvali (katmanın o anki kayması dahil, aynalama geri alınır).
+  const k = placed.height / RIG.height;
+  const toRigX = (x: number) => {
+    const rx = (x - tr.x - (placed.x - placed.width / 2)) / k;
+    return layer.flip ? RIG.width - rx : rx;
+  };
+  const attention: Attention = {
+    aim: focus.aim ? [toRigX(focus.aim[0]), (focus.aim[1] - tr.y - (placed.y - placed.height)) / k] : undefined,
+    lookDir: focus.lookX === undefined ? undefined : Math.sign(toRigX(focus.lookX) - RIG.width / 2),
+  };
+  return { tr, pose: rigPose(anims, p, t, prefix, placed.sitting, layer.expression, gait, layer.flip, attention) };
+}
+
+/**
+ * İskelet pozundan sağ elin tuval üzerindeki yeri: elde tutulan nesne her karede bunu izler. Katmanın bütün dönüşümü
+ * (yürüme, eğilme, ölçek, aynalama) uygulanır; yoksa nesne yürürken elden ayrılıyordu.
+ */
+function handPoint(placed: PlacedLayer, layer: VectorLayer, m: Motion): [number, number] {
+  // Karakter hareketinde poz her zaman vardır; "?? 0" yalnız tip için (Partial).
   /* v8 ignore next */
-  const a = pose["arm-r"]?.rotate ?? 0;
+  const a = m.pose?.["arm-r"]?.rotate ?? 0;
   /* v8 ignore next */
-  const f = pose["forearm-r"]?.rotate ?? 0;
+  const f = m.pose?.["forearm-r"]?.rotate ?? 0;
   const [sx, sy] = RIG.pivots["arm-r"];
   const [ex, ey] = RIG.pivots["forearm-r"];
   const elbow = rot([ex - sx, ey - sy], a);
   const hand = rot([0, 112], a + f);
   let rx = sx + elbow[0] + hand[0];
-  const ry = sy + elbow[1] + hand[1] + (placed.sitting ? SIT_DROP : 0);
+  const ry = sy + elbow[1] + hand[1];
   if (layer.flip) rx = RIG.width - rx;
-  const k = placed.height / RIG.height;
-  const tr = layerTransform(layer.anims, p, t, prefix, { x: placed.x, y: placed.y });
-  return [placed.x - placed.width / 2 + rx * k + tr.x, placed.y - placed.height + ry * k + tr.y];
+  // Katman dönüşümünün merkezi alt-orta noktadır (transformOrigin 50% 100%).
+  const k = (placed.height / RIG.height) * m.tr.scale;
+  const [dx, dy] = rot([(rx - RIG.width / 2) * k, (ry - RIG.height) * k], layer.rotate + m.tr.rotate);
+  return [placed.x + m.tr.x + dx, placed.y + m.tr.y + dy];
 }
 
 function Layer({
   layer,
   asset,
   placed,
-  p,
-  t,
+  motion,
   prefix,
   sketch,
 }: {
   layer: VectorLayer;
   asset: VectorAsset;
   placed: PlacedLayer;
-  p: number;
-  t: number;
+  motion: Motion;
   prefix: string;
   sketch: boolean;
 }) {
   const { width: w, height: h } = placed;
-  // Elde tutulan nesne hareketi tutandan alır; kendi giriş animasyonları yine uygulanır.
-  const tr = layerTransform(placed.heldBy === undefined ? layer.anims : layer.anims.filter((a) => a.type !== "move"), p, t, prefix, {
-    x: placed.x,
-    y: placed.y,
-  });
+  const { tr, pose } = motion;
   const svg = prefixSvgIds(fitSvg(asset.svg, "meet"), prefix);
 
   // İskeletli karakterde parça dönüşleri kimlik seçicisiyle uygulanır (dönme noktaları RIG'de sabit).
-  let rigCss = "";
-  if (asset.kind === "character") {
-    // Ayakta dururken ağırlık aktarma: tüm gövde ayak hizasından hafifçe salınır.
-    if (!placed.sitting) tr.rotate += Math.sin(t * 0.7 + random(prefix) * 6) * 0.9;
-    if (placed.sitting) tr.y += SIT_DROP * (h / RIG.height);
-    rigCss = Object.entries(rigPose(layer.anims, p, t, prefix, placed.sitting, layer.expression))
-      .map(([k, v]) => {
-        const [px, py] = RIG.pivots[k as RigPart];
-        const transform = `translate(${v.tx.toFixed(2)}px, ${v.ty.toFixed(2)}px) rotate(${v.rotate.toFixed(2)}deg) scale(${v.sx.toFixed(3)}, ${v.sy.toFixed(3)})`;
-        return `#${prefix}${k}{transform:${transform};transform-origin:${px}px ${py}px;transform-box:view-box}`;
-      })
-      .join("");
-  }
+  const rigCss = pose
+    ? Object.entries(pose)
+        .map(([k, v]) => {
+          const [px, py] = RIG.pivots[k as RigPart];
+          const transform = `translate(${v.tx.toFixed(2)}px, ${v.ty.toFixed(2)}px) rotate(${v.rotate.toFixed(2)}deg) scale(${v.sx.toFixed(3)}, ${v.sy.toFixed(3)})`;
+          return `#${prefix}${k}{transform:${transform};transform-origin:${px}px ${py}px;transform-box:view-box}`;
+        })
+        .join("")
+    : "";
 
   const style: CSSProperties = {
     position: "absolute",
@@ -625,6 +742,15 @@ export function VectorScene({
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
   const texts = useMemo(() => layoutTexts(spec.texts), [spec.texts]);
   const bg = spec.background ? safe[spec.background] : undefined;
+  const dur = visual.durationInFrames / fps;
+  const motions = new Map(
+    placed.map((pl) => {
+      const layer = spec.layers[pl.index]!;
+      const asset = safe[layer.asset]!;
+      const focus = asset.kind === "character" ? focusOf(spec, placed, pl.index, (i) => safe[spec.layers[i]!.asset]?.kind) : {};
+      return [pl.index, motionOf(layer, asset, pl, p, t, `${visual.shotId}-${pl.index}-`, dur, focus)] as const;
+    }),
+  );
   const [c0 = "#1d2433", c1 = "#3a4a66", accent = "#ffd84d"] = palette;
 
   const stage = (
@@ -670,7 +796,7 @@ export function VectorScene({
               // resolveLayout heldBy'ı yalnız yerleştirilmiş bir karakter için yazar; tutan bulunamaması savunma amaçlı.
               /* v8 ignore else */
               if (holder) {
-                const [hx, hy] = handPoint(holder, spec.layers[holder.index]!, p, t, `${visual.shotId}-${holder.index}-`);
+                const [hx, hy] = handPoint(holder, spec.layers[holder.index]!, motions.get(holder.index)!);
                 at = { ...pl, x: hx, y: hy + pl.height * 0.45 };
               }
             }
@@ -680,8 +806,7 @@ export function VectorScene({
                 layer={layer}
                 asset={asset}
                 placed={at}
-                p={p}
-                t={t}
+                motion={motions.get(pl.index)!}
                 prefix={`${visual.shotId}-${pl.index}-`}
                 sketch={lineStyle === "sketch"}
               />
