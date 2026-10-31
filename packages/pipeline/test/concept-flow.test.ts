@@ -100,7 +100,7 @@ describe("konsept akışı (sahte Claude)", () => {
   });
 
   it("kapıyı geçemeyen karakter 3 denemeden sonra reddedilir; Stüdyo bölümü çökmez, seçim yapılmaz", async () => {
-    const { calls, pipeline, id } = await setup(() => 3);
+    const { calls, pipeline, id } = await setup(() => 5);
     const state = await pipeline.run(id, { until: "concept" });
     expect(state.concept!.selected.c1).toBeUndefined();
     const check = Object.values(state.assetChecks!).find((c) => c.entityId === "c1")!;
@@ -108,6 +108,25 @@ describe("konsept akışı (sahte Claude)", () => {
     expect(check.rejectedKey).toMatch(/\.rejected\.svg$/);
     // Yeniden çizimler kapının kusurlarını düzeltme olarak alır.
     expect(calls.designer.filter((p) => p.startsWith("Character")).at(-1)).toContain("arms too short");
+    // Yeniden çizim önceki denemenin üzerinden yapılır; önceki izleyici tahminleri birikir.
+    const redraw = calls.designer.filter((p) => p.startsWith("Character")).at(-1)!;
+    expect(redraw).toContain("<previous_svg>");
+    expect(redraw).toContain(`saw: "a person", then "a person"`);
+    expect(calls.designer.find((p) => p.startsWith("Character"))).not.toContain("<previous_svg>");
+
+    // Devam: bu bölümde reddedilmiş karakter yeniden çizilmez (para gitmez), karar insanın.
+    calls.designer.length = 0;
+    const again = await pipeline.run(id, { until: "concept" });
+    expect(again.concept!.selected.c1).toBeUndefined();
+    expect(calls.designer.filter((p) => p.startsWith("Character"))).toHaveLength(0);
+  });
+
+  it("ilk iki çizim de tanınmazsa (≤4/10) üçüncüsü çizilmez", async () => {
+    const { calls, pipeline, id } = await setup(() => 3);
+    const state = await pipeline.run(id, { until: "concept" });
+    const check = Object.values(state.assetChecks!).find((c) => c.entityId === "c1")!;
+    expect(check).toMatchObject({ passed: false, attempts: 2 });
+    expect(calls.designer.filter((p) => p.startsWith("Character"))).toHaveLength(2);
   });
 
   it("insan notla reddedince yeni anahtara çizilir, not her denemede kalır, eski çizim yerinde kalır", async () => {
@@ -120,7 +139,7 @@ describe("konsept akışı (sahte Claude)", () => {
     await rejectAsset(store, state, first, "hat must be flat-brimmed");
     await pipeline.save(state);
     calls.designer.length = 0;
-    score = 3;
+    score = 5;
     state = await pipeline.run(id, { until: "concept" });
     const redraws = calls.designer.filter((p) => p.startsWith("Character"));
     expect(redraws).toHaveLength(3);

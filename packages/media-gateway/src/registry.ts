@@ -10,6 +10,16 @@ import type { ProviderAdapter } from "./types.ts";
 
 const GEMINI_PRICING = "https://ai.google.dev/gemini-api/docs/pricing";
 
+/**
+ * Gemini 3.8 Flash TTS 1000 karakter başı tahmini. Kaynak: https://ai.google.dev/gemini-api/docs/pricing (31 Eki 2026):
+ * ses çıktısı $9/1M token (31 Ara 2026'ya kadar), 1 Oca 2027'den $18/1M; 25 token = 1 sn ses; metin girdisi
+ * $0.50 → $1.00/1M token. Varsayım: anlatım ~14 karakter/sn (Türkçe/İngilizce olağan hız) → 1000 karakter ≈ 71 sn ses
+ * ≈ 1786 ses tokeni ≈ $0.0161; girdi (~400 token) ≈ $0.0002. Toplam ≈ $0.0163 → $0.017 (2027'den $0.033).
+ */
+export function geminiTtsPricePer1k(now: Date): number {
+  return now.getTime() >= Date.UTC(2027, 0, 1) ? 0.033 : 0.017;
+}
+
 export const DEFAULT_COMFY_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../comfy-workflows");
 
 export interface RegistryReport {
@@ -18,7 +28,11 @@ export interface RegistryReport {
 }
 
 /** Anahtarı tanımlı olan sağlayıcıları kurar; eksik olanları nedeniyle birlikte raporlar. */
-export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAULT_COMFY_DIR): RegistryReport {
+export function createProvidersFromEnv(
+  env: NodeJS.ProcessEnv,
+  comfyDir = DEFAULT_COMFY_DIR,
+  now = new Date(),
+): RegistryReport {
   const providers: ProviderAdapter[] = [];
   const skipped: string[] = [];
 
@@ -86,19 +100,35 @@ export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAUL
         model: env.GEMINI_TTS_MODEL ?? "gemini-3.8-flash-tts",
         apiKey,
         qualityPrior: 0.75,
-        price: { unit: "per_1k_chars", usd: 0.03 },
-        priceSource: { url: GEMINI_PRICING, checked: "2026-10-29", note: "Token bazlı; 1000 karakter ≈ 1 dk ses ≈ $0.01–0.03" },
-      }),
-      new VeoAdapter({
-        id: "gemini:veo",
-        model: env.GEMINI_VEO_MODEL ?? "veo-3.1-generate-preview",
-        apiKey,
-        qualityPrior: 0.92,
-        // Veo 4/6/8 sn üretir.
-        price: { unit: "per_second", usd: 0.4, stepSec: 2, minSec: 4 },
-        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: "Bu anahtarda Veo modeli listelenmiyor (ücretli katman gerekli)" },
+        price: { unit: "per_1k_chars", usd: geminiTtsPricePer1k(now) },
+        priceSource: {
+          url: GEMINI_PRICING,
+          checked: "2026-10-31",
+          note: "Ses $9/1M token (2027'den $18), 25 token/sn; ~14 karakter/sn varsayımıyla 1000 karakter ≈ 71 sn",
+        },
       }),
     );
+    // veo-3.1-generate-preview 22 Eki 2026'da kapatıldı (https://ai.google.dev/gemini-api/docs/deprecations; yerine
+    // gemini-omni-1.1-flash önerilir, o ayrı bir API). Veo yalnız açıkça model verilince kurulur, doğrulanmamış sayılır.
+    if (env.GEMINI_VEO_MODEL) {
+      providers.push(
+        new VeoAdapter({
+          id: "gemini:veo",
+          model: env.GEMINI_VEO_MODEL,
+          apiKey,
+          qualityPrior: 0.92,
+          // Veo 4/6/8 sn üretir.
+          price: { unit: "per_second", usd: 0.4, stepSec: 2, minSec: 4 },
+          priceSource: {
+            url: GEMINI_PRICING,
+            checked: "2026-10-18",
+            note: "Doğrulanmadı: fiyat sayfasında artık Veo yok (preview kapandı)",
+          },
+        }),
+      );
+    } else {
+      skipped.push("gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)");
+    }
   } else {
     skipped.push("gemini:* (GEMINI_API_KEY yok)");
   }
@@ -108,7 +138,7 @@ export function createProvidersFromEnv(env: NodeJS.ProcessEnv, comfyDir = DEFAUL
     providers.push(
       new ElevenLabsTtsAdapter(env.ELEVENLABS_API_KEY, env.ELEVENLABS_TTS_MODEL ?? "eleven_v3"),
       new ElevenLabsSfxAdapter(env.ELEVENLABS_API_KEY),
-      new ElevenLabsMusicAdapter(env.ELEVENLABS_API_KEY),
+      new ElevenLabsMusicAdapter(env.ELEVENLABS_API_KEY, env.ELEVENLABS_MUSIC_MODEL ?? "music_v1"),
     );
   } else {
     skipped.push("elevenlabs:* (ELEVENLABS_API_KEY yok)");

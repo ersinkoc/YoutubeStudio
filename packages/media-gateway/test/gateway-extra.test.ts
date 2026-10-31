@@ -7,6 +7,7 @@ import { FsAssetStore, getJson, putJson, type AssetStore } from "@ys/storage";
 import {
   AllProvidersFailedError,
   BudgetExceededError,
+  ContentRejectedError,
   HealthTracker,
   InMemoryLedger,
   MediaGateway,
@@ -357,6 +358,30 @@ describe("MediaGateway.generate kenar durumları", () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BudgetExceededError);
     expect((err as Error).message).toBe("Bölüm ep bütçe tavanını aşacak; onay gerekli (başarısız: ucuz: 503; ucuz2: düz)");
+  });
+
+  it("ücretlendirilmiş içerik reddi (ör. fal NSFW) deftere tahminle yazılır, sağlık bozulmaz, sonraki sağlayıcı denenir", async () => {
+    const health = new HealthTracker(1);
+    const ledger = new InMemoryLedger();
+    const logs: string[] = [];
+    const gateway = new MediaGateway({
+      providers: [
+        provider("flux", { usd: 0.03, qualityPrior: 0.9, generate: async () => Promise.reject(new ContentRejectedError("siyah", { billed: true })) }),
+        provider("yedek", { usd: 0.05, qualityPrior: 0.8 }),
+      ],
+      store: tempStore(),
+      ledger,
+      health,
+      log: (m) => logs.push(m),
+    });
+    const res = await gateway.generate(img, { policy: { tier: "economy" }, episodeId: "ep", budgetCapMicros: usd(1) });
+    expect(res.providerId).toBe("yedek");
+    expect(ledger.entries[0]).toMatchObject({ providerId: "flux", estimateMicros: usd(0.03), error: "siyah" });
+    expect(await ledger.spent("ep")).toBe(usd(0.08));
+    expect(health.isAvailable("flux")).toBe(true);
+    expect(logs).toContain("hata (ücretlendi): flux: siyah");
+    // Ücretsiz içerik reddi eskisi gibi 0 yazılır.
+    expect(new ContentRejectedError("x").billed).toBe(false);
   });
 
   it("bölümsüz çağrıda tavan uygulanmaz ve rezervasyon tutulmaz", async () => {

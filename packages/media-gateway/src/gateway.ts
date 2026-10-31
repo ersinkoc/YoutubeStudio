@@ -275,27 +275,46 @@ export class MediaGateway {
           }
           throw error;
         }
-        release();
-        if (run.signal?.aborted) throw error;
+        // Çıktı filtreye takıldı ama üretim ücretlendi (ör. fal NSFW → siyah görsel): tahmin deftere yazılır, rezervasyon
+        // kayıtla aynı sırada bırakılır; yine de başka sağlayıcı denenir (içerik reddi sağlayıcı arızası değil).
+        if (run.signal?.aborted) {
+          release();
+          throw error;
+        }
+        const billed = error instanceof ContentRejectedError && error.billed;
+        if (!billed) release();
         // İçerik reddi sağlayıcı arızası değildir; sayılırsa birkaç ret tüm sağlayıcıyı kapatır (30 Eki).
         if (!(error instanceof ContentRejectedError)) this.health.recordFailure(adapter.id);
         const message = error instanceof Error ? error.message : String(error);
-        this.log(`hata: ${adapter.id}: ${message}`);
+        this.log(`hata${billed ? " (ücretlendi)" : ""}: ${adapter.id}: ${message}`);
         failures.push({ providerId: adapter.id, error });
         // Başarısız deneme de kayda geçer: hangi sağlayıcı ne kadar süre sonra neden düştü görünsün.
-        await ledger.record({
-          at: new Date().toISOString(),
-          episodeId: run.episodeId,
-          stage: run.stage,
-          refId: run.refId,
-          providerId: adapter.id,
-          capability: req.capability,
-          estimateMicros: 0,
-          cacheHit: false,
-          requestHash,
-          durationMs: Date.now() - startedAt,
-          error: message.slice(0, 300),
-        });
+        const record = () =>
+          ledger.record({
+            at: new Date().toISOString(),
+            episodeId: run.episodeId,
+            stage: run.stage,
+            refId: run.refId,
+            providerId: adapter.id,
+            capability: req.capability,
+            estimateMicros: billed ? estimateMicros : 0,
+            cacheHit: false,
+            requestHash,
+            durationMs: Date.now() - startedAt,
+            error: message.slice(0, 300),
+          });
+        if (billed) {
+          try {
+            await this.budgetTurn(episode, async () => {
+              await record();
+              release();
+            });
+          } finally {
+            release();
+          }
+        } else {
+          await record();
+        }
         continue;
       }
 

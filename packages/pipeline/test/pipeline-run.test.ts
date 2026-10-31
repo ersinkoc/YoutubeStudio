@@ -238,6 +238,25 @@ describe("senaryo aşaması", () => {
     expect(h.ledger.entries.filter((e) => e.stage === "review")).toHaveLength(1);
   });
 
+  it("doktor düşerse senarist taslağı kaydedilir; devamda senarist yeniden çağrılmaz, aşama bitince taslak silinir", async () => {
+    const h = harness();
+    onAgent("screenwriter", () => SCRIPT);
+    onAgent("scriptDoctor", () => {
+      throw new Error("doktor düştü");
+    });
+    const id = await h.seed(ready());
+    await h.pipeline.run(id, { until: "script" }).catch(() => {});
+    expect((await h.load(id)).scriptDraft?.script).toEqual(SCRIPT);
+    expect(callsOf("screenwriter")).toHaveLength(1);
+
+    onAgent("scriptDoctor", () => ({ notes: ["n"], script: SCRIPT }));
+    const state = await h.pipeline.run(id, { until: "script" });
+    expect(callsOf("screenwriter")).toHaveLength(1);
+    expect(h.logs).toContain("  taslak: önceki çalıştırmanın taslağı kullanıldı");
+    expect(state.script).toEqual(SCRIPT);
+    expect(state.scriptDraft).toBeUndefined();
+  });
+
   it("küratör başarısız olursa defter olduğu gibi kalır (Error ve düz değer)", async () => {
     const h = harness();
     h.store.putJsonSync("library/lessons.json", {
@@ -702,7 +721,7 @@ describe("klip aşaması", () => {
     expect(h.gateway.generate).not.toHaveBeenCalled();
   });
 
-  it("çekim süresine göre 5/10 sn klip; başarısız klip atlanır", async () => {
+  it("çekim süresini kapsayan tam saniye klip (3–15 sn); başarısız klip atlanır", async () => {
     const h = harness();
     for (const k of ["a", "b", "c", "d"]) h.store.putText(`assets/kf-${k}.png`, k);
     const kf = (k: string) => ({ key: `assets/kf-${k}.png`, mimeType: "image/png" });
@@ -717,7 +736,7 @@ describe("klip aşaması", () => {
       makeState({}, { shots: [shot("a", 5000), shot("b", 8000), shot("c", 3000), shot("d", 3000), shot("e", 3000)], keyframes: { a: kf("a"), b: kf("b"), c: kf("c"), d: kf("d"), e: kf("kayip") } }),
     );
     const state = await h.pipeline.run(id, { only: "clips" });
-    expect(state.clips).toMatchObject({ a: { durationSec: 5 }, b: { durationSec: 10 } });
+    expect(state.clips).toMatchObject({ a: { durationSec: 5 }, b: { durationSec: 8 } });
     expect(h.gateway.generate.mock.calls[0]![0]).toMatchObject({ capability: "i2v", refs: [{ role: "first_frame" }] });
     expect(h.logs).toContain("  c klip atlandı: i2v düştü");
     expect(h.logs).toContain("  d klip atlandı: düz");

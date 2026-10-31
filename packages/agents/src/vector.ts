@@ -60,6 +60,8 @@ export interface VectorAssetBrief {
   references?: AgentImage[];
   /** Önceki çizimin referansla karşılaştırılmasından çıkan düzeltmeler. */
   fix?: string;
+  /** Düzeltilecek önceki deneme (temizlenmiş SVG): yeniden çizim baştan değil, bunun üzerinden yapılır. */
+  previous?: string;
   /** Çizimden önce hazırlanan plan (assetPlanner); tarifle çeliştiği yerde plan geçerlidir. */
   plan?: AssetPlan;
 }
@@ -206,7 +208,11 @@ ${brief.description}${brief.plan ? `\n\n${planBlock(brief.plan)}` : ""}${brief.v
         brief.references?.length
           ? `\n\nThe ${brief.references.length} attached image(s) show the REAL subject. Realism is mandatory: match its silhouette, proportions, colours, materials and the number and arrangement of its distinctive parts (pins, windows, arches, domes, buttons, stripes, headgear, beard, glasses). Simplify textures into flat vector shapes in the art style; do not copy readable text, logos or watermarks. If a reference shows extra things around the subject, draw only the subject.`
           : ""
-      }${brief.fix ? `\n\nA quality reviewer rejected your previous drawing. Fix these problems:\n${brief.fix}` : ""}`,
+      }${brief.fix ? `\n\nA quality reviewer rejected your previous drawing. Fix these problems:\n${brief.fix}` : ""}${
+        brief.previous
+          ? `\n\nYour previous drawing is below. EDIT it instead of starting over: keep everything the reviewer did not criticise (layout, palette, proportions, ids) and change only what fixes the problems above.\n<previous_svg>\n${brief.previous}\n</previous_svg>`
+          : ""
+      }`,
       images: brief.references,
     },
     deps,
@@ -313,13 +319,16 @@ ${
           : ""
       }- mood sets the colour grade: day, warm (nostalgia, success), cool (tension, technology), night, dramatic (twist, crisis), neutral. Follow the emotional arc.
 - ambience must fit the place: rain/snow outdoors, dust in old rooms, flicker for lamp light, rays for sunlight, fog for night or mystery, else none.
-Visual style: ${style.artStyle}.${lessonsBlock(input.lessons)}${input.feedback ? `\n\nA reviewer looked at the rendered draft of this scene. Fix these problems in your new plan:\n${input.feedback}` : ""}`,
+Visual style: ${style.artStyle}.${lessonsBlock(input.lessons)}`,
       prompt: `Assets:
 ${assets}
 
 ## ${input.scene.id} (${input.durationSec.toFixed(1)} s, location: ${input.scene.location}, emotion: ${input.scene.emotion})
 Visual intent: ${input.scene.visualIntent}
-Narration: ${annotated}`,
+Narration: ${annotated}${
+        // Düzeltme isteği kullanıcı isteminde: sistem talimatı sahneler arasında aynı kalsın (önek önbelleği bozulmasın).
+        input.feedback ? `\n\nA reviewer looked at the rendered draft of this scene. Fix these problems in your new plan:\n${input.feedback}` : ""
+      }`,
     },
     deps,
   );

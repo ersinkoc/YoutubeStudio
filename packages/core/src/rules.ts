@@ -16,8 +16,25 @@ export const QUALITY_GATE = {
   fidelityMin: 6,
   /** Bir varlık en çok kaç kez çizilir (ilk çizim + kusur listesiyle yeniden çizimler). */
   maxDraws: 3,
+  /**
+   * Umutsuz varlık: ilk iki çizimin ikisi de bu tanınırlığı geçemediyse üçüncüsü çizilmez (31 Eki üretim verisi: bu
+   * durumda üçüncü deneme 16'da 0 kez geçti). En iyi deneme insan kararına kalır.
+   */
+  hopelessAtMost: 4,
   /** Referans görsel sayısı üst sınırı (Wikipedia + Commons). */
   maxReferences: 3,
+} as const;
+
+/**
+ * Render öncesi taslak denetimi: hangi sahneler yeniden planlanır. Eskiden "6'nın altı ya da 9 ağır sorundan biri"
+ * ortalaması ~4,5 olan bölümlerde her sahneyi yeniden planlatıyor, puan neredeyse hiç değişmiyordu (31 Eki üretim
+ * verisi: 4,8→5,0; 4,1→4,1). Artık yalnız en kötüler ve en çok sahnelerin bir payı.
+ */
+export const DRAFT_REVIEW = {
+  /** Sahnenin en kötü karesi bu puanda ya da altındaysa yeniden planlanır. */
+  badAtMost: 4,
+  /** En çok sahnelerin bu payı (en az 1) yeniden planlanır; en kötüden başlanır. */
+  maxShare: 0.25,
 } as const;
 
 /** Ekrandaki yazılar: aynı anda en çok kaç tane ve hangi dikey bant (alttaki ~%25 altyazının). */

@@ -184,3 +184,11 @@ export function buildTimeline(
     lineStyle: lineStyleOf(state),
   };
 }
+
+/**
+ * İstenen klip süresi: çekimi kapsayan tam saniye, 3–15 sn. Kling v3 saniye başı faturalar; eski 5/10 sn yuvarlaması
+ * 6 sn'lik çekime 10 sn ödetiyordu (31 Eki sağlayıcı incelemesi). Sağlayıcı kendi sınırına ayrıca sıkıştırır.
+ */
+export function clipSeconds(shotSec: number): number {
+  return Math.min(15, Math.max(3, Math.ceil(shotSec - 1e-9)));
+}

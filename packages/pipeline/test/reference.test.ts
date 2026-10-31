@@ -109,3 +109,12 @@ describe("hazır SVG (Commons)", () => {
     expect(found.map((f) => f.source.title)).toEqual(["Steam locomotive (Fornari 1903).svg"]);
   });
 });
+
+describe("arama sorgusu: kesilen sorgunun sonundaki işlev sözcükleri", () => {
+  it("5 kelimede kesilince sondaki edat/bağlaç atılır; tek kelime kalırsa korunur", () => {
+    expect(searchQuery("flat perforated build platform on the printer bed")).toBe("flat perforated build platform");
+    expect(searchQuery("small pile of white plastic shavings")).toBe("small pile of white plastic");
+    expect(searchQuery("stack of old letters and envelopes")).toBe("stack of old letters");
+    expect(searchQuery("on")).toBe("on");
+  });
+});

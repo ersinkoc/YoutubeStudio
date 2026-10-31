@@ -1,6 +1,7 @@
 import type { Capability } from "@ys/core";
 import { billing, rankProviders, type GenerationRequest, type ProviderAdapter } from "@ys/media-gateway";
 import { gateBefore, isApproved, motionModeOf, STAGES, type EpisodeState, type MotionMode, type Stage } from "./state.ts";
+import { clipSeconds } from "./timing.ts";
 
 /*
  * Bölüm maliyet ve süre tahmini. Para harcamaz, ağır bağımlılık yüklemez (stüdyo sunucusu çağırır).
@@ -301,7 +302,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   let clipProvider: string | undefined;
   let clipBasis = "—";
   for (const sec of durations) {
-    const c = price({ capability: "i2v", quality: "standard", aspectRatio, durationSec: sec <= 5.5 ? 5 : 10 });
+    const c = price({ capability: "i2v", quality: "standard", aspectRatio, durationSec: clipSeconds(sec) });
     clipUsd += c.usd;
     clipMs = c.ms;
     billedSec += c.units;

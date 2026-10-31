@@ -176,10 +176,17 @@ export interface EpisodeState {
   style?: StyleBibleOut;
   story?: StoryOut;
   script?: ScriptOut;
+  /** Doktordan önce kaydedilen senarist taslağı (girdilerin parmak iziyle); senaryo aşaması bitince silinir. */
+  scriptDraft?: { sig: string; script: ScriptOut };
   cast?: CastOut;
   concept?: ConceptState;
   voice?: Record<string, SceneVoice>;
   shotPlan?: ShotPlanOut;
+  /**
+   * Yarıda kalan vektör çekim planı: sahne → (girdilerin parmak izi, çekimler). Aşama düşerse ödenmiş sahne planları
+   * kaybolmasın; girdisi değişmeyen sahne devamda yeniden planlanmaz. Aşama bitince silinir.
+   */
+  shotPlanDraft?: Record<string, { sig: string; shots: ShotPlanOut["scenes"][number]["shots"] }>;
   shots?: PlannedShotState[];
   keyframes?: Record<string, AssetRef>;
   /** İnceleme aşamasının çekim kareleri (stüdyo küçük resmi de bunlar). */
@@ -193,7 +200,16 @@ export interface EpisodeState {
   /** Vektör modunda çekimlerin kullandığı nesneler: kimlik → tarif ve çizildiyse SVG anahtarı. */
   vectorProps?: Record<
     string,
-    { description: string; key?: string; kind?: "prop" | "background"; map?: MapSpec; flag?: FlagSpec; reference?: string }
+    {
+      description: string;
+      key?: string;
+      kind?: "prop" | "background";
+      map?: MapSpec;
+      flag?: FlagSpec;
+      reference?: string;
+      /** Kalite kapısı bu tarifi reddetti: yönetmene sunulmaz, yeniden çizilmez (insan kararı ya da yeni tarif gerekir). */
+      rejected?: boolean;
+    }
   >;
   /** Kalite kapısı sonuçları (varlık anahtarı → sonuç); reddedilenler de görünür. */
   assetChecks?: Record<string, AssetCheck>;

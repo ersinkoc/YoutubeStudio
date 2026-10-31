@@ -21,14 +21,15 @@ export function billing(price: PriceRule, req: GenerationRequest): Billing {
       const requested = req.durationSec ?? DEFAULT_VIDEO_SECONDS;
       const step = price.stepSec ?? 1;
       const billed = Math.max(price.minSec ?? 0, Math.ceil(requested / step - 1e-9) * step);
-      return { units: billed, unitLabel: "sn", micros: usd(price.usd * billed) };
+      const rate = req.withAudio && price.withAudioUsd !== undefined ? price.withAudioUsd : price.usd;
+      return { units: billed, unitLabel: "sn", micros: usd(rate * billed) };
     }
     case "per_1k_chars": {
       const chars = req.text?.length ?? 0;
       return { units: chars, unitLabel: "karakter", micros: usd((price.usd * chars) / 1000) };
     }
     case "per_minute": {
-      const sec = req.durationSec ?? 60;
+      const sec = req.durationSec ?? price.defaultSec ?? 60;
       return { units: sec / 60, unitLabel: "dk", micros: usd((price.usd * sec) / 60) };
     }
   }
@@ -47,7 +48,7 @@ export function describePrice(price: PriceRule): string {
     case "per_output":
       return `$${price.usd}/görsel`;
     case "per_second":
-      return `$${price.usd}/sn${price.stepSec && price.stepSec > 1 ? ` (${price.stepSec} sn adımlarla)` : ""}${price.minSec ? `, en az ${price.minSec} sn` : ""}`;
+      return `$${price.usd}/sn${price.stepSec && price.stepSec > 1 ? ` (${price.stepSec} sn adımlarla)` : ""}${price.minSec ? `, en az ${price.minSec} sn` : ""}${price.withAudioUsd !== undefined ? `; sesli $${price.withAudioUsd}/sn` : ""}`;
     case "per_1k_chars":
       return `$${price.usd}/1000 karakter`;
     case "per_minute":

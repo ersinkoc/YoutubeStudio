@@ -173,14 +173,19 @@ export async function findReferences(
 export function searchQuery(description: string): string {
   // split her zaman en az bir parça döndürür.
   const head = description.split(/[,.;:(]|\b(?:with|front view|side view|seen|no text)\b/i)[0]!;
-  return head
+  const words = head
     .replace(/^\s*(an?|the)\s+/i, "")
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 5)
-    .join(" ")
-    .toLowerCase();
+    .map((w) => w.toLowerCase());
+  // 5 kelimede kesilen sorgu işlev sözcüğüyle bitmesin: "flat perforated build platform on" çakmaktaşı aletler,
+  // "small pile of white plastic" karpuz getirdi (31 Eki üretim verisi).
+  while (words.length > 1 && TRAILING_STOPWORDS.has(words.at(-1)!)) words.pop();
+  return words.join(" ");
 }
+
+const TRAILING_STOPWORDS = new Set(["on", "of", "in", "at", "to", "for", "from", "and", "or", "by", "into", "onto", "under", "over", "near", "its", "their", "a", "an", "the"]);
 
 /** SVG'yi görsel modelin karşılaştırması için PNG'ye çevirir (beyaz zemin, uzun kenar ≤ 768). */
 export async function rasterizeSvg(svg: string): Promise<AgentImage> {

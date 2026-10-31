@@ -112,6 +112,23 @@ describe("billing / describePrice / estimateCost", () => {
     expect(describePrice({ unit: "per_second", usd: 0.23, minSec: 4 })).toBe("$0.23/sn, en az 4 sn");
     expect(describePrice({ unit: "per_1k_chars", usd: 0.03 })).toBe("$0.03/1000 karakter");
     expect(describePrice({ unit: "per_minute", usd: 0.8 })).toBe("$0.8/dk");
+    expect(describePrice({ unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 })).toBe(
+      "$0.084/sn, en az 3 sn; sesli $0.126/sn",
+    );
+  });
+
+  it("sesli istek sesli fiyatla; SFX süresizse varsayılan süreyle (30 sn) faturalanır", () => {
+    const kling3 = { unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 } as const;
+    expect(billing(kling3, req({ durationSec: 7 }))).toMatchObject({ units: 7, micros: usd(0.588) });
+    expect(billing(kling3, req({ durationSec: 7, withAudio: true }))).toMatchObject({ units: 7, micros: usd(0.882) });
+    expect(billing(kling3, req({ durationSec: 2 }))).toMatchObject({ units: 3 });
+    // withAudioUsd yoksa ses fiyatı değiştirmez.
+    expect(billing({ unit: "per_second", usd: 0.3 }, req({ durationSec: 4, withAudio: true }))).toMatchObject({ micros: usd(1.2) });
+    expect(billing({ unit: "per_minute", usd: 0.12, defaultSec: 30 }, req({ capability: "sfx" }))).toEqual({
+      units: 0.5,
+      unitLabel: "dk",
+      micros: usd(0.06),
+    });
   });
 });
 

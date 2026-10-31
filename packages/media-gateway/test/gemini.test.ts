@@ -87,6 +87,14 @@ describe("GeminiImageAdapter", () => {
     });
   });
 
+  it("olumsuz prompt alanı yok: 'Avoid:' olarak prompt'a eklenir", async () => {
+    const { fetch, calls } = mockFetch(() =>
+      json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: b64([1]) } }] } }] }),
+    );
+    await adapter.generate({ capability: "t2i", quality: "draft", prompt: "kedi", negativePrompt: "yazı" }, { fetch });
+    expect(calls[0]?.body).toMatchObject({ contents: [{ parts: [{ text: "kedi\n\nAvoid: yazı" }] }] });
+  });
+
   it("istem engellenirse ContentRejectedError verir", async () => {
     const { fetch } = mockFetch(() => json({ promptFeedback: { blockReason: "SAFETY" } }));
     const err = await adapter.generate({ capability: "t2i", quality: "draft", prompt: "x" }, { fetch }).catch((e: unknown) => e);

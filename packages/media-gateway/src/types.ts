@@ -61,12 +61,20 @@ export type PriceRule =
   | { unit: "free" }
   | { unit: "per_output"; usd: number }
   /**
-   * stepSec: faturalama adımı (Kling 5 → 6 sn'lik istek 10 sn faturalanır).
+   * stepSec: faturalama adımı (Kling 2.x 5 → 6 sn'lik istek 10 sn faturalanır; Kling 3 1 sn).
    * minSec: en az faturalanan süre.
    */
-  | { unit: "per_second"; usd: number; stepSec?: number; minSec?: number }
+  | {
+      unit: "per_second";
+      usd: number;
+      stepSec?: number;
+      minSec?: number;
+      /** Native ses istendiğinde (withAudio) saniye fiyatı; yoksa ses fiyatı değiştirmez. */
+      withAudioUsd?: number;
+    }
   | { unit: "per_1k_chars"; usd: number }
-  | { unit: "per_minute"; usd: number };
+  /** defaultSec: süre verilmezse tahminde kullanılacak süre (varsayılan 60). */
+  | { unit: "per_minute"; usd: number; defaultSec?: number };
 
 export interface GenerateContext {
   fetch: typeof fetch;
@@ -110,7 +118,28 @@ export interface ProviderAdapter {
  * Sağlayıcı isteği içerik nedeniyle reddetti (güvenlik filtresi, gerçek kişi vb.). Sağlayıcı sağlıklıdır;
  * aynı sağlayıcının başka istekleri çalışmaya devam eder, bu yüzden sağlık sayacına yazılmaz.
  */
-export class ContentRejectedError extends Error {}
+export class ContentRejectedError extends Error {
+  /**
+   * true: üretim yapıldı ve sağlayıcı ücretlendirdi, ama çıktı filtreye takıldı (ör. fal `has_nsfw_concepts` → siyah
+   * görsel). Gateway tahmini deftere yazar (tavan doğru kalsın) ama yine başka sağlayıcıya geçer.
+   */
+  readonly billed: boolean;
+
+  constructor(message: string, opts: { billed?: boolean } = {}) {
+    super(message);
+    this.billed = opts.billed ?? false;
+  }
+}
+
+/**
+ * Yerel olumsuz prompt desteği olmayan modeller için: kaçınılacakları prompt'un sonuna "Avoid: …" olarak ekler.
+ * Aksi hâlde negativePrompt sessizce düşüyordu.
+ */
+export function promptWithAvoid(prompt: string | undefined, negative: string | undefined): string | undefined {
+  const avoid = negative?.trim();
+  if (!avoid) return prompt;
+  return prompt ? `${prompt}\n\nAvoid: ${avoid}` : `Avoid: ${avoid}`;
+}
 
 /**
  * İş sağlayıcıya kabul edildikten sonra başarısız oldu (bekleme süresi doldu, indirme hatası, iptal). Sağlayıcı

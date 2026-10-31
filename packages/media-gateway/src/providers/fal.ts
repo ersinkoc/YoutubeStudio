@@ -1,6 +1,6 @@
 import type { Capability } from "@ys/core";
-import { pollUntil, requestBytes, requestJson } from "../http.ts";
-import { afterSubmit } from "../types.ts";
+import { HttpError, PollTimeoutError, pollUntil, requestBytes, requestJson } from "../http.ts";
+import { ContentRejectedError, afterSubmit } from "../types.ts";
 import type {
   GenerateContext,
   PriceSource,
@@ -33,12 +33,25 @@ interface QueueSubmit {
   request_id: string;
   status_url: string;
   response_url: string;
+  cancel_url?: string;
 }
 
+/**
+ * Başarısız iş de COMPLETED'e ulaşır; o zaman `error` (okunur mesaj) ve `error_type` dolu gelir.
+ * Kaynak: https://fal.ai/docs/model-apis/model-endpoints/queue (31 Eki 2026).
+ */
 interface QueueStatus {
   status: "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED";
   queue_position?: number;
+  error?: string;
+  error_type?: string;
 }
+
+/** fal'ın içerik/güvenlik reddi hata türleri (ör. "content_policy_violation"). */
+const CONTENT_ERROR = /content_policy|nsfw|safety/i;
+
+/** Kuyruktan dönen hata gövdesi içerik reddi mi? (ör. 422 {"detail":[{"type":"content_policy_violation"}]}) */
+const isContentHttpError = (e: unknown): boolean => e instanceof HttpError && e.status === 422 && CONTENT_ERROR.test(e.body);
 
 const QUEUE_BASE = "https://queue.fal.run";
 
@@ -78,23 +91,50 @@ export class FalAdapter implements ProviderAdapter {
 
     // Gönderildi: bundan sonraki hata ücretlendirilmiş bir işin hatasıdır.
     return afterSubmit(submit.request_id, async () => {
-      await pollUntil(
-        async () => {
-          const s = await requestJson<QueueStatus>(ctx.fetch, submit.status_url, { headers, signal: ctx.signal });
-          if (s.status === "IN_QUEUE" && s.queue_position !== undefined) ctx.onProgress?.(`sıra: ${s.queue_position}`);
-          return s.status === "COMPLETED" ? true : undefined;
-        },
-        { signal: ctx.signal },
-      );
+      try {
+        const done = await pollUntil(
+          async () => {
+            const s = await requestJson<QueueStatus>(ctx.fetch, submit.status_url, { headers, signal: ctx.signal });
+            if (s.status === "IN_QUEUE" && s.queue_position !== undefined) ctx.onProgress?.(`sıra: ${s.queue_position}`);
+            return s.status === "COMPLETED" ? s : undefined;
+          },
+          { signal: ctx.signal },
+        );
+        // Başarısız iş: sonucu indirmeye çalışmadan nedeni bildir.
+        if (done.error !== undefined || done.error_type !== undefined) {
+          const reason = `fal ${done.error_type ?? "hata"}: ${done.error ?? "ayrıntı yok"}`;
+          if (CONTENT_ERROR.test(done.error_type ?? "")) throw new ContentRejectedError(reason);
+          throw new Error(reason);
+        }
+      } catch (e) {
+        // İptal ya da bekleme süresi doldu: iş fal'da sürmesin (ücretlenmeye devam etmesin). En iyi çaba.
+        if (ctx.signal?.aborted || e instanceof PollTimeoutError) await this.cancel(ctx, submit, headers);
+        throw e;
+      }
 
       const response = await requestJson<Record<string, unknown>>(ctx.fetch, submit.response_url, {
         headers,
         signal: ctx.signal,
+      }).catch((e: unknown) => {
+        if (isContentHttpError(e)) throw new ContentRejectedError(`fal içerik reddi: ${(e as HttpError).body.slice(0, 300)}`);
+        throw e;
       });
       const files = await Promise.all(
         this.spec.outputUrls(response).map((url) => requestBytes(ctx.fetch, url, { signal: ctx.signal })),
       );
       return { files, providerMeta: { requestId: submit.request_id, seed: response.seed } };
     });
+  }
+
+  /** Kuyruktaki/süren işi iptal eder (PUT cancel_url). Hata yutulur: asıl hata yukarı çıkmalı. */
+  private async cancel(ctx: GenerateContext, submit: QueueSubmit, headers: Record<string, string>): Promise<void> {
+    if (!submit.cancel_url) return;
+    try {
+      // Çağıranın sinyali zaten iptal edilmiş olabilir; iptal isteği kendi kısa süre sınırıyla gider.
+      await ctx.fetch(submit.cancel_url, { method: "PUT", headers, signal: AbortSignal.timeout(10_000) });
+      ctx.onProgress?.(`iptal istendi (${submit.request_id})`);
+    } catch {
+      // En iyi çaba: iptal edilemese de iş sonunda zaman aşımına uğrar.
+    }
   }
 }

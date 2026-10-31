@@ -290,6 +290,8 @@ describe("vektör ajanları", () => {
     expect(a.system).toContain('in language "tr"');
     const b = await capture((d) => vectorDirector({ ...input, vertical: true, feedback: "yazılar üst üste" }, style, d));
     expect(b.system).toContain("VERTICAL VIDEO (9:16)");
-    expect(b.system).toContain("Fix these problems in your new plan:\nyazılar üst üste");
+    expect(b.prompt).toContain("Fix these problems in your new plan:\nyazılar üst üste");
+    // Sistem talimatı düzeltme notundan bağımsız (önek önbelleği).
+    expect(b.system).not.toContain("yazılar üst üste");
   });
 });

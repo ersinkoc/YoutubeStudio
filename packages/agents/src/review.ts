@@ -157,6 +157,8 @@ export function assetGate(
     guess: AssetGuessOut;
     drawing: AgentImage;
     references?: AgentImage[];
+    /** Kanalın sanat stili ve paleti: paletin dayattığı renk ve stilin basamaklı/eskiz çizgisi kusur sayılmasın. */
+    style?: { artStyle: string; palette: string[] };
   },
   deps?: AgentDeps,
 ): Promise<AgentResult<AssetGateOut>> {
@@ -180,7 +182,11 @@ References come from a web search and can be wrong: ignore any reference that do
 The asset is ${what}.${refs.length ? ` The first ${refs.length} image(s) are real reference photos/paintings of the subject; the LAST image is the drawing.` : " The image is the drawing."}`,
       prompt: `Intended subject: ${input.name}
 Description: ${input.description}
-A viewer who was NOT told the name looked at the drawing and said: "${input.guess.guess}" (confidence ${input.guess.confidence}/10). If that does not match the intended subject, recognizable must be low.`,
+A viewer who was NOT told the name looked at the drawing and said: "${input.guess.guess}" (confidence ${input.guess.confidence}/10). If that does not match the intended subject, recognizable must be low.${
+        input.style
+          ? `\nChannel art style: ${input.style.artStyle}. Palette: ${input.style.palette.join(", ")}. Colours forced by this palette (e.g. an all-blue blueprint look) and the style's own rendering (pixel stepping, sketchy or ink lines, flat fills) are NOT defects; when the palette cannot show the real colours, judge fidelity on shape, parts and proportions instead.`
+          : ""
+      }`,
       images: [...refs, input.drawing],
     },
     deps,

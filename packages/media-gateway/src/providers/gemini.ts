@@ -4,6 +4,7 @@ import { afterSubmit } from "../types.ts";
 import { fromBase64, pollUntil, requestBytes, requestJson, toBase64 } from "../http.ts";
 import {
   ContentRejectedError,
+  promptWithAvoid,
   type GenerateContext,
   type GenerationRequest,
   type GenerationResult,
@@ -15,6 +16,9 @@ import {
 } from "../types.ts";
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+/** Eşzamanlı üretim çağrıları (görsel, TTS) dakikalar sürebilir; varsayılan 120 sn yerine bu sınır. */
+const GENERATION_TIMEOUT_MS = 300_000;
 
 interface InlineData {
   mimeType: string;
@@ -70,7 +74,8 @@ export class GeminiImageAdapter implements ProviderAdapter {
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
     const parts = [
       ...(req.refs ?? []).map((r) => ({ inlineData: { mimeType: r.mimeType, data: toBase64(r.bytes) } })),
-      { text: req.prompt ?? "" },
+      // generateContent'te olumsuz prompt alanı yok: kaçınılacaklar prompt'a "Avoid:" olarak eklenir.
+      { text: promptWithAvoid(req.prompt, req.negativePrompt) ?? "" },
     ];
     const res = await requestJson<GenerateContentResponse>(
       ctx.fetch,
@@ -86,6 +91,7 @@ export class GeminiImageAdapter implements ProviderAdapter {
           },
         }),
         signal: ctx.signal,
+        timeoutMs: GENERATION_TIMEOUT_MS,
       },
     );
     const files: OutputFile[] = inlineParts(res).map((d) => ({ bytes: fromBase64(d.data), mimeType: d.mimeType }));
@@ -128,6 +134,7 @@ export class GeminiTtsAdapter implements ProviderAdapter {
           },
         }),
         signal: ctx.signal,
+        timeoutMs: GENERATION_TIMEOUT_MS,
       },
     );
     const audio = inlineParts(res)[0];
@@ -151,7 +158,15 @@ interface VeoOperation {
   };
 }
 
-/** Veo 3.x: metinden/keyframe'den video, ilk+son kare geçişi. Uzun süren işlem olarak çalışır. */
+/**
+ * Veo 3.x: metinden/keyframe'den video, ilk+son kare geçişi. Uzun süren işlem olarak çalışır.
+ *
+ * DOĞRULANMADI: varsayılan model veo-3.1-generate-preview 22 Eki 2026'da Gemini API'de kapatıldı
+ * (https://ai.google.dev/gemini-api/docs/deprecations); registry bu adapter'ı yalnız GEMINI_VEO_MODEL verilince kurar.
+ * Görsel alanları (`bytesBase64Encoded`) ve sayı olarak `durationSeconds` kapanmadan önce çalışan biçimdi; resmî
+ * Gemini API belgesinde predictLongRunning gövdesi artık yayımlanmıyor, `inlineData`/metin süre biçimi teyit
+ * edilemedi. Yeni modelde 400 alınırsa önce bu iki alana bakın.
+ */
 export class VeoAdapter implements ProviderAdapter {
   readonly local = false;
   readonly capabilities: readonly Capability[] = ["t2v", "i2v", "first_last_frame"];

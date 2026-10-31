@@ -1,10 +1,10 @@
 import { toDataUri } from "../http.ts";
-import type { AspectRatio, GenerationRequest, RefInput } from "../types.ts";
+import { ContentRejectedError, promptWithAvoid, type AspectRatio, type GenerationRequest, type RefInput } from "../types.ts";
 import type { FalModelSpec } from "./fal.ts";
 
 /*
- * fal model kataloğu. Fiyatlar Eylül–Ekim 2026 üçüncü taraf kaynaklardan alınmış tahminlerdir
- * (docs/PROJE_PLANI.md §1, §18); fatura ile karşılaştırılıp güncellenecek.
+ * fal model kataloğu. Fiyatlar fal model sayfalarından alınmıştır (priceSource; docs/PROJE_PLANI.md §1, §18);
+ * fatura ile karşılaştırılıp güncellenecek.
  * Yeni model eklemek: fal model sayfasındaki "API" sekmesinden endpoint ve girdi alanlarını
  * doğrula, buraya bir spec ekle, `verified: true` yap.
  */
@@ -24,16 +24,43 @@ const ref = (req: GenerationRequest, ...roles: RefInput["role"][]): RefInput | u
 
 const refUri = (r: RefInput | undefined): string | undefined => (r ? toDataUri(r.bytes, r.mimeType) : undefined);
 
-const imageUrls = (res: Record<string, unknown>): string[] =>
-  ((res.images as { url: string }[] | undefined) ?? []).map((i) => i.url);
+/**
+ * FLUX/Kontext çıktısı `has_nsfw_concepts` (görsel başına bool) döndürür; işaretli görsel siyah gelir
+ * (https://fal.ai/models/fal-ai/flux/dev/api). İşaretliler atılır; hiç görsel kalmazsa içerik reddidir.
+ * fal üretimi yine de ücretlendirdiği için hata `billed` işaretlidir (gateway tahmini deftere yazar).
+ */
+const imageUrls = (res: Record<string, unknown>): string[] => {
+  const images = (res.images as { url: string }[] | undefined) ?? [];
+  const flags = (res.has_nsfw_concepts as boolean[] | undefined) ?? [];
+  const clean = images.filter((_, i) => flags[i] !== true);
+  if (images.length > 0 && clean.length === 0) {
+    throw new ContentRejectedError(`fal güvenlik filtresi ${images.length} görseli işaretledi (siyah görsel)`, { billed: true });
+  }
+  return clean.map((i) => i.url);
+};
 
 const videoUrl = (res: Record<string, unknown>): string[] => {
   const v = res.video as { url: string } | undefined;
   return v ? [v.url] : [];
 };
 
-/** Kling 5 veya 10 saniyelik klip üretir; istenen süre en yakın üst değere yuvarlanır. */
-const klingDuration = (sec = 5): string => (sec <= 5 ? "5" : "10");
+/** Tam saniyeye yukarı yuvarlar ve [min, max] aralığına sıkıştırır; fal bu alanları metin olarak ister. */
+const wholeSeconds = (sec: number, min: number, max: number): string =>
+  String(Math.min(max, Math.max(min, Math.ceil(sec - 1e-9))));
+
+/**
+ * Kling 3 girdisi (standart ve pro aynı şema): `start_image_url` zorunlu, `end_image_url` isteğe bağlı,
+ * süre "3".."15" (metin, 1 sn adım). `generate_audio` fal'da varsayılan true: ses kendi hattımızdan geldiği için
+ * açıkça false gönderilir. Kaynak: https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video/api (31 Eki 2026).
+ */
+const kling3Input = (req: GenerationRequest): Record<string, unknown> => ({
+  prompt: req.prompt,
+  start_image_url: refUri(ref(req, "first_frame", "character")),
+  end_image_url: refUri(ref(req, "last_frame")),
+  duration: wholeSeconds(req.durationSec ?? 5, 3, 15),
+  negative_prompt: req.negativePrompt,
+  generate_audio: req.withAudio ?? false,
+});
 
 export const FAL_MODELS: FalModelSpec[] = [
   {
@@ -47,8 +74,9 @@ export const FAL_MODELS: FalModelSpec[] = [
     price: { unit: "per_output", usd: 0.025 },
     priceSource: { url: "https://fal.ai/models/fal-ai/flux/dev", checked: "2026-09-11", note: "~1 MP; megapiksel başına" },
     verified: true,
+    // negative_prompt alanı yok (https://fal.ai/models/fal-ai/flux/dev/api): prompt'a "Avoid:" olarak eklenir.
     buildInput: (req) => ({
-      prompt: req.prompt,
+      prompt: promptWithAvoid(req.prompt, req.negativePrompt),
       image_size: FAL_IMAGE_SIZE[req.aspectRatio ?? "16:9"],
       seed: req.seed,
       num_images: 1,
@@ -66,8 +94,9 @@ export const FAL_MODELS: FalModelSpec[] = [
     price: { unit: "per_output", usd: 0.04 },
     priceSource: { url: "https://fal.ai/models/fal-ai/flux-pro/kontext", checked: "2026-09-11" },
     verified: true,
+    // negative_prompt alanı yok (https://fal.ai/models/fal-ai/flux-pro/kontext/api): prompt'a "Avoid:" olarak eklenir.
     buildInput: (req) => ({
-      prompt: req.prompt,
+      prompt: promptWithAvoid(req.prompt, req.negativePrompt),
       image_url: refUri(req.refs?.[0]),
       aspect_ratio: req.aspectRatio ?? "16:9",
       seed: req.seed,
@@ -75,40 +104,39 @@ export const FAL_MODELS: FalModelSpec[] = [
     outputUrls: imageUrls,
   },
   {
-    id: "fal:kling-v2.1-std-i2v",
-    endpoint: "fal-ai/kling-video/v2.1/standard/image-to-video",
-    capabilities: ["i2v"],
-    limits: { maxRefs: 1, minDurationSec: 1, maxDurationSec: 10 },
-    qualityPrior: 0.7,
-    // Kling 5 veya 10 sn klip üretir; 6 sn istek 10 sn faturalanır.
-    price: { unit: "per_second", usd: 0.05, stepSec: 5, minSec: 5 },
-    priceSource: { url: "https://fal.ai/models/fal-ai/kling-video/v2.1/standard/image-to-video", checked: "2026-10-29", note: "29 Eki faturası: 5 sn klip $0.25" },
+    // Kling 2.1 standart (fal-ai/kling-video/v2.1/standard/image-to-video) fal'da kullanımdan kaldırıldı (31 Eki 2026);
+    // yerini Kling 3 standart aldı. Kimlik değişti: eski "fal:kling-v2.1-std-i2v" önbellek kayıtları yeniden kullanılmaz.
+    id: "fal:kling-v3-std-i2v",
+    endpoint: "fal-ai/kling-video/v3/standard/image-to-video",
+    capabilities: ["i2v", "first_last_frame"],
+    limits: { maxRefs: 2, minDurationSec: 1, maxDurationSec: 15 },
+    qualityPrior: 0.75,
+    // 1 sn adımla en az 3 sn faturalanır; sesli $0.126/sn (ses kontrolü $0.154/sn, kullanılmıyor).
+    price: { unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 },
+    priceSource: {
+      url: "https://fal.ai/models/fal-ai/kling-video/v3/standard/image-to-video",
+      checked: "2026-10-31",
+      note: "sessiz $0.084/sn, sesli $0.126/sn",
+    },
     verified: true,
-    buildInput: (req) => ({
-      prompt: req.prompt,
-      image_url: refUri(ref(req, "first_frame", "character")),
-      duration: klingDuration(req.durationSec),
-      negative_prompt: req.negativePrompt,
-    }),
+    buildInput: kling3Input,
     outputUrls: videoUrl,
   },
   {
     id: "fal:kling-v3-pro-i2v",
     endpoint: "fal-ai/kling-video/v3/pro/image-to-video",
     capabilities: ["i2v", "first_last_frame"],
-    limits: { maxRefs: 2, minDurationSec: 1, maxDurationSec: 10 },
+    limits: { maxRefs: 2, minDurationSec: 1, maxDurationSec: 15 },
     qualityPrior: 0.85,
-    price: { unit: "per_second", usd: 0.112, stepSec: 5, minSec: 5 },
-    priceSource: { url: "https://www.developersdigest.tech/blog/image-video-generation-api-pricing-2026", checked: "2026-10-18", note: "Kling 3.0 1080p sessiz 0.8 Unit/sn; fal fiyatı doğrulanmadı" },
+    price: { unit: "per_second", usd: 0.112, minSec: 3, withAudioUsd: 0.168 },
+    priceSource: {
+      url: "https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video",
+      checked: "2026-10-31",
+      note: "sessiz $0.112/sn, sesli $0.168/sn (ses kontrolü $0.196/sn)",
+    },
+    // Şema ve fiyat 31 Eki'de fal sayfasından doğrulandı; pahalı katmanı varsayılan açmak kullanıcı kararı.
     verified: false,
-    buildInput: (req) => ({
-      prompt: req.prompt,
-      image_url: refUri(ref(req, "first_frame", "character")),
-      tail_image_url: refUri(ref(req, "last_frame")),
-      duration: klingDuration(req.durationSec),
-      negative_prompt: req.negativePrompt,
-      generate_audio: req.withAudio ?? false,
-    }),
+    buildInput: kling3Input,
     outputUrls: videoUrl,
   },
   {
@@ -117,13 +145,20 @@ export const FAL_MODELS: FalModelSpec[] = [
     capabilities: ["ref2v"],
     limits: { maxRefs: 9, minDurationSec: 4, maxDurationSec: 15 },
     qualityPrior: 0.85,
-    price: { unit: "per_second", usd: 0.23, minSec: 4 },
-    priceSource: { url: "https://fal.ai/seedance-2.0", checked: "2026-09-01", note: "720p; sağlayıcıya göre $0.15–0.30/sn" },
+    // Ses dahil (generate_audio fiyatı değiştirmez). Video referansıyla $0.1814/sn ama video referansı gönderilmiyor.
+    price: { unit: "per_second", usd: 0.3024, minSec: 4 },
+    priceSource: {
+      url: "https://fal.ai/models/bytedance/seedance-2.0/reference-to-video",
+      checked: "2026-10-31",
+      note: "720p, video girdisi yok; ses dahil",
+    },
     verified: false,
     buildInput: (req) => ({
       prompt: req.prompt,
       image_urls: req.refs?.filter((r) => r.mimeType.startsWith("image/")).map((r) => refUri(r)),
-      duration: req.durationSec ?? 5,
+      // "auto" veya "4".."15" (metin).
+      duration: wholeSeconds(req.durationSec ?? 5, 4, 15),
+      aspect_ratio: req.aspectRatio ?? "16:9",
       resolution: "720p",
       generate_audio: req.withAudio ?? false,
     }),

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
   HttpError,
+  RequestTimeoutError,
+  retryAfterMs,
   afterSubmit,
   ContentRejectedError,
   fromBase64,
@@ -122,11 +125,102 @@ describe("request", () => {
   });
 });
 
+describe("request: ağ hataları, süre sınırı, Retry-After", () => {
+  /** Ağ hatası fırlatan bir yanıt üreticisi (fetch reddi: ECONNRESET, DNS…). */
+  const netErr = (msg = "ECONNRESET") => () => {
+    throw new TypeError(msg);
+  };
+
+  describe("sahte zamanla", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("GET'te ağ hatasını üstel beklemeyle yeniden dener", async () => {
+      const { fetch, calls } = seqFetch([netErr(), netErr("getaddrinfo ENOTFOUND"), ok("tamam")]);
+      const p = request(fetch, "https://x/a");
+      await vi.runAllTimersAsync();
+      expect(await (await p).text()).toBe("tamam");
+      expect(calls).toHaveLength(3);
+    });
+
+    it("GET'te deneme hakkı bitince son ağ hatasını verir", async () => {
+      const { fetch, calls } = seqFetch([netErr(), netErr("son")]);
+      const p = request(fetch, "https://x/a", {}, 1).catch((e: unknown) => e);
+      await vi.runAllTimersAsync();
+      expect(await p).toMatchObject({ message: "son" });
+      expect(calls).toHaveLength(2);
+    });
+
+    it("POST'ta ağ hatası tekrarlanmaz (istek işlenmiş olabilir)", async () => {
+      const { fetch, calls } = seqFetch([netErr()]);
+      await expect(request(fetch, "https://x/job", { method: "POST" })).rejects.toThrow("ECONNRESET");
+      expect(calls).toHaveLength(1);
+    });
+
+    it("429/503'te Retry-After saniyesine uyar (üstel beklemenin yerine)", async () => {
+      const { fetch, calls } = seqFetch([
+        () => new Response("yavaş", { status: 429, headers: { "retry-after": "5" } }),
+        () => new Response("yük", { status: 503, headers: { "retry-after": "0" } }),
+        ok(),
+      ]);
+      const p = request(fetch, "https://x/job", { method: "POST" });
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toHaveLength(2);
+      await vi.runAllTimersAsync();
+      expect((await p).status).toBe(200);
+      expect(calls).toHaveLength(3);
+    });
+
+    it("500'de Retry-After dikkate alınmaz", async () => {
+      const { fetch, calls } = seqFetch([() => new Response("x", { status: 500, headers: { "retry-after": "30" } }), ok()]);
+      const p = request(fetch, "https://x/a");
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(calls).toHaveLength(2);
+      await p;
+    });
+  });
+
+  it("süre sınırını aşan istek RequestTimeoutError ile biter", async () => {
+    const hanging = (async (_: unknown, init?: RequestInit) =>
+      new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))) as typeof fetch;
+    const err = await request(hanging, "https://x/asili", { timeoutMs: 20 }, 0).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RequestTimeoutError);
+    expect(err).toMatchObject({ url: "https://x/asili", timeoutMs: 20, message: "İstek zaman aşımı (20 ms): https://x/asili" });
+  });
+
+  it("varsayılan süre sınırı 120 sn; çağıranın iptali tekrar denenmeden olduğu gibi çıkar", async () => {
+    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(120_000);
+    const ac = new AbortController();
+    let n = 0;
+    const hanging = (async (_: unknown, init?: RequestInit) => {
+      n++;
+      return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+    }) as typeof fetch;
+    const p = request(hanging, "https://x/a", { signal: ac.signal }).catch((e: unknown) => e);
+    ac.abort(new Error("kullanıcı iptal"));
+    expect(await p).toMatchObject({ message: "kullanıcı iptal" });
+    expect(n).toBe(1);
+  });
+
+  it("retryAfterMs: saniye, HTTP tarihi, sınırlar ve bozuk değer", () => {
+    const now = Date.parse("2026-10-31T12:00:00Z");
+    expect(retryAfterMs(null)).toBeUndefined();
+    expect(retryAfterMs("2")).toBe(2000);
+    expect(retryAfterMs("3600")).toBe(60_000);
+    expect(retryAfterMs("-5")).toBe(0);
+    expect(retryAfterMs("Sat, 31 Oct 2026 12:00:10 GMT", now)).toBe(10_000);
+    expect(retryAfterMs("yarın")).toBeUndefined();
+  });
+});
+
 describe("requestJson / requestBytes", () => {
   it("JSON gövdesini çözer ve init'i fetch'e iletir", async () => {
     const { fetch, calls } = seqFetch([ok('{"a":1}')]);
-    expect(await requestJson<{ a: number }>(fetch, "https://x/j", { headers: { k: "v" } })).toEqual({ a: 1 });
-    expect(calls[0]?.init).toEqual({ headers: { k: "v" } });
+    expect(await requestJson<{ a: number }>(fetch, "https://x/j", { headers: { k: "v" }, timeoutMs: 5000 })).toEqual({ a: 1 });
+    // timeoutMs fetch'e gitmez; yerine süre sınırlı sinyal eklenir.
+    expect(calls[0]?.init).toEqual({ headers: { k: "v" }, signal: expect.any(AbortSignal) });
   });
 
   it("baytları ve parametresiz içerik türünü döndürür", async () => {

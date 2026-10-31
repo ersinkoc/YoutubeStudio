@@ -291,9 +291,12 @@ describe("designAsset: kütüphane güveni ve önceki ret", () => {
     const [key, check] = Object.entries(state.assetChecks!)[0]!;
     expect(check).toMatchObject({ passed: false, fidelity: 3 });
 
-    // Gerçeklik açıkken hâlâ geçmez: yeniden çizilir (ve yine reddedilir).
-    await expect(design(h, state, HORSE)).rejects.toBeInstanceOf(AssetRejectedError);
-    expect(callsOf("vectorDesigner")).toHaveLength(6);
+    // Gerçeklik açıkken hâlâ geçmez: yeniden çizilmez (para harcanmaz), hemen yine reddedilir; yeni çizim insan kararıyla.
+    const gates = callsOf("assetGate").length;
+    await expect(design(h, state, HORSE)).rejects.toThrow("kalite kapısı geçilemedi (önceki deneme)");
+    expect(callsOf("vectorDesigner")).toHaveLength(3);
+    expect(callsOf("assetGate")).toHaveLength(gates);
+    expect(h.logs.at(-1)).toMatch(/^ {2}p-horse: bu bölümde kalite kapısından reddedilmişti \(tanınırlık 9\/10 .*gerçeğe sadakat 3\/10\), yeniden çizilmiyor$/);
 
     // Reddedilen SVG ya da metası kayıpsa kullanılamaz.
     state.input.realism = false;
@@ -411,5 +414,38 @@ describe("designAsset: Commons'tan hazır SVG", () => {
     refs.vectors.mockResolvedValueOnce([{ svg: PROP_SVG, source: { title: "Desk", url: "u", license: "CC0" } }]);
     const ref = await design(h, vstate(), { kind: "prop", id: "p-desk", name: "p-desk", description: "wooden desk" });
     expect(h.store.json(`${ref.key}.json`).surface).toBe(0.95);
+  });
+});
+
+describe("designAsset: tasarımcı hatası", () => {
+  it("tasarımcının kendi hatası bir çizim hakkını yer, varlık hemen düşmez; diğer hatalar yukarı çıkar", async () => {
+    const { AgentError } = await import("@ys/agents");
+    const h = harness();
+    agents();
+    let n = 0;
+    onAgent("vectorDesigner", () => {
+      if (++n === 1) throw new AgentError("vector-designer:prop: error_max_structured_output_retries\nayrıntı", 0.05, "m", "vector-designer:prop");
+      return { svg: PROP_SVG, realHeight: 1.6, grounded: true, surface: 0.5 };
+    });
+    const ref = await design(h, vstate(), { kind: "prop", id: "p-box", name: "p-box", description: "a wooden box" });
+    expect(h.store.text(ref.key)).toContain("<circle");
+    expect(callsOf("vectorDesigner")).toHaveLength(2);
+    expect(h.logs).toContain("  p-box: deneme 1 tasarımcı hatası (vector-designer:prop: error_max_structured_output_retries)");
+
+    onAgent("vectorDesigner", () => {
+      throw new Error("iptal");
+    });
+    await expect(design(h, vstate(), { kind: "prop", id: "p-cup", name: "p-cup", description: "a tea cup" })).rejects.toThrow("iptal");
+  });
+
+  it("tasarımcı her denemede hata verirse son hata yukarı çıkar", async () => {
+    const { AgentError } = await import("@ys/agents");
+    const h = harness();
+    agents();
+    onAgent("vectorDesigner", () => {
+      throw new AgentError("vector-designer:prop: error_max_turns", 0.01);
+    });
+    await expect(design(h, vstate(), { kind: "prop", id: "p-pen", name: "p-pen", description: "a pen" })).rejects.toThrow("error_max_turns");
+    expect(callsOf("vectorDesigner")).toHaveLength(3);
   });
 });

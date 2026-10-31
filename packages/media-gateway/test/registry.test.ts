@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ComfyUiAdapter, DEFAULT_COMFY_DIR, FAL_MODELS, createProvidersFromEnv as fromEnvTyped } from "../src/index.ts";
+import {
+  ComfyUiAdapter,
+  DEFAULT_COMFY_DIR,
+  FAL_MODELS,
+  createProvidersFromEnv as fromEnvTyped,
+  geminiTtsPricePer1k,
+} from "../src/index.ts";
 
 /** Gerçek process.env yerine sahte değerlerle çağırır. */
 const createProvidersFromEnv = (env: Record<string, string>, dir?: string) => fromEnvTyped(env as NodeJS.ProcessEnv, dir);
@@ -61,10 +67,13 @@ describe("createProvidersFromEnv", () => {
     expect(on.providers.map((p) => p.id)).toEqual(FAL_MODELS.map((m) => m.id));
   });
 
-  it("Gemini: beş sağlayıcıyı varsayılan modellerle, env ile ezilmiş modellerle kurar", async () => {
+  it("Gemini: dört sağlayıcıyı varsayılan modellerle, env ile ezilmiş modellerle kurar; Veo yalnız açıkça", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ys-comfy-bos-"));
-    const ids = ["gemini:nano-banana-pro", "gemini:nano-banana-2.1", "gemini:nano-banana-2", "gemini:tts", "gemini:veo"];
-    expect(createProvidersFromEnv({ GEMINI_API_KEY: "g" }, dir).providers.map((p) => p.id)).toEqual(ids);
+    const ids = ["gemini:nano-banana-pro", "gemini:nano-banana-2.1", "gemini:nano-banana-2", "gemini:tts"];
+    const def = createProvidersFromEnv({ GEMINI_API_KEY: "g" }, dir);
+    expect(def.providers.map((p) => p.id)).toEqual(ids);
+    // veo-3.1-generate-preview 22 Eki 2026'da kapandı: varsayılan kurulmaz, sıralamaya/tahmine girmez.
+    expect(def.skipped).toContain("gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)");
 
     // Model adının istek URL'sine yansıdığını sahte fetch ile doğrula.
     const urls: string[] = [];
@@ -94,9 +103,19 @@ describe("createProvidersFromEnv", () => {
       "m-tts:generateContent",
     ]);
     const veo = createProvidersFromEnv({ GEMINI_API_KEY: "g", GEMINI_VEO_MODEL: "veo-x" }, dir).providers.at(-1)!;
+    expect(veo.id).toBe("gemini:veo");
     expect(veo.price).toEqual({ unit: "per_second", usd: 0.4, stepSec: 2, minSec: 4 });
     await veo.generate({ capability: "t2v", quality: "draft" }, { fetch }).catch(() => {});
     expect(urls.at(-1)).toContain("/models/veo-x:predictLongRunning");
+  });
+
+  it("Gemini TTS fiyatı: 2026 sonuna kadar $9/1M ses tokeni, 2027'den $18 (1000 karakter başı)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ys-comfy-bos-"));
+    const tts = (now: Date) =>
+      fromEnvTyped({ GEMINI_API_KEY: "g" } as Record<string, string> as NodeJS.ProcessEnv, dir, now).providers.find((p) => p.id === "gemini:tts")!;
+    expect(tts(new Date("2026-12-31T23:59:59Z")).price).toEqual({ unit: "per_1k_chars", usd: 0.017 });
+    expect(tts(new Date("2027-01-01T00:00:00Z")).price).toEqual({ unit: "per_1k_chars", usd: 0.033 });
+    expect(geminiTtsPricePer1k(new Date("2026-10-31"))).toBe(0.017);
   });
 
   it("ElevenLabs: TTS, SFX ve müzik; TTS modeli env ile seçilir", async () => {
@@ -114,6 +133,12 @@ describe("createProvidersFromEnv", () => {
     const custom = createProvidersFromEnv({ ELEVENLABS_API_KEY: "e", ELEVENLABS_TTS_MODEL: "eleven_flash" }, dir).providers;
     await custom[0]!.generate(req, { fetch });
     expect(bodies.map((b) => b.model_id)).toEqual(["eleven_v3", "eleven_flash"]);
+    // Müzik modeli açıkça gönderilir; env ile seçilir.
+    const musicReq = { capability: "music" as const, quality: "draft" as const, prompt: "p" };
+    await def[2]!.generate(musicReq, { fetch });
+    const music = createProvidersFromEnv({ ELEVENLABS_API_KEY: "e", ELEVENLABS_MUSIC_MODEL: "music_v2_5" }, dir).providers[2]!;
+    await music.generate(musicReq, { fetch });
+    expect(bodies.slice(2).map((b) => b.model_id)).toEqual(["music_v1", "music_v2_5"]);
   });
 
   it("varsayılan ComfyUI klasörü paketin comfy-workflows dizinidir", () => {

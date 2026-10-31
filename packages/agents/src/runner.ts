@@ -1,4 +1,4 @@
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options, type SDKResultMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { modelFor, type ModelSettings } from "@ys/core";
 import { z } from "zod";
 
@@ -53,10 +53,29 @@ export class AgentError extends Error {
     readonly costUsd = 0,
     readonly model?: string,
     readonly agent?: string,
+    /** Geçici (aşırı yük, oran sınırı, 5xx, zaman aşımı, sonuçsuz bitiş): yeniden denemek güvenli. */
+    readonly transient = false,
   ) {
     super(message);
   }
 }
+
+/** Takılan alt süreç eşzamanlılık yuvasını sonsuza dek tutmasın (varsayılan 10 dk; tasarımcı çağrıları ~30 sn). */
+const AGENT_TIMEOUT_MS = () => Math.max(10_000, Number(process.env.YS_AGENT_TIMEOUT_MS) || 600_000);
+
+/**
+ * Alt sürece kullanıcının ~/.claude ayarlarından hiçbir şey taşınmaz. settingSources: [] kullanıcı/proje ayarlarını,
+ * CLAUDE.md'yi ve hook'ları kapatır ama claude.ai bağlayıcıları (Gmail, Slack…), eklenti/beceri eşitlemesi ve otomatik
+ * bellek ayrıca kapatılmalı: her çağrıda yüklenip süre ve token harcıyorlardı (31 Eki SDK incelemesi).
+ */
+const ISOLATION: Options = {
+  settingSources: [],
+  strictMcpConfig: true,
+  skills: [],
+  settings: { disableClaudeAiConnectors: true, syncClaudeAiPlugins: false, syncClaudeAiSkills: false, disableAllHooks: true },
+  // İstem olduğu gibi gider: @yol genişletmesi (konu/anlatımda "@" geçebilir) ve tur başı hatırlatmalar yok.
+  verbatimPrompts: true,
+};
 
 /**
  * Claude Code'un --json-schema doğrulayıcısı draft 2020-12 meta-şemasını tanımıyor;
@@ -114,9 +133,14 @@ async function slot<R>(fn: () => Promise<R>): Promise<R> {
   }
 }
 
-/** Alt süreç düzeyinde geçici hata (çökme, bağlantı kopması): sonuç gelmeden olur, tekrar denemek güvenlidir. */
+/**
+ * Geçici hata: alt süreç çökmesi/bağlantı kopması (sonuç gelmeden) ya da AgentError olarak işaretlenmiş API aşırı yükü,
+ * oran sınırı, zaman aşımı. Modelin kendi hataları (tur sınırı, şema) geçici değildir.
+ */
 export const isTransientAgentFailure = (e: unknown) =>
-  !(e instanceof AgentError) && e instanceof Error && /process exited with code|process terminated|ECONNRESET|EPIPE|spawn .*E[A-Z]+/i.test(e.message);
+  e instanceof AgentError
+    ? e.transient
+    : e instanceof Error && /process exited with code|process terminated|ECONNRESET|EPIPE|spawn .*E[A-Z]+/i.test(e.message);
 
 const RETRY_DELAYS_MS = [2000, 5000];
 
@@ -126,12 +150,19 @@ const RETRY_DELAYS_MS = [2000, 5000];
  * Alt süreç çökerse (sonuç mesajı gelmeden) iki kez daha denenir; modelin kendi hataları (tur sınırı, şema) denenmez.
  */
 export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {}): Promise<AgentResult<T>> {
+  // Düşen denemelerin harcadığı para kaybolmasın: başarılı sonuca (ya da son hataya) eklenir.
+  let failedCost = 0;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await slot(() => runOnce(call, deps));
+      const res = await slot(() => runOnce(call, deps));
+      return failedCost ? { ...res, costUsd: res.costUsd + failedCost } : res;
     } catch (e) {
       const delay = RETRY_DELAYS_MS[attempt];
-      if (delay === undefined || !isTransientAgentFailure(e)) throw e;
+      if (delay === undefined || !isTransientAgentFailure(e)) {
+        if (failedCost && e instanceof AgentError) throw new AgentError(e.message, e.costUsd + failedCost, e.model, e.agent, e.transient);
+        throw e;
+      }
+      if (e instanceof AgentError) failedCost += e.costUsd;
       const reason = (e as Error).message.split("\n")[0];
       deps.log?.(`ajan: ${call.name} alt süreci düştü (${reason}), ${delay / 1000} sn sonra yeniden deneniyor`);
       await new Promise((r) => setTimeout(r, delay));
@@ -144,6 +175,10 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
   const model = modelFor(call.name, call.model, deps.models);
   deps.log?.(`ajan: ${call.name} (${model})`);
 
+  const abort = new AbortController();
+  const timeoutMs = AGENT_TIMEOUT_MS();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  const timedOut = () => new AgentError(`${call.name}: ${timeoutMs / 1000} sn içinde bitmedi`, 0, model, call.name, true);
   const q = queryFn({
     prompt: call.images?.length ? withImages(call.prompt, call.images) : call.prompt,
     options: {
@@ -151,7 +186,9 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
       systemPrompt: call.system,
       outputFormat: { type: "json_schema", schema: toOutputSchema(call.schema) },
       tools: [],
-      settingSources: [],
+      ...ISOLATION,
+      env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" } as Record<string, string>,
+      abortController: abort,
       persistSession: false,
       permissionMode: "dontAsk",
       maxTurns: 4,
@@ -160,23 +197,43 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
     },
   });
 
-  for await (const message of q) {
-    if (message.type !== "result") continue;
-    if (message.subtype !== "success") {
-      throw new AgentError(`${call.name}: ${message.subtype} (maliyet $${message.total_cost_usd.toFixed(4)})`, message.total_cost_usd, model, call.name);
+  try {
+    for await (const message of q) {
+      if (message.type === "result") return finish(call, model, message, deps);
     }
-    const parsed = call.schema.safeParse(message.structured_output);
-    if (!parsed.success) {
-      throw new AgentError(`${call.name}: şemaya uymayan çıktı: ${z.prettifyError(parsed.error)}`, message.total_cost_usd, model, call.name);
-    }
-    deps.log?.(`ajan: ${call.name} bitti, $${message.total_cost_usd.toFixed(4)}`);
-    return {
-      data: parsed.data,
-      name: call.name,
-      costUsd: message.total_cost_usd,
-      model,
-      durationMs: message.duration_ms,
-    };
+  } catch (e) {
+    if (abort.signal.aborted) throw timedOut();
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  throw new AgentError(`${call.name}: sonuç mesajı gelmedi`);
+  if (abort.signal.aborted) throw timedOut();
+  // Akış sonuç mesajı vermeden bitti: alt süreç düştü sayılır, yeniden denenir.
+  throw new AgentError(`${call.name}: sonuç mesajı gelmedi`, 0, model, call.name, true);
+}
+
+function finish<T>(call: AgentCall<T>, model: string, message: SDKResultMessage, deps: AgentDeps): AgentResult<T> {
+  const cost = message.total_cost_usd;
+  if (message.subtype !== "success") {
+    const detail = message.errors?.length ? `: ${message.errors.join("; ").slice(0, 300)}` : "";
+    throw new AgentError(`${call.name}: ${message.subtype}${detail} (maliyet $${cost.toFixed(4)})`, cost, model, call.name);
+  }
+  // "success" ama is_error: tur bir API hatasıyla bitti (aşırı yük, oran sınırı, 5xx) ve yapılandırılmış çıktı yok.
+  // Önceden "şemaya uymayan çıktı" sanılıp yeniden denenmiyordu.
+  if (message.is_error) {
+    const status = message.api_error_status;
+    throw new AgentError(
+      `${call.name}: API hatası${status ? ` ${status}` : ""}: ${message.result.slice(0, 200)}`,
+      cost,
+      model,
+      call.name,
+      status === 429 || (typeof status === "number" && status >= 500),
+    );
+  }
+  const parsed = call.schema.safeParse(message.structured_output);
+  if (!parsed.success) {
+    throw new AgentError(`${call.name}: şemaya uymayan çıktı: ${z.prettifyError(parsed.error)}`, cost, model, call.name);
+  }
+  deps.log?.(`ajan: ${call.name} bitti, $${cost.toFixed(4)}`);
+  return { data: parsed.data, name: call.name, costUsd: cost, model, durationMs: message.duration_ms };
 }

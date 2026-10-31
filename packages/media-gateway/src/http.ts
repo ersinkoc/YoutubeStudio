@@ -26,22 +26,71 @@ const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
 // 503 "aşırı yük / hizmet yok": istek işlenmedi, tekrar göndermek güvenli.
 const NOT_PROCESSED = new Set([408, 425, 429, 503]);
 
-/** 429 ve 5xx'te üstel bekleme ile yeniden dener. */
+/** Tek bir isteğin (başlıklar + gövde) varsayılan süre sınırı. Gerçek veride bir fetch 7,6 saat asılı kaldı (31 Eki). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+/** Retry-After başlığına uyulurken beklenecek en uzun süre. */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/** request() seçenekleri: fetch'in RequestInit'i + istek başına süre sınırı. */
+export type RequestOptions = RequestInit & { timeoutMs?: number };
+
+/** İstek, süre sınırı içinde tamamlanmadı (çağıranın iptali değil). */
+export class RequestTimeoutError extends Error {
+  constructor(
+    readonly url: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`İstek zaman aşımı (${timeoutMs} ms): ${url}`);
+  }
+}
+
+/** Retry-After: saniye ya da HTTP tarihi. Yoksa/bozuksa undefined; değer 0..60 sn'ye sıkıştırılır. */
+export function retryAfterMs(header: string | null, now = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const sec = Number(header);
+  const ms = Number.isFinite(sec) ? sec * 1000 : Date.parse(header) - now;
+  if (Number.isNaN(ms)) return undefined;
+  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, ms));
+}
+
+/**
+ * 429 ve 5xx'te üstel bekleme ile yeniden dener (429/503'te Retry-After varsa ona uyar). Her deneme
+ * `timeoutMs` ile sınırlıdır. Ağ hataları (ECONNRESET, DNS, zaman aşımı) yalnız GET/HEAD'de yeniden denenir.
+ */
 export async function request(
   fetchFn: typeof fetch,
   url: string,
-  init: RequestInit = {},
+  options: RequestOptions = {},
   retries = 3,
 ): Promise<Response> {
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...init } = options;
+  const callerSignal = init.signal ?? undefined;
+  // GET dışı istek (iş gönderme, TTS) sunucu hatasında tekrar gönderilmez: ilk istek işlenmiş olabilir ve iki kez
+  // ücretlendirilir. Yalnız "işlenmedi" anlamına gelen 408/425/429/503 tekrarlanır.
+  const idempotent = !init.method || /^(GET|HEAD)$/i.test(init.method);
   for (let attempt = 0; ; attempt++) {
-    const res = await fetchFn(url, init);
-    if (res.ok) return res;
-    const body = await res.text();
-    // GET dışı istek (iş gönderme, TTS) sunucu hatasında tekrar gönderilmez: ilk istek işlenmiş olabilir ve iki kez
-    // ücretlendirilir. Yalnız "işlenmedi" anlamına gelen 408/425/429/503 tekrarlanır.
-    const idempotent = !init.method || /^(GET|HEAD)$/i.test(init.method);
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout;
+    let res: Response;
+    let body: string;
+    try {
+      res = await fetchFn(url, { ...init, signal });
+      if (res.ok) return res;
+      body = await res.text();
+    } catch (e) {
+      // Çağıran iptal ettiyse olduğu gibi yukarı çıkar, tekrar denenmez.
+      if (callerSignal?.aborted) throw e;
+      const error = timeout.aborted ? new RequestTimeoutError(url, timeoutMs) : e;
+      // Ağ hatası: istek sunucuya ulaşmış olabilir; yalnız idempotent istek tekrarlanır.
+      if (idempotent && attempt < retries) {
+        await sleep(1000 * 2 ** attempt, callerSignal);
+        continue;
+      }
+      throw error;
+    }
     if (attempt < retries && (idempotent ? RETRYABLE : NOT_PROCESSED).has(res.status)) {
-      await sleep(1000 * 2 ** attempt, init.signal ?? undefined);
+      const hinted = res.status === 429 || res.status === 503 ? retryAfterMs(res.headers.get("retry-after")) : undefined;
+      await sleep(hinted ?? 1000 * 2 ** attempt, callerSignal);
       continue;
     }
     throw new HttpError(res.status, url, body);
@@ -51,7 +100,7 @@ export async function request(
 export async function requestJson<T>(
   fetchFn: typeof fetch,
   url: string,
-  init: RequestInit = {},
+  init: RequestOptions = {},
 ): Promise<T> {
   const res = await request(fetchFn, url, init);
   return (await res.json()) as T;
@@ -60,7 +109,7 @@ export async function requestJson<T>(
 export async function requestBytes(
   fetchFn: typeof fetch,
   url: string,
-  init: RequestInit = {},
+  init: RequestOptions = {},
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const res = await request(fetchFn, url, init);
   return {
@@ -86,7 +135,14 @@ export async function pollUntil<T>(
     if (value !== undefined) return value;
     await sleep(intervalMs, signal);
   }
-  throw new Error(`Zaman aşımı (${timeoutMs} ms)`);
+  throw new PollTimeoutError(timeoutMs);
+}
+
+/** pollUntil süresi doldu: iş sağlayıcıda hâlâ sürüyor olabilir (iptal edilmeli). */
+export class PollTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Zaman aşımı (${timeoutMs} ms)`);
+  }
 }
 
 export const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");

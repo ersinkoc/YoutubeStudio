@@ -45,7 +45,8 @@ describe("runStructured: kalan durumlar", () => {
     expect((sdk.calls[0] as { options: { model: string } }).options.model).toBe("x-model");
   });
 
-  it("sonuç mesajı gelmeden akış biterse hata verir (yeniden denenmez)", async () => {
+  it("sonuç mesajı gelmeden akış biterse alt süreç düşmüş sayılır: iki kez yeniden denenir, sonra hata", async () => {
+    vi.useFakeTimers();
     let n = 0;
     const empty = (() => {
       n++;
@@ -53,8 +54,116 @@ describe("runStructured: kalan durumlar", () => {
         yield { type: "assistant" };
       })();
     }) as unknown as QueryFn;
-    await expect(runStructured(call, { queryFn: empty })).rejects.toThrow("t: sonuç mesajı gelmedi");
-    expect(n).toBe(1);
+    const run = runStructured(call, { queryFn: empty }).catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+    const err = await run;
+    expect(err).toBeInstanceOf(AgentError);
+    expect((err as Error).message).toBe("t: sonuç mesajı gelmedi");
+    expect(n).toBe(3);
+  });
+
+  it("'success' ama is_error: API aşırı yükü (529) geçicidir, yeniden denenir; düşen denemenin maliyeti sonuca eklenir", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const flaky = (() => {
+      n++;
+      return (async function* () {
+        if (n === 1) {
+          yield { type: "result", subtype: "success", is_error: true, api_error_status: 529, result: "Overloaded", duration_ms: 1, total_cost_usd: 0.01 };
+        } else {
+          yield { type: "result", subtype: "success", is_error: false, duration_ms: 1, total_cost_usd: 0.02, structured_output: { ok: true } };
+        }
+      })();
+    }) as unknown as QueryFn;
+    const run = runStructured(call, { queryFn: flaky });
+    await vi.runAllTimersAsync();
+    const res = await run;
+    expect(n).toBe(2);
+    expect(res.costUsd).toBeCloseTo(0.03);
+  });
+
+  it("is_error ama kalıcı (400) ya da durum kodsuz API hatası yeniden denenmez; neden mesajda", async () => {
+    for (const status of [400, null]) {
+      let n = 0;
+      const bad = (() => {
+        n++;
+        return (async function* () {
+          yield { type: "result", subtype: "success", is_error: true, api_error_status: status, result: "invalid request", duration_ms: 1, total_cost_usd: 0.004 };
+        })();
+      }) as unknown as QueryFn;
+      const err = (await runStructured(call, { queryFn: bad }).catch((e: unknown) => e)) as InstanceType<typeof AgentError>;
+      expect(n).toBe(1);
+      expect(err.transient).toBe(false);
+      expect(err.costUsd).toBe(0.004);
+      expect(err.message).toBe(`t: API hatası${status ? ` ${status}` : ""}: invalid request`);
+    }
+  });
+
+  it("hata alt türünde modelin hata metinleri mesaja eklenir; kalıcı hatada önceki geçici denemelerin maliyeti de taşınır", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const q = (() => {
+      n++;
+      return (async function* () {
+        if (n === 1) yield { type: "result", subtype: "success", is_error: true, api_error_status: 503, result: "x", duration_ms: 1, total_cost_usd: 0.01 };
+        else yield { type: "result", subtype: "error_max_structured_output_retries", errors: ["şema tutmadı"], duration_ms: 1, total_cost_usd: 0.05 };
+      })();
+    }) as unknown as QueryFn;
+    const run = runStructured(call, { queryFn: q }).catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+    const err = (await run) as InstanceType<typeof AgentError>;
+    expect(err.message).toBe("t: error_max_structured_output_retries: şema tutmadı (maliyet $0.0500)");
+    expect(err.costUsd).toBeCloseTo(0.06);
+    expect(err.transient).toBe(false);
+  });
+
+  it("takılan alt süreç zaman aşımında durdurulur ve geçici sayılır (akış hata verse de, sessizce bitse de)", async () => {
+    vi.useFakeTimers();
+    process.env.YS_AGENT_TIMEOUT_MS = "10000";
+    try {
+      for (const mode of ["throw", "end"] as const) {
+        let n = 0;
+        const hang = ((params: { options: { abortController: AbortController } }) => {
+          n++;
+          const signal = params.options.abortController.signal;
+          return (async function* () {
+            await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+            if (mode === "throw") throw new Error("aborted");
+          })();
+        }) as unknown as QueryFn;
+        const run = runStructured(call, { queryFn: hang }).catch((e: unknown) => e);
+        await vi.runAllTimersAsync();
+        const err = (await run) as InstanceType<typeof AgentError>;
+        expect(err.message).toBe("t: 10 sn içinde bitmedi");
+        expect(err.transient).toBe(true);
+        expect(n).toBe(3);
+      }
+    } finally {
+      delete process.env.YS_AGENT_TIMEOUT_MS;
+    }
+  });
+
+  it("zaman aşımı dışındaki akış hatası olduğu gibi yukarı çıkar", async () => {
+    const boom = (() =>
+      (async function* () {
+        throw new Error("beklenmeyen");
+      })()) as unknown as QueryFn;
+    await expect(runStructured(call, { queryFn: boom })).rejects.toThrow("beklenmeyen");
+  });
+
+  it("alt süreç kullanıcının ~/.claude ayarlarından yalıtılır", async () => {
+    sdk.calls = [];
+    await runStructured(call);
+    const options = (sdk.calls[0] as { options: Record<string, unknown> }).options;
+    expect(options).toMatchObject({
+      settingSources: [],
+      strictMcpConfig: true,
+      skills: [],
+      verbatimPrompts: true,
+      settings: { disableClaudeAiConnectors: true, syncClaudeAiPlugins: false, syncClaudeAiSkills: false, disableAllHooks: true },
+      env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
+    });
+    expect(options.abortController).toBeInstanceOf(AbortController);
   });
 
   it("aynı anda en çok 4 Claude süreci çalışır; biten yerini sıradakine verir", async () => {

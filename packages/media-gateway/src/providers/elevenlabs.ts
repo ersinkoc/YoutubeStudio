@@ -14,11 +14,24 @@ import type {
 
 const BASE = "https://api.elevenlabs.io/v1";
 
+/** Eşzamanlı üretim (uzun metin, müzik) dakikalar sürebilir; varsayılan 120 sn istek sınırı yetmez. */
+const GENERATION_TIMEOUT_MS = 600_000;
+
+/*
+ * Fiyatlar: https://elevenlabs.io/pricing/api (31 Eki 2026). Eleven v3 TTS $0.08/1K karakter, Flash/Turbo $0.04/1K,
+ * ses efekti $0.12/dk, müzik $0.15/dk.
+ */
+const PRICING_URL = "https://elevenlabs.io/pricing/api";
+const PRICE_CHECKED = "2026-10-31";
+
 const SOURCE: PriceSource = {
-  url: "https://elevenlabs.io/pricing/api",
-  checked: "2026-07-01",
+  url: PRICING_URL,
+  checked: PRICE_CHECKED,
   note: "Abonelikte karakter kotasından düşer; ücretsiz plan ticari kullanıma izin vermez",
 };
+
+/** Flash/Turbo modelleri v3'ün yarı fiyatı. */
+const ttsPricePer1k = (model: string): number => (/flash|turbo/i.test(model) ? 0.04 : 0.08);
 
 interface Subscription {
   tier: string;
@@ -58,13 +71,15 @@ export class ElevenLabsTtsAdapter implements ProviderAdapter {
   readonly limits: ProviderLimits = { requiresVoiceId: true };
   readonly id = "elevenlabs:tts";
   readonly qualityPrior = 0.9;
-  readonly price: PriceRule = { unit: "per_1k_chars", usd: 0.1 };
+  readonly price: PriceRule;
   readonly priceSource = SOURCE;
 
   constructor(
     private readonly apiKey: string,
     private readonly model = "eleven_v3",
-  ) {}
+  ) {
+    this.price = { unit: "per_1k_chars", usd: ttsPricePer1k(model) };
+  }
 
   quota(ctx: GenerateContext): Promise<Quota> {
     return subscriptionQuota(this.apiKey, ctx);
@@ -85,6 +100,7 @@ export class ElevenLabsTtsAdapter implements ProviderAdapter {
           ...(req.seed !== undefined ? { seed: req.seed } : {}),
         }),
         signal: ctx.signal,
+        timeoutMs: GENERATION_TIMEOUT_MS,
       },
     );
     const a = res.alignment;
@@ -104,7 +120,9 @@ export class ElevenLabsSfxAdapter implements ProviderAdapter {
   readonly limits: ProviderLimits = { maxDurationSec: 30 };
   readonly id = "elevenlabs:sfx";
   readonly qualityPrior = 0.85;
-  readonly price: PriceRule = { unit: "per_minute", usd: 0.12 };
+  // Süre verilmezse ElevenLabs süreyi prompt'tan tahmin eder (en çok 30 sn): tahmin üst sınırla yapılır.
+  readonly price: PriceRule = { unit: "per_minute", usd: 0.12, defaultSec: 30 };
+  readonly priceSource: PriceSource = { url: PRICING_URL, checked: PRICE_CHECKED, note: "Ses efekti; 0.5–30 sn" };
 
   constructor(private readonly apiKey: string) {}
 
@@ -117,6 +135,7 @@ export class ElevenLabsSfxAdapter implements ProviderAdapter {
         ...(req.durationSec !== undefined ? { duration_seconds: req.durationSec } : {}),
       }),
       signal: ctx.signal,
+      timeoutMs: GENERATION_TIMEOUT_MS,
     });
     return { files: [{ bytes: audio.bytes, mimeType: "audio/mpeg" }] };
   }
@@ -129,16 +148,31 @@ export class ElevenLabsMusicAdapter implements ProviderAdapter {
   readonly limits: ProviderLimits = { minDurationSec: 10, maxDurationSec: 300 };
   readonly id = "elevenlabs:music";
   readonly qualityPrior = 0.85;
-  readonly price: PriceRule = { unit: "per_minute", usd: 0.8 };
+  readonly price: PriceRule = { unit: "per_minute", usd: 0.15 };
+  readonly priceSource: PriceSource = { url: PRICING_URL, checked: PRICE_CHECKED, note: "Eleven Music" };
 
-  constructor(private readonly apiKey: string) {}
+  /**
+   * model: https://elevenlabs.io/docs/api-reference/music/compose → music_v1 (API varsayılanı), music_v2, music_v2_5.
+   * Açıkça gönderilir ki API varsayılanı değişince ses/fiyat sessizce değişmesin.
+   */
+  constructor(
+    private readonly apiKey: string,
+    private readonly model = "music_v1",
+  ) {}
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
     const audio = await requestBytes(ctx.fetch, `${BASE}/music`, {
       method: "POST",
       headers: { "xi-api-key": this.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: req.prompt, music_length_ms: Math.round((req.durationSec ?? 60) * 1000) }),
+      body: JSON.stringify({
+        prompt: req.prompt,
+        music_length_ms: Math.round((req.durationSec ?? 60) * 1000),
+        model_id: this.model,
+        // Kanal müziği anlatımın altında çalar: vokal istenmez.
+        force_instrumental: true,
+      }),
       signal: ctx.signal,
+      timeoutMs: GENERATION_TIMEOUT_MS,
     });
     return { files: [{ bytes: audio.bytes, mimeType: "audio/mpeg" }] };
   }

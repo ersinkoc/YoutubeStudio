@@ -80,3 +80,10 @@ describe("timeline: kenar durumlar", () => {
     expect(tl.vectorAssets).toEqual({});
   });
 });
+
+describe("klip süresi", () => {
+  it("çekimi kapsayan tam saniye, 3–15 sn arasında", async () => {
+    const { clipSeconds } = await import("../src/timing.ts");
+    expect([0.5, 3, 5, 5.2, 6.2, 8, 15, 22].map(clipSeconds)).toEqual([3, 3, 5, 6, 7, 8, 15, 15]);
+  });
+});

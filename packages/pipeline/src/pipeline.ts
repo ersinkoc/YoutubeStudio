@@ -24,6 +24,7 @@ import {
   type AgentDeps,
   type AgentResult,
   type EpisodeBrief,
+  type ScriptOut,
   type ShotPlanOut,
   type CastOut,
 } from "@ys/agents";
@@ -36,6 +37,7 @@ import {
   styleFromPack,
   stylePackOf,
   gatePasses,
+  DRAFT_REVIEW,
   QUALITY_GATE,
   resolveLayout,
   RIG,
@@ -91,7 +93,7 @@ import {
   type SceneVoice,
   type Stage,
 } from "./state.ts";
-import { buildTimeline, estimateWordTimings, resolveShotTimes } from "./timing.ts";
+import { buildTimeline, clipSeconds, estimateWordTimings, resolveShotTimes } from "./timing.ts";
 import type { EpisodeReview } from "./state.ts";
 
 /** Günlük satırının önemi: aşama başlangıcı, uyarı (atlanan/başarısız alt adım) ya da bilgi. */
@@ -301,6 +303,8 @@ export class EpisodePipeline {
           at: new Date().toISOString(),
           episodeId: state.id,
           stage,
+          // Ajan adı defterde: günlüğün son 400 satırı dışında da ajan başına maliyet görülebilsin.
+          refId: e.agent,
           providerId: `claude:${e.model ?? "?"}`,
           capability: "llm",
           estimateMicros: usd(e.costUsd),
@@ -319,6 +323,7 @@ export class EpisodePipeline {
       at: new Date().toISOString(),
       episodeId: state.id,
       stage,
+      refId: res.name,
       providerId: `claude:${res.model}`,
       capability: "llm",
       estimateMicros: usd(res.costUsd),
@@ -465,7 +470,15 @@ export class EpisodePipeline {
       state,
       stage,
       assetGate(
-        { kind: brief.kind, name: brief.name, description: gateDescription(brief.description, plan), guess, drawing, references },
+        {
+          kind: brief.kind,
+          name: brief.name,
+          description: gateDescription(brief.description, plan),
+          guess,
+          drawing,
+          references,
+          style: state.style && { artStyle: state.style.artStyle, palette: state.style.palette },
+        },
         this.agentDeps,
       ),
     );
@@ -606,6 +619,11 @@ export class EpisodePipeline {
         this.log(`  ${brief.name}: önceki deneme bugünkü kurala göre geçiyor (gerçeklik denetimi kapalı), yeniden çizilmeden kullanılıyor`);
         return ref;
       }
+      // Bu bölümde zaten reddedildi: her devamda, çökme sonrası yeniden başlatmada ve taslak düzeltmede yeniden çizmek
+      // hiç yakınsamıyordu (31 Eki üretim verisi: tekrar çizimlerin %16'sı geçti, büyük bölümlerde Claude harcamasının
+      // ~%40'ı). Yeni çizim insan kararıyla gelir: Stüdyo'da reddetmek (notlu ya da notsuz) yeni anahtara taze çizim açar.
+      this.log(`  ${brief.name}: bu bölümde kalite kapısından reddedilmişti (${scoreText({ scores, guess: previous.guess })}), yeniden çizilmiyor`);
+      throw new AssetRejectedError(`${brief.name}: kalite kapısı geçilemedi (önceki deneme); Stüdyo'da kabul et ya da yeniden çizdir`);
     }
 
     const references = await loadRefs();
@@ -619,10 +637,25 @@ export class EpisodePipeline {
     let best: { svg: string; out: VectorAssetOut; res: GateResult } | undefined;
     let lastError: unknown;
     let draws = 0;
+    // Yeniden çizim önceki denemenin üzerinden yapılır ve önceki izleyici tahminleri birikir: yalnız son kusur listesiyle
+    // baştan çizen tasarımcı gidip geliyordu (renk mavi → kırmızı → mavi; 31 Eki üretim verisi).
+    let lastDrawing: string | undefined;
+    const seen: string[] = [];
+    const recognized: number[] = [];
     for (let attempt = 1; attempt <= QUALITY_GATE.maxDraws; attempt++) {
       draws = attempt;
       const lessons = topLessons(await loadLessons(this.deps.store), "designer");
-      const out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix, plan }, state.style!, this.agentDeps));
+      let out: VectorAssetOut;
+      try {
+        out = await this.agent(state, stage, vectorDesigner({ ...brief, lessons, references, fix, plan, previous: lastDrawing }, state.style!, this.agentDeps));
+      } catch (e) {
+        // Tasarımcının kendi hatası (uzun SVG'de şema denemesi tükendi, tur sınırı) bir çizim hakkını yer; plan ve önceki
+        // kapı çağrıları boşa gitmesin diye varlık hemen düşürülmez. Diğer hatalar (iptal vb.) yukarı çıkar.
+        if (!(e instanceof AgentError)) throw e;
+        lastError = e;
+        this.log(`  ${brief.name}: deneme ${attempt} tasarımcı hatası (${e.message.split("\n")[0]})`);
+        continue;
+      }
       let svg: string;
       try {
         const clean = sanitizeSvg(out.svg);
@@ -642,7 +675,18 @@ export class EpisodePipeline {
       if (betterGate(brief.kind, res.scores, best?.res.scores)) best = { svg, out, res };
       this.log(`  ${brief.name}: deneme ${attempt}, ${scoreText(res)} ${passed ? "✓" : "✗"}`);
       if (passed) break;
-      fix = [...(humanFix ? [humanFix] : []), `- A viewer who did not know the name saw: "${res.guess}". It must read clearly as: ${plan?.subject ?? brief.name}.`, ...res.defects.map((d) => `- ${d}`)].join("\n");
+      recognized.push(res.scores.recognizable);
+      if (attempt < QUALITY_GATE.maxDraws && recognized.length >= 2 && recognized.slice(0, 2).every((s) => s <= QUALITY_GATE.hopelessAtMost)) {
+        this.log(`  ${brief.name}: iki çizim de tanınmadı (≤${QUALITY_GATE.hopelessAtMost}/10), yeniden çizilmiyor; karar insanın`);
+        break;
+      }
+      seen.push(res.guess);
+      lastDrawing = svg;
+      fix = [
+        ...(humanFix ? [humanFix] : []),
+        `- Viewers who did not know the name saw: ${seen.map((g) => `"${g}"`).join(", then ")}. It must read clearly as: ${plan?.subject ?? brief.name}.`,
+        ...res.defects.map((d) => `- ${d}`),
+      ].join("\n");
     }
     if (!best) throw lastError;
 
@@ -815,7 +859,8 @@ export class EpisodePipeline {
     const props = (state.vectorProps ??= {});
     const characters = new Set(cast!.characters.map((c) => c.id));
     const locations = new Set(cast!.locations.map((l) => l.id));
-    const known = Object.fromEntries(Object.entries(props).map(([id, p]) => [id, p.description]));
+    // Kapının reddettiği nesneler sunulmaz: yönetmen onları yeniden kullanıp sahneyi boş katmanla bırakıyordu.
+    const known = Object.fromEntries(Object.entries(props).filter(([, p]) => !p.rejected).map(([id, p]) => [id, p.description]));
     const out = await this.agent(
       state,
       "shots",
@@ -825,7 +870,8 @@ export class EpisodePipeline {
         this.agentDeps,
       ),
     );
-    for (const np of out.newProps) props[np.id] ??= { description: np.description, kind: "prop", flag: np.flag, reference: np.reference };
+    // Reddedilmiş kimlikle gelen yeni tarif onun yerini alır (yeni tarif yeni anahtara, taze çizime gider).
+    for (const np of out.newProps) if (!props[np.id] || props[np.id]!.rejected) props[np.id] = { description: np.description, kind: "prop", flag: np.flag, reference: np.reference };
     for (const nb of out.newBackgrounds) props[nb.id] ??= { description: nb.description, kind: "background", map: nb.map, reference: nb.reference };
     const isBackground = (id: string) => locations.has(id) || props[id]?.kind === "background";
     const usable = new Set([...characters, ...Object.keys(props).filter((id) => !isBackground(id))]);
@@ -863,9 +909,29 @@ export class EpisodePipeline {
     if (!script || !style || !cast || !voice) throw new Error("script/style/cast/voice yok");
     const lessons = topLessons(await loadLessons(this.deps.store), "director");
     const planned = new Map<string, ShotPlanOut["scenes"][number]["shots"]>();
+    // Sahne planının girdileri: değişirse eski taslak kullanılmaz.
+    const sigOf = (scene: (typeof script.scenes)[number], duration: number) =>
+      createHash("sha256")
+        .update(JSON.stringify([scene, duration, style, cast.characters.map((c) => c.id), cast.locations.map((l) => l.id), state.input.width, state.input.height]))
+        .digest("hex")
+        .slice(0, 16);
+    const draft = (state.shotPlanDraft ??= {});
     await mapLimit(script.scenes, this.deps.concurrency ?? 3, async (scene) => {
-      planned.set(scene.id, await this.planVectorScene(state, scene, /* v8 ignore next -- süreler senaryonun bütün sahnelerinden kurulur */ durations[scene.id] ?? 0, lessons));
+      /* v8 ignore next -- süreler senaryonun bütün sahnelerinden kurulur */
+      const duration = durations[scene.id] ?? 0;
+      const sig = sigOf(scene, duration);
+      const saved = draft[scene.id];
+      if (saved?.sig === sig) {
+        planned.set(scene.id, saved.shots);
+        this.log(`  ${scene.id}: önceki çalıştırmanın planı kullanıldı`);
+        return;
+      }
+      const shots = await this.planVectorScene(state, scene, duration, lessons);
+      planned.set(scene.id, shots);
+      draft[scene.id] = { sig, shots };
+      await this.save(state);
     });
+    delete state.shotPlanDraft;
     state.shotPlan = { scenes: script.scenes.map((s) => ({ sceneId: s.id, shots: /* v8 ignore next -- her sahne planlanır; planlanamazsa mapLimit zaten fırlatır */ planned.get(s.id) ?? [] })) };
     state.shots = resolveShotTimes(state.shotPlan, script.scenes.map((s) => s.id), voice);
     state.keyframes = {};
@@ -1011,14 +1077,22 @@ export class EpisodePipeline {
       if (notes.length) fixes.set(v.shotId, notes);
     }
 
-    const severe = new Set(["character_floating", "wrong_scale", "text_overlap", "text_on_subtitles", "off_story", "cluttered", "backdrop_box", "character_cut_off", "empty"]);
+    // Yalnız izleyicinin hemen fark edeceği bozukluklar; "dağınık", "konu dışı" gibi yargılar tek başına yeniden plan
+    // gerektirmez (yeniden plan da çoğu zaman aynı puanı alıyordu).
+    const severe = new Set(["character_floating", "text_on_subtitles", "backdrop_box", "character_cut_off", "empty"]);
     const bad = (id: string) => {
       const r = review.shots[id];
-      return r !== undefined && (r.score < 6 || r.issues.some((i) => severe.has(i.type)));
+      return r !== undefined && (r.score <= DRAFT_REVIEW.badAtMost || r.issues.some((i) => severe.has(i.type)));
     };
     const scores = Object.values(review.shots).map((s) => s.score);
     const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-    const scenesToFix = script.scenes.filter((sc) => state.shots!.some((s) => s.sceneId === sc.id && bad(s.id)));
+    const worst = (sceneId: string) =>
+      Math.min(...state.shots!.filter((s) => s.sceneId === sceneId).map((s) => review.shots[s.id]?.score ?? 10));
+    const limit = Math.max(1, Math.ceil(script.scenes.length * DRAFT_REVIEW.maxShare));
+    const scenesToFix = script.scenes
+      .filter((sc) => state.shots!.some((s) => s.sceneId === sc.id && bad(s.id)))
+      .sort((a, b) => worst(a.id) - worst(b.id))
+      .slice(0, limit);
     this.log(`  taslak: ${scores.length} kare, ortalama ${avg.toFixed(1)}/10; yeniden planlanacak sahne: ${scenesToFix.length}`);
     state.draftReview = { ...review, avg, revisedScenes: scenesToFix.map((s) => s.id) };
     if (!scenesToFix.length) return;
@@ -1102,6 +1176,7 @@ export class EpisodePipeline {
         // Yalnız kesin sonuçlar nesneyi düşürür (kapı reddi, harita/bayrak verisi yok). Ağ ya da model hatası aşamayı
         // durdurur ki devam edince yeniden denensin; yoksa nesne sessizce videodan kaybolurdu.
         if (!(e instanceof AssetRejectedError) && !p.map && !p.flag) throw e;
+        if (e instanceof AssetRejectedError) p.rejected = true;
         failed.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     });
@@ -1239,7 +1314,17 @@ export class EpisodePipeline {
       if (!state.story) throw new Error("story yok");
       const book = await loadLessons(this.deps.store);
       const brief = { ...this.brief(state), lessons: topLessons(book, "script") };
-      const draft = await this.agent(state, "script", screenwriter(brief, state.story, this.agentDeps));
+      // Doktor düşerse (pahalı) senarist devamda yeniden çağrılmasın: taslak aynı girdilerle kaydedilir.
+      const sig = createHash("sha256").update(JSON.stringify([brief, state.story])).digest("hex").slice(0, 16);
+      let draft: ScriptOut;
+      if (state.scriptDraft?.sig === sig) {
+        draft = state.scriptDraft.script;
+        this.log("  taslak: önceki çalıştırmanın taslağı kullanıldı");
+      } else {
+        draft = await this.agent(state, "script", screenwriter(brief, state.story, this.agentDeps));
+        state.scriptDraft = { sig, script: draft };
+        await this.save(state);
+      }
       const count = (s: typeof draft) => s.scenes.reduce((n, sc) => n + sc.narration.split(/\s+/).length, 0);
       this.log(`  taslak: ${draft.scenes.length} sahne, ${count(draft)} kelime`);
       // İkinci geçiş: senaryo doktoru açılışı, temposu ve doğruluğu düzeltir. Sahne kimlikleri değişmez.
@@ -1247,6 +1332,7 @@ export class EpisodePipeline {
       const ids = (s: typeof draft) => s.scenes.map((sc) => sc.id).join(",");
       state.script = ids(doctored.script) === ids(draft) ? doctored.script : draft;
       state.scriptNotes = doctored.notes;
+      delete state.scriptDraft;
       mergeLessons(book, doctored.notes.map((rule) => ({ target: "script" as const, rule })), state.id);
       await this.curate(state, book);
       await saveLessons(this.deps.store, book);
@@ -1519,7 +1605,7 @@ export class EpisodePipeline {
       await mapLimit(todo, this.deps.concurrency ?? 3, async (shot) => {
         const kf = keyframes[shot.id]!;
         const shotSec = (shot.endMs - shot.startMs) / 1000;
-        const clipSec = shotSec <= 5.5 ? 5 : 10;
+        const clipSec = clipSeconds(shotSec);
         try {
           const res = await this.deps.gateway.generate(
             {
