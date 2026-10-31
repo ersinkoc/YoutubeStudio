@@ -299,7 +299,8 @@ export const STAGING_RULES = `Staging (code does the physics — do not give pix
 - Holding: "heldBy": index of the character layer; the object follows the right hand (use explain/point/think gestures to show it).
 - Wall items (clock, poster, board on the wall, window props): give y (their bottom edge) and height in px, no depth.
 - Size truth: a chip or a coin is tiny next to a person; to show a small object, hold it, put it on a desk and use a close-up (camera zoom 1.6–2.2 with focusX/focusY on it).
-- Group people at different x (at least ~250 px apart at the same depth) or different depths; never stack them.`;
+- Group people at different x (at least ~250 px apart at the same depth) or different depths; never stack them.
+- A character appears at most once per shot (code drops copies). For a group use different cast characters, or a new prop drawing the group or crowd; never clone one character to fake several people.`;
 
 /** Bir sahnenin tüm çekimlerini kısa vektör tarifleri olarak planlar. */
 export function vectorDirector(

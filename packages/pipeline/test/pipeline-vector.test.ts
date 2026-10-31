@@ -266,7 +266,18 @@ describe("vektör çekim planı", () => {
       return {
         shots: [
           { startWord: 0, description: "bag on its own", ambience: "none", spec: vshot({ background: "p-bag", layers: [] }) },
-          { startWord: 1, description: "empty", ambience: "none", spec: vshot({ layers: [] }) },
+          {
+            startWord: 1,
+            description: "crowd of clones",
+            ambience: "none",
+            spec: vshot({
+              layers: [
+                { asset: "c1", x: 300, anims: [{ type: "point", start: 0, end: 1, target: 2 }] },
+                { asset: "c1", x: 900 },
+                { asset: "p-bag", x: 1200 },
+              ],
+            }),
+          },
         ],
         newProps: [],
         newBackgrounds: [],
@@ -287,12 +298,18 @@ describe("vektör çekim planı", () => {
     expect(c!.vector!.background).toBeUndefined();
     expect(c!.locationId).toBeUndefined();
     expect(d!.vector!.background).toBeUndefined();
+    // Aynı karakterin kopyası atılır, point hedefi kalan katmana yeniden eşlenir.
+    expect(d!.vector!.layers.map((l) => [l.asset, l.anims[0]?.target])).toEqual([
+      ["c1", 1],
+      ["p-bag", undefined],
+    ]);
+    expect(d!.characterIds).toEqual(["c1"]);
     expect(state.vectorProps!["p-old"]).toEqual({ description: "old chest" });
     expect(state.vectorProps!["p-bag"]).toMatchObject({ kind: "prop", reference: "Pony Express mochila" });
     expect(state.vectorProps!["b-map"]).toMatchObject({ kind: "background", map: MAP });
     expect(state.keyframes).toEqual({});
     expect(h.logs).toContain("  s1: 2 çekim, 2 yeni nesne, 1 yeni mekân, 2 bilinmeyen katman atıldı");
-    expect(h.logs).toContain("  s2: 2 çekim, 0 yeni nesne, 0 yeni mekân");
+    expect(h.logs).toContain("  s2: 2 çekim, 0 yeni nesne, 0 yeni mekân, 1 kopya karakter atıldı");
     expect(h.logs).toContain("  4 vektör çekim, 3 nesne/mekân");
   });
 });

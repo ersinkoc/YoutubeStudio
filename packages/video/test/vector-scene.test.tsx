@@ -466,18 +466,24 @@ describe("vektör sahne: dikkat (işaret ve bakış)", () => {
 
   it("explain'de baskın el konuşulan kişiye doğru açılır", () => {
     const t = 5;
-    const left = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "hero", x: 300, depth: 0 }]);
+    const left = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "walker", x: 300, depth: 0 }]);
     expect(left("forearm-l").rotate).toBeCloseTo(60 + Math.sin(t * 3.4) * 12, 1);
     expect(left("forearm-r").rotate).toBeCloseTo(-(28 + Math.sin(t * 3 + 1) * 8), 1);
-    const right = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "hero", x: 1600, depth: 0 }]);
+    const right = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "walker", x: 1600, depth: 0 }]);
     expect(right("forearm-r").rotate).toBeCloseTo(-(60 + Math.sin(t * 3.4) * 12), 1);
+  });
+
+  it("aynı karakterin kopyası çizilmez", () => {
+    const c = scene({ layers: [{ asset: "hero", x: 600, depth: 0.2 }, { asset: "hero", x: 1400, depth: 0.2 }, { asset: "box", x: 0 }] });
+    expect(c.querySelectorAll('[id$="-head"]').length).toBe(1);
+    expect(c.querySelector('[id$="-box"]')).not.toBeNull();
   });
 
   it("sahnede başka karakter varsa gözler çoğunlukla ona döner", () => {
     let toward = 0;
     let away = 0;
     for (let f = 0; f < 300; f += 15) {
-      const c = scene({ layers: [{ asset: "hero", x: 600, depth: 0.2 }, { asset: "hero", x: 1400, depth: 0.2 }] }, { frame: f });
+      const c = scene({ layers: [{ asset: "hero", x: 600, depth: 0.2 }, { asset: "walker", x: 1400, depth: 0.2 }] }, { frame: f });
       const tx = pose(c, "eyes").tx;
       // Göz kırpma ya da kendiliğinden jest bakışı değiştirmez; sağdaki karaktere bakan göz sağa (artı) kayar.
       if (tx > 2) toward++;

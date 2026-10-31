@@ -295,6 +295,26 @@ export const VectorShot = z.object({
 });
 export type VectorShot = z.infer<typeof VectorShot>;
 
+/**
+ * Yalnız keep[i] doğru olan katmanları bırakır; katman indeksine başvuranlar ("on", "heldBy", point "target") kalan
+ * katmanlara yeniden eşlenir, atılan katmana işaret eden başvuru bırakılır.
+ */
+export function keepLayers<L extends VectorLayer>(layers: L[], keep: boolean[]): L[] {
+  const remap = new Map<number, number>();
+  keep.forEach((k, idx) => k && remap.set(idx, remap.size));
+  const ref = (idx: number | undefined) => (idx === undefined ? undefined : remap.get(idx));
+  return layers.flatMap((l, idx) =>
+    keep[idx] ? [{ ...l, on: ref(l.on), heldBy: ref(l.heldBy), anims: l.anims.map((a) => (a.target === undefined ? a : { ...a, target: ref(a.target) })) }] : [],
+  );
+}
+
+/** Aynı karakter bir çekimde bir kez görünür (bir kişi iki yerde olamaz): sonraki kopyalar atılır. */
+export function uniqueCharacters(spec: VectorShot, isCharacter: (asset: string) => boolean): VectorShot {
+  const seen = new Set<string>();
+  const keep = spec.layers.map((l) => !isCharacter(l.asset) || (!seen.has(l.asset) && Boolean(seen.add(l.asset))));
+  return keep.every(Boolean) ? spec : { ...spec, layers: keepLayers(spec.layers, keep) };
+}
+
 /** İzin verilen SVG öğeleri: çizim, degrade, kırpma ve birkaç yumuşak filtre. Geri kalan her şey atılır. */
 const ALLOWED_TAGS = new Set(
   [

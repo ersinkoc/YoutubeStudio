@@ -6,6 +6,7 @@ import {
   RIG_SIDE,
   sideAssetId,
   sanitizeSvg,
+  uniqueCharacters,
   type LineStyle,
   type PlacedLayer,
   type RigPart,
@@ -764,7 +765,8 @@ export function VectorScene({
 }) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
-  const spec = visual.vector!;
+  // Eski planlarda aynı karakterin kopyaları olabilir; render'da da tek kalır.
+  const spec = useMemo(() => uniqueCharacters(visual.vector!, (id) => assets[id]?.kind === "character"), [visual.vector, assets]);
   const p = Math.min(1, frame / Math.max(1, visual.durationInFrames));
   const t = frame / fps;
   const cam = spec.camera;

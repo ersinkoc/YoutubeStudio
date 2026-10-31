@@ -108,11 +108,12 @@ export const PIPELINE_MESSAGES = {
 
   // ---- vektör çekim planı, taslak, önizleme ----
   "log.scene.planned": {
-    tr: "  {scene}{revision}: {shots} çekim, {props} yeni nesne, {backgrounds} yeni mekân{dropped}",
-    en: "  {scene}{revision}: {shots} shots, {props} new props, {backgrounds} new locations{dropped}",
+    tr: "  {scene}{revision}: {shots} çekim, {props} yeni nesne, {backgrounds} yeni mekân{dropped}{clones}",
+    en: "  {scene}{revision}: {shots} shots, {props} new props, {backgrounds} new locations{dropped}{clones}",
   },
   "log.scene.revision": { tr: " (düzeltme)", en: " (revision)" },
   "log.scene.dropped": { tr: ", {n} bilinmeyen katman atıldı", en: ", {n} unknown layers dropped" },
+  "log.scene.clones": { tr: ", {n} kopya karakter atıldı", en: ", {n} duplicate characters dropped" },
   "log.scene.planReused": { tr: "  {scene}: önceki çalıştırmanın planı kullanıldı", en: "  {scene}: reused the plan from the previous run" },
   "log.shots.vector": { tr: "  {shots} vektör çekim, {props} nesne/mekân", en: "  {shots} vector shots, {props} props/locations" },
   "log.review.batchSkipped": { tr: "  inceleme grubu atlandı: {error}", en: "  review batch skipped: {error}" },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyLineStyle, bumpVersion, compareVersions, formatUsd, sanitizeSvg, Shot, stripBackdrop, toDollars, usd } from "../src/index.ts";
+import { applyLineStyle, bumpVersion, compareVersions, formatUsd, sanitizeSvg, Shot, stripBackdrop, toDollars, uniqueCharacters, usd, VectorShot } from "../src/index.ts";
 
 describe("SVG temizleyici: kenar durumlar", () => {
   it("iç başvuru olmayan href atılır, #id kalır", () => {
@@ -108,5 +108,36 @@ describe("kapsam: kalan kenar durumlar", () => {
     expect(applyLineStyle('<svg><path stroke="#000" stroke-linecap="butt" stroke-linejoin="miter"/></svg>', "ink")).toBe(
       '<svg><path stroke="#111014" stroke-linecap="butt" stroke-linejoin="miter"/></svg>',
     );
+  });
+});
+
+describe("uniqueCharacters", () => {
+  const isChar = (id: string) => id.startsWith("c");
+
+  it("kopya yoksa aynı çekimi döndürür; nesneler çoğalabilir", () => {
+    const spec = VectorShot.parse({ layers: [{ asset: "c1", x: 0 }, { asset: "p-desk", x: 1 }, { asset: "p-desk", x: 2 }] });
+    expect(uniqueCharacters(spec, isChar)).toBe(spec);
+  });
+
+  it("aynı karakterin sonraki kopyalarını atar, indeks başvurularını yeniden eşler", () => {
+    const spec = VectorShot.parse({
+      layers: [
+        { asset: "p-chair", x: 0 },
+        { asset: "c1", x: 100, anims: [{ type: "point", target: 4 }] },
+        { asset: "c1", x: 400, on: 0, anims: [{ type: "explain" }] },
+        { asset: "c2", x: 700, on: 0, anims: [{ type: "point", target: 2 }] },
+        { asset: "p-book", x: 0, heldBy: 3, anims: [{ type: "pulse" }] },
+        { asset: "p-cup", x: 0, heldBy: 2 },
+      ],
+    });
+    const out = uniqueCharacters(spec, isChar);
+    expect(out.layers.map((l) => [l.asset, l.on, l.heldBy, l.anims[0]?.target])).toEqual([
+      ["p-chair", undefined, undefined, undefined],
+      ["c1", undefined, undefined, 3],
+      ["c2", 0, undefined, undefined],
+      ["p-book", undefined, 2, undefined],
+      ["p-cup", undefined, undefined, undefined],
+    ]);
+    expect(out.layers[1]!.anims[0]).toMatchObject({ type: "point", start: 0, end: 1 });
   });
 });

@@ -37,6 +37,8 @@ import {
   styleFromPack,
   stylePackOf,
   gatePasses,
+  keepLayers,
+  uniqueCharacters,
   DRAFT_REVIEW,
   errorText,
   LocalizedError,
@@ -1021,13 +1023,16 @@ export class EpisodePipeline {
     const isBackground = (id: string) => locations.has(id) || props[id]?.kind === "background";
     const usable = new Set([...characters, ...Object.keys(props).filter((id) => !isBackground(id))]);
     let dropped = 0;
+    let clones = 0;
     const shots = out.shots.map((s) => {
-      const keep = s.spec.layers.map((l) => usable.has(l.asset));
-      const remap = new Map<number, number>();
-      keep.forEach((k, idx) => k && remap.set(idx, remap.size));
-      const ref = (idx: number | undefined) => (idx === undefined ? undefined : remap.get(idx));
-      const layers = s.spec.layers.flatMap((l, idx) => (keep[idx] ? [{ ...l, on: ref(l.on), heldBy: ref(l.heldBy) }] : []));
-      dropped += s.spec.layers.length - layers.length;
+      const known = keepLayers(
+        s.spec.layers,
+        s.spec.layers.map((l) => usable.has(l.asset)),
+      );
+      dropped += s.spec.layers.length - known.length;
+      // Kalabalık için aynı karakter kopyalanmasın: aynı yüz yan yana altı kez, farklı isim etiketleriyle görünüyordu.
+      const { layers } = uniqueCharacters({ ...s.spec, layers: known }, (id) => characters.has(id));
+      clones += known.length - layers.length;
       const background = s.spec.background && isBackground(s.spec.background) ? s.spec.background : undefined;
       return {
         startWord: s.startWord,
@@ -1050,6 +1055,7 @@ export class EpisodePipeline {
         props: out.newProps.length,
         backgrounds: out.newBackgrounds.length,
         dropped: dropped ? msg("log.scene.dropped", { n: dropped }) : "",
+        clones: clones ? msg("log.scene.clones", { n: clones }) : "",
       }),
     );
     return shots;
