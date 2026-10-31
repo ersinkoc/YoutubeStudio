@@ -5,7 +5,7 @@ import type { EpisodeEstimate, LibraryCharacter, MotionMode, SeriesSummary } fro
 import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { STYLE_AUTO, STYLE_CUSTOM, STYLE_PACKS, stylePackOf } from "@ys/core/styles";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import type { MessageKey } from "../lib/i18n";
 import { VOICES } from "../lib/voices";
@@ -36,6 +36,10 @@ function estimateInput(form: HTMLFormElement) {
   };
 }
 
+/**
+ * Yeni bölüm formu (kendi sayfasında, tam genişlik): solda başlıklı ayar bölümleri, sağda kayarken yerinde duran
+ * maliyet tahmini ve gönder düğmesi. Hareket modu, her modun tahmini fiyatını gösteren kartlarla seçilir.
+ */
 export function NewEpisodeForm({
   series = [],
   initialSeries,
@@ -75,9 +79,9 @@ export function NewEpisodeForm({
     set("lang", d.lang);
     set("minutes", d.minutes);
     set("tier", d.tier);
-    set("motionMode", d.motionMode);
     set("voiceId", d.voiceId);
     set("budgetUsd", d.budgetUsd);
+    // Mod kartları denetimli (state): seçili kart state'ten gelir.
     if (d.motionMode) setMode(d.motionMode);
     if (d.stylePack) setPack(d.stylePack);
     scheduleEstimate();
@@ -154,180 +158,208 @@ export function NewEpisodeForm({
   const overBudget = est && est.totalUsd > budget;
 
   return (
-    <form ref={formRef} action={submit} onChange={scheduleEstimate} className="card grid gap-4">
-      <h2 className="text-lg font-semibold">{t("form.title")}</h2>
-      <div>
-        <label className="label" htmlFor="series">{t("series.field")}</label>
-        <input
-          id="series"
-          name="series"
-          list="series-list"
-          maxLength={80}
-          defaultValue={initialSeries}
-          className="field"
-          placeholder={t("series.placeholder")}
-          onChange={(e) => applySeries(e.target.value)}
-        />
-        <datalist id="series-list">
-          {series.map((s) => (
-            <option key={s.name} value={s.name} />
-          ))}
-        </datalist>
-        <p className="mt-1 text-xs text-muted">{matched ? t("series.inherit", { n: matched.episodes }) : t("series.hint")}</p>
-      </div>
-      <div>
-        <label className="label" htmlFor="topic">{t("form.topic")}</label>
-        <textarea id="topic" name="topic" required rows={3} className="field" placeholder={t("form.topic.placeholder")} />
-      </div>
-      <div>
-        <label className="label" htmlFor="stylePack">{t("form.stylePack")}</label>
-        <div className="flex flex-wrap items-center gap-2">
-          <select id="stylePack" name="stylePack" className="field max-w-sm" value={pack} onChange={(e) => setPack(e.target.value)}>
-            <option value={STYLE_AUTO}>{t("form.stylePack.auto")}</option>
-            {STYLE_PACKS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name[locale]}
-              </option>
-            ))}
-            <option value={STYLE_CUSTOM}>{t("form.stylePack.custom")}</option>
-          </select>
-          {stylePackOf(pack)?.palette.map((c) => (
-            <span key={c} title={c} className="h-6 w-6 rounded border border-line" style={{ background: c }} />
-          ))}
-        </div>
-        <p className="mt-1 text-xs text-muted">{stylePackOf(pack)
-            ? t("form.stylePack.line", { line: t(`line.${stylePackOf(pack)!.lineStyle}` as MessageKey) })
-            : t(pack === STYLE_CUSTOM ? "form.stylePack.customHint" : "form.stylePack.autoHint")}</p>
-      </div>
-      <div>
-        <label className="label" htmlFor="styleHint">{t("form.style")}</label>
-        <input id="styleHint" name="styleHint" className="field" placeholder={t("form.style.placeholder")} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="label" htmlFor="lang">{t("form.lang")}</label>
-          <select id="lang" name="lang" className="field" defaultValue="tr">
-            {LANGS.map((l) => (
-              <option key={l} value={l}>{l}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="minutes">{t("form.minutes")}</label>
-          <input id="minutes" name="minutes" type="number" min={1} max={20} step={0.5} defaultValue={3} className="field" />
-        </div>
-        <div>
-          <label className="label" htmlFor="motionMode">{t("form.motion")}</label>
-          <select id="motionMode" name="motionMode" className="field" defaultValue="animated">
-            <option value="animated">{t("motion.animated")}</option>
-            <option value="mixed">{t("motion.mixed")}</option>
-            <option value="still">{t("motion.still")}</option>
-            <option value="vector">{t("form.motion.vector")}</option>
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="tier">{t("form.tier")}</label>
-          <select id="tier" name="tier" className="field" defaultValue="standard">
-            <option value="economy">{t("form.tier.economy")}</option>
-            <option value="standard">{t("form.tier.standard")}</option>
-            <option value="premium">{t("form.tier.premium")}</option>
-          </select>
-        </div>
-      </div>
-      {mode === "vector" && (
-        <div>
-          <label className="label" htmlFor="lineStyle">{t("form.lineStyle")}</label>
-          <select id="lineStyle" name="lineStyle" className="field" defaultValue="">
-            <option value="">{t("line.pack")}</option>
-            {(["outline", "flat", "sketch", "ink"] as const).map((s) => (
-              <option key={s} value={s}>{t(`line.${s}`)}</option>
-            ))}
-          </select>
-        </div>
-      )}
-      {mode === "vector" && bank.length > 0 && (
-        <BankPicker bank={bank} presenter={presenter} setPresenter={setPresenter} cast={bankCast} setCast={setBankCast} />
-      )}
-      <div>
-        <label className="label" htmlFor="voiceId">{t("form.voice")}</label>
-        <select id="voiceId" name="voiceId" className="field" defaultValue={VOICES[0]?.id}>
-          {VOICES.map((v) => (
-            <option key={v.id} value={v.id}>{t(v.label)}</option>
-          ))}
-        </select>
-      </div>
-      <div className="grid grid-cols-2 items-end gap-3">
-        <div>
-          <label className="label" htmlFor="budgetUsd">{t("form.budget")}</label>
-          <input id="budgetUsd" name="budgetUsd" type="number" min={1} defaultValue={20} className="field" />
-        </div>
-        <label className="flex items-center gap-2 pb-2 text-sm">
-          <input type="checkbox" name="vertical" /> {t("form.vertical")}
-        </label>
-      </div>
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" name="qa" defaultChecked className="mt-1" />
-        <span>
-          {t("form.qa")}
-          <span className="block text-xs text-muted">{t("form.qa.hint")}</span>
-        </span>
-      </label>
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" name="realism" defaultChecked className="mt-1" />
-        <span>
-          {t("form.realism")}
-          <span className="block text-xs text-muted">{t("form.realism.hint")}</span>
-        </span>
-      </label>
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" name="sideViews" className="mt-1" />
-        <span>
-          {t("form.sideViews")}
-          <span className="block text-xs text-muted">{t("form.sideViews.hint")}</span>
-        </span>
-      </label>
+    <form ref={formRef} action={submit} onChange={scheduleEstimate} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid content-start gap-6">
+        <Section title={t("form.section.topic")}>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div>
+              <label className="label" htmlFor="series">{t("series.field")}</label>
+              <input
+                id="series"
+                name="series"
+                list="series-list"
+                maxLength={80}
+                defaultValue={initialSeries}
+                className="field"
+                placeholder={t("series.placeholder")}
+                onChange={(e) => applySeries(e.target.value)}
+              />
+              <datalist id="series-list">
+                {series.map((s) => (
+                  <option key={s.name} value={s.name} />
+                ))}
+              </datalist>
+              <p className="mt-1 text-xs text-muted">{matched ? t("series.inherit", { n: matched.episodes }) : t("series.hint")}</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="topic">{t("form.topic")}</label>
+              <textarea id="topic" name="topic" required rows={4} className="field" placeholder={t("form.topic.placeholder")} />
+            </div>
+          </div>
+        </Section>
 
-      {est && estimates && (
-        <div className={`rounded-xl border p-3 text-sm ${overBudget ? "border-bad/50 bg-bad/10" : "border-line bg-panel-2"}`}>
-          <div className="flex items-baseline justify-between">
-            <span className="text-muted">{t("form.estCost")}</span>
-            <span className="text-lg font-semibold">{fmt.usd(est.totalUsd)}</span>
+        <Section title={t("form.section.look")}>
+          <div role="radiogroup" aria-label={t("form.motion")} className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {MODES.map((m) => (
+              <label
+                key={m}
+                className={`cursor-pointer rounded-xl border p-3 transition ${mode === m ? "border-accent bg-accent/10" : "border-line bg-panel-2 hover:border-muted"}`}
+              >
+                <input type="radio" id={`motionMode-${m}`} name="motionMode" value={m} checked={mode === m} onChange={() => setMode(m)} className="sr-only" />
+                <span className="flex items-baseline justify-between gap-2 text-sm font-medium">
+                  <span className={mode === m ? "text-accent" : ""}>{t(`motion.${m}`)}</span>
+                  {estimates?.[m] && <span className="shrink-0 text-xs text-muted tabular-nums">{fmt.usd(estimates[m].totalUsd)}</span>}
+                </span>
+                <span className="mt-1 block text-xs text-muted">{t(`motion.${m}.hint`)}</span>
+              </label>
+            ))}
           </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-muted">{t("form.estTime")}</span>
-            <span>~{fmt.duration(est.totalSeconds)}</span>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="stylePack">{t("form.stylePack")}</label>
+              <div className="flex items-center gap-2">
+                <select id="stylePack" name="stylePack" className="field" value={pack} onChange={(e) => setPack(e.target.value)}>
+                  <option value={STYLE_AUTO}>{t("form.stylePack.auto")}</option>
+                  {STYLE_PACKS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name[locale]}
+                    </option>
+                  ))}
+                  <option value={STYLE_CUSTOM}>{t("form.stylePack.custom")}</option>
+                </select>
+                {stylePackOf(pack)?.palette.map((c) => (
+                  <span key={c} title={c} className="h-6 w-6 shrink-0 rounded border border-line" style={{ background: c }} />
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {stylePackOf(pack)
+                  ? t("form.stylePack.line", { line: t(`line.${stylePackOf(pack)!.lineStyle}` as MessageKey) })
+                  : t(pack === STYLE_CUSTOM ? "form.stylePack.customHint" : "form.stylePack.autoHint")}
+              </p>
+            </div>
+            <div>
+              <label className="label" htmlFor="styleHint">{t("form.style")}</label>
+              <input id="styleHint" name="styleHint" className="field" placeholder={t("form.style.placeholder")} />
+            </div>
+            {mode === "vector" && (
+              <div>
+                <label className="label" htmlFor="lineStyle">{t("form.lineStyle")}</label>
+                <select id="lineStyle" name="lineStyle" className="field" defaultValue="">
+                  <option value="">{t("line.pack")}</option>
+                  {(["outline", "flat", "sketch", "ink"] as const).map((s) => (
+                    <option key={s} value={s}>{t(`line.${s}`)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
-          <ul className="mt-2 grid gap-0.5 text-xs text-muted">
-            {est.rows
-              .filter((r) => r.costUsd > 0)
-              .map((r) => (
-                <li key={r.stage} className="flex justify-between gap-2">
-                  <span className="truncate">
-                    {t(`stage.${r.stage}` as MessageKey)} · {providerText(locale, r)}
-                  </span>
-                  <span>{fmt.usd(r.costUsd)}</span>
-                </li>
+          {mode === "vector" && bank.length > 0 && (
+            <BankPicker bank={bank} presenter={presenter} setPresenter={setPresenter} cast={bankCast} setCast={setBankCast} />
+          )}
+        </Section>
+
+        <Section title={t("form.section.voice")}>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <label className="label" htmlFor="lang">{t("form.lang")}</label>
+              <select id="lang" name="lang" className="field" defaultValue="tr">
+                {LANGS.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="minutes">{t("form.minutes")}</label>
+              <input id="minutes" name="minutes" type="number" min={1} max={20} step={0.5} defaultValue={3} className="field" />
+            </div>
+            <div>
+              <label className="label" htmlFor="voiceId">{t("form.voice")}</label>
+              <select id="voiceId" name="voiceId" className="field" defaultValue={VOICES[0]?.id}>
+                {VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>{t(v.label)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="tier">{t("form.tier")}</label>
+              <select id="tier" name="tier" className="field" defaultValue="standard">
+                <option value="economy">{t("form.tier.economy")}</option>
+                <option value="standard">{t("form.tier.standard")}</option>
+                <option value="premium">{t("form.tier.premium")}</option>
+              </select>
+            </div>
+          </div>
+        </Section>
+
+        <Section title={t("form.section.checks")}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="budgetUsd">{t("form.budget")}</label>
+              <input id="budgetUsd" name="budgetUsd" type="number" min={1} defaultValue={20} className="field" />
+            </div>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input type="checkbox" name="vertical" /> {t("form.vertical")}
+            </label>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Toggle name="qa" defaultChecked label={t("form.qa")} hint={t("form.qa.hint")} />
+            <Toggle name="realism" defaultChecked label={t("form.realism")} hint={t("form.realism.hint")} />
+            <Toggle name="sideViews" label={t("form.sideViews")} hint={t("form.sideViews.hint")} />
+          </div>
+        </Section>
+      </div>
+
+      <aside className="grid content-start gap-4 lg:sticky lg:top-6 lg:self-start">
+        {est && estimates ? (
+          <div className={`card grid gap-1 text-sm ${overBudget ? "border-bad/50 bg-bad/10" : ""}`}>
+            <div className="flex items-baseline justify-between">
+              <span className="text-muted">{t("form.estCost")}</span>
+              <span className="text-2xl font-semibold tabular-nums">{fmt.usd(est.totalUsd)}</span>
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-muted">{t("form.estTime")}</span>
+              <span>~{fmt.duration(est.totalSeconds)}</span>
+            </div>
+            <ul className="mt-2 grid gap-0.5 border-t border-line pt-2 text-xs text-muted">
+              {est.rows
+                .filter((r) => r.costUsd > 0)
+                // Aynı aşama iki satır olabilir (vektörde kareler: çizim + taslak denetimi).
+                .map((r, i) => (
+                  <li key={`${r.stage}-${i}`} className="flex justify-between gap-2">
+                    <span className="truncate">
+                      {t(`stage.${r.stage}` as MessageKey)} · {providerText(locale, r)}
+                    </span>
+                    <span>{fmt.usd(r.costUsd)}</span>
+                  </li>
+                ))}
+            </ul>
+            {overBudget && <p className="mt-2 text-xs text-bad">{t("form.overBudget")}</p>}
+            {est.warnings
+              .map((w) => formatText(locale, w))
+              .map((w) => (
+                <p key={w} className="mt-1 text-xs text-bad">⚠ {w}</p>
               ))}
-          </ul>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-line pt-2 text-xs text-muted">
-            {MODES.filter((m) => estimates[m]).map((m) => (
-              <span key={m} className={m === mode ? "text-white" : ""}>
-                {m === "vector" ? t("motion.vector.short") : t(`motion.${m}`)}: {fmt.usd(estimates[m].totalUsd)}
-              </span>
-            ))}
           </div>
-          {overBudget && <p className="mt-2 text-xs text-bad">{t("form.overBudget")}</p>}
-          {est.warnings
-            .map((w) => formatText(locale, w))
-            .map((w) => (
-              <p key={w} className="mt-1 text-xs text-bad">⚠ {w}</p>
-            ))}
-        </div>
-      )}
-
-      {error && <p className="text-sm text-bad">{error}</p>}
-      <SubmitButton busy={busy} />
+        ) : (
+          <div className="card text-sm text-muted">{t("form.estPending")}</div>
+        )}
+        {error && <p className="text-sm text-bad">{error}</p>}
+        <SubmitButton busy={busy} />
+      </aside>
     </form>
+  );
+}
+
+/** Formun başlıklı bölümü. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="card grid gap-4">
+      <h2 className="text-sm font-semibold tracking-wide text-muted uppercase">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** Açıklamalı onay kutusu. */
+function Toggle({ name, label, hint, defaultChecked }: { name: string; label: string; hint: string; defaultChecked?: boolean }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line bg-panel-2 p-3 text-sm transition hover:border-muted">
+      <input type="checkbox" name={name} defaultChecked={defaultChecked} className="mt-1" />
+      <span>
+        {label}
+        <span className="block text-xs text-muted">{hint}</span>
+      </span>
+    </label>
   );
 }
 
@@ -340,7 +372,7 @@ function SubmitButton({ busy }: { busy: boolean }) {
   const { pending } = useFormStatus();
   const locked = busy || pending;
   return (
-    <button className="btn-primary justify-center" disabled={locked}>
+    <button className="btn-primary justify-center py-3 text-base" disabled={locked}>
       <Sparkles size={16} /> {locked ? t("form.submitting") : t("form.submit")}
     </button>
   );
@@ -365,7 +397,7 @@ function BankPicker({
   const styles = new Set(chosen.map((c) => `${c.pack}|${c.lineStyle}`));
   const first = chosen[0];
   return (
-    <fieldset className="grid gap-2 rounded-md border border-line p-3">
+    <fieldset className="grid gap-2 rounded-xl border border-line p-3">
       <legend className="px-1 text-sm font-medium">{t("form.bank.title")}</legend>
       <p className="text-xs text-muted">{t("form.bank.hint")}</p>
       <div>

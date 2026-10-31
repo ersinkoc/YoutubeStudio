@@ -61,7 +61,7 @@ pnpm studio                   # development: http://localhost:3100
 pnpm studio:build && pnpm studio:start   # production build, same port
 ```
 
-1. **New episode.** Enter a topic, then choose the language, length, motion mode, line style, voice, budget and whether the reality check is on. A live estimate shows cost and duration for each mode.
+1. **New episode.** Click **New episode** at the start of the top menu; the form has its own full-width page. Enter a topic, then choose the language, length, motion mode, line style, voice, budget and whether the reality check is on. Each motion-mode card shows its estimated cost; the panel on the right breaks the chosen mode down by stage.
 2. **Script.** Edit the scenes and approve them.
 3. **Concept.** Characters and places are cast and drawn. The quality-gate panel shows each drawing with its references, scores, defects and drawing plan. Accept, reject or redraw with a note.
 4. **Production.** The pipeline rail, live panel and activity log show every agent call with its model, cost and duration. The Shots tab shows a preview frame of every shot before the render.

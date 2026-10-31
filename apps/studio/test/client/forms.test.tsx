@@ -43,6 +43,9 @@ function mockApi({ estimate = () => json(makeEstimates()), create = () => json({
 
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 const field = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
+/** Seçili hareket modu (kartlar radyo düğmesi). */
+const mode = () => (document.querySelector('input[name="motionMode"]:checked') as HTMLInputElement).value;
+const pickMode = (m: string) => fireEvent.click(field(`motionMode-${m}`));
 const submit = () => act(async () => void fireEvent.submit(document.querySelector("form")!));
 
 const series: SeriesSummary[] = [
@@ -81,14 +84,18 @@ describe("NewEpisodeForm", () => {
     expect(api.estimates).toEqual([
       { lang: "tr", minutes: 3, tier: "standard", motionMode: "animated", voiceId: VOICES[0]!.id, budgetUsd: 20, vertical: false, qa: true, realism: true, sideViews: false },
     ]);
-    expect(screen.getByText(fmtTr.usd(9))).toBeTruthy();
+    expect(screen.getAllByText(fmtTr.usd(9))).toHaveLength(2); // özet + seçili kart
     expect(screen.getByText(`~${fmtTr.duration(estimates.animated.totalSeconds)}`)).toBeTruthy();
     // Ücretsiz satırlar listelenmez; sağlayıcısız satırda tire.
     expect(screen.queryByText(`${tr("stage.script")} · —`)).toBeNull();
     expect(screen.getByText(`${tr("stage.keyframes")} · fal:flux`)).toBeTruthy();
     expect(screen.getByText(`${tr("stage.clips")} · —`)).toBeTruthy();
-    expect(screen.getByText(`${tr("motion.animated")}: ${fmtTr.usd(9)}`).className).toBe("text-white");
-    expect(screen.getByText(`${tr("motion.vector.short")}: ${fmtTr.usd(0.8)}`)).toBeTruthy();
+    // Mod kartları kendi tahminini gösterir; seçili kart vurgulu.
+    const card = (m: string) => field(`motionMode-${m}`).closest("label")!;
+    expect(card("animated").textContent).toContain(fmtTr.usd(9));
+    expect(card("vector").textContent).toContain(fmtTr.usd(0.8));
+    expect(card("animated").className).toContain("border-accent");
+    expect(card("vector").className).not.toContain("border-accent");
     expect(screen.getByText("⚠ Klip sağlayıcısı yavaş")).toBeTruthy();
     expect(screen.getByText("⚠ Tahmini toplam ($9.00) bütçe tavanını ($5) aşıyor")).toBeTruthy();
     expect(screen.getByText(`${tr("stage.shots")} · claude (görsel)`)).toBeTruthy();
@@ -100,7 +107,7 @@ describe("NewEpisodeForm", () => {
     renderIn(<NewEpisodeForm />);
     await tick(400);
     expect(field("lineStyle")).toBeNull();
-    fireEvent.change(field<HTMLSelectElement>("motionMode"), { target: { value: "vector" } });
+    pickMode("vector");
     fireEvent.change(field("budgetUsd"), { target: { value: "0.5" } });
     fireEvent.click(document.querySelector('input[name="vertical"]')!);
     await tick(400);
@@ -114,8 +121,10 @@ describe("NewEpisodeForm", () => {
   it("tahmin isteği başarısızsa tahmin kutusu çizilmez", async () => {
     mockApi({ estimate: () => json({ error: "x" }, 500) });
     renderIn(<NewEpisodeForm />);
+    expect(screen.getByText(tr("form.estPending"))).toBeTruthy();
     await tick(400);
     expect(screen.queryByText(tr("form.estCost"))).toBeNull();
+    expect(screen.getByText(tr("form.estPending"))).toBeTruthy();
   });
 
   it("stil paketi: hazır paket paleti ve çizgi stili, özel paket ipucu (İngilizce)", async () => {
@@ -142,7 +151,7 @@ describe("NewEpisodeForm", () => {
     expect(field<HTMLSelectElement>("lang").value).toBe("en");
     expect(field("minutes").value).toBe("5");
     expect(field<HTMLSelectElement>("tier").value).toBe("premium");
-    expect(field<HTMLSelectElement>("motionMode").value).toBe("vector");
+    expect(mode()).toBe("vector");
     expect(field<HTMLSelectElement>("voiceId").value).toBe("");
     expect(field("budgetUsd").value).toBe("7");
     expect(field<HTMLSelectElement>("stylePack").value).toBe("flat-explainer");
@@ -152,7 +161,7 @@ describe("NewEpisodeForm", () => {
     // Modu ve paketi olmayan seri: mod ve paket değişmez, ses alanı korunur.
     fireEvent.change(name, { target: { value: "Bilim Kısa" } });
     expect(field<HTMLSelectElement>("lang").value).toBe("de");
-    expect(field<HTMLSelectElement>("motionMode").value).toBe("vector");
+    expect(mode()).toBe("vector");
     expect(field<HTMLSelectElement>("stylePack").value).toBe("flat-explainer");
     expect(field<HTMLSelectElement>("voiceId").value).toBe("");
     fireEvent.change(name, { target: { value: "Yepyeni" } });
@@ -200,7 +209,7 @@ describe("NewEpisodeForm", () => {
     let finish: (r: Response) => void = () => {};
     const api = mockApi({ create: () => new Promise<Response>((r) => (finish = r)) });
     renderIn(<NewEpisodeForm />);
-    fireEvent.change(field<HTMLSelectElement>("motionMode"), { target: { value: "vector" } });
+    pickMode("vector");
     await tick(400);
     fireEvent.change(field<HTMLSelectElement>("lineStyle"), { target: { value: "ink" } });
     fireEvent.click(document.querySelector('input[name="qa"]')!);

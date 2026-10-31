@@ -3,10 +3,12 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const router = { refresh: vi.fn(), push: vi.fn() };
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+const nav = { path: "/" as string | null };
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => nav.path }));
 
 import { AutoRefresh } from "../../src/app/auto-refresh.tsx";
 import { LanguageSwitch, useI18n } from "../../src/app/locale-provider.tsx";
+import { isActive, NavMenu } from "../../src/app/nav-menu.tsx";
 import { renderIn } from "./fixtures.tsx";
 
 afterEach(() => {
@@ -56,5 +58,37 @@ describe("LanguageSwitch / useI18n", () => {
     }
     render(<Probe />);
     expect(screen.getByText("tr:Yükleniyor…")).toBeTruthy();
+  });
+});
+
+describe("NavMenu", () => {
+  it("önde Yeni bölüm düğmesi; bulunulan sayfa işaretli", () => {
+    nav.path = "/costs";
+    renderIn(<NavMenu />, "tr");
+    const links = screen.getAllByRole("link");
+    expect(links[0]!.getAttribute("href")).toBe("/episodes/new");
+    expect(links[0]!.textContent).toContain("Yeni bölüm");
+    expect(links[0]!.className).not.toContain("ring-2");
+    expect(screen.getByRole("link", { name: "Maliyetler" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Bölümler" }).getAttribute("aria-current")).toBeNull();
+    cleanup();
+    nav.path = "/episodes/new";
+    renderIn(<NavMenu />, "en");
+    expect(screen.getAllByRole("link")[0]!.className).toContain("ring-2");
+    expect(screen.queryByRole("link", { current: "page" })).toBeNull();
+    cleanup();
+    // Next dışında yol yoksa hiçbir öğe seçili değil.
+    nav.path = null;
+    renderIn(<NavMenu />, "tr");
+    expect(screen.queryByRole("link", { current: "page" })).toBeNull();
+  });
+
+  it("isActive: Bölümler bölüm sayfalarını da kapsar, yeni bölüm hariç; alt sayfalar üst öğeyi seçer", () => {
+    expect(isActive("/", "/")).toBe(true);
+    expect(isActive("/", "/episodes/e1")).toBe(true);
+    expect(isActive("/", "/episodes/new")).toBe(false);
+    expect(isActive("/", "/costs")).toBe(false);
+    expect(isActive("/characters", "/characters/x")).toBe(true);
+    expect(isActive("/costs", "/costsx")).toBe(false);
   });
 });

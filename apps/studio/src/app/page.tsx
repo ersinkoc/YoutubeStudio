@@ -1,14 +1,12 @@
-import { stylePackOf } from "@ys/core/styles";
 import Link from "next/link";
 import { statusLabel } from "../lib/status";
-import { listLibraryCharacters, motionModeOf, runStatusOf, sameSeries, seriesOf, STAGES, summarizeSeries, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
-import { Film } from "lucide-react";
+import { motionModeOf, runStatusOf, sameSeries, seriesOf, STAGES, summarizeSeries, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
+import { Film, Plus } from "lucide-react";
 import type { MessageKey } from "../lib/i18n";
 import { getI18n } from "../lib/locale";
-import { ledgerEntries, repo, store } from "../lib/server";
+import { ledgerEntries, repo } from "../lib/server";
 import { Badge } from "./episodes/[id]/parts";
 import { AutoRefresh } from "./auto-refresh";
-import { NewEpisodeForm } from "./new-episode-form";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +31,7 @@ const SEGMENT: Record<RunStatus | "pending", string> = {
 const NO_SERIES = "-";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ series?: string }> }) {
-  const [all, entries, { t, fmt }, params, library] = await Promise.all([repo().list(), ledgerEntries(), getI18n(), searchParams, listLibraryCharacters(store())]);
-  // Karakter bankasından seçilebilenler: stili bir paketle yeniden kurulabilenler.
-  const bank = library.filter((c) => c.pack && stylePackOf(c.pack));
+  const [all, entries, { t, fmt }, params] = await Promise.all([repo().list(), ledgerEntries(), getI18n(), searchParams]);
   const everything = all.filter((e) => e.input.topic !== "render demo");
   const series = summarizeSeries(everything);
   const filter = params.series;
@@ -53,10 +49,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   const running = [...statuses.values()].filter((s) => s.status === "running").length;
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid gap-8">
       <section className="grid content-start gap-5">
         <AutoRefresh everyMs={running ? 4000 : 30_000} />
-        <h1 className="text-2xl font-semibold tracking-tight">{filter && filter !== NO_SERIES ? t("series.label", { name: filter }) : t("home.title")}</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{filter && filter !== NO_SERIES ? t("series.label", { name: filter }) : t("home.title")}</h1>
+          {/* Seri sayfasındaysa yeni bölüm o serinin ayarlarıyla açılır. */}
+          <Link href={filter && filter !== NO_SERIES ? `/episodes/new?series=${encodeURIComponent(filter)}` : "/episodes/new"} className="btn-primary">
+            <Plus size={16} /> {t("nav.new")}
+          </Link>
+        </div>
         {series.length > 0 && (
           <nav className="flex flex-wrap gap-2 text-sm" aria-label={t("series.filter")}>
             <Link href="/" className={`chip ${filter === undefined ? "chip-on" : ""}`}>
@@ -85,7 +87,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
           <Kpi label={t("home.kpi.running")} value={fmt.number(running)} tone={running ? "text-run" : undefined} />
         </div>
         {episodes.length === 0 && <p className="text-muted">{t("home.empty")}</p>}
-        <ul className="grid gap-3">
+        <ul className="grid gap-3 xl:grid-cols-2">
           {episodes.map((e) => {
             const st = statuses.get(e.id)!;
             const thumb = thumbOf(e);
@@ -101,7 +103,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
                       <Film size={22} className="absolute inset-0 m-auto text-muted/40" />
                     )}
                   </div>
-                  <div className="grid min-w-0 flex-1 content-between gap-2 py-0.5">
+                  <div className="grid min-w-0 flex-1 grid-cols-1 content-between gap-2 py-0.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         {seriesOf(e) && filter === undefined && <div className="text-[11px] font-medium text-accent">{seriesOf(e)}</div>}
@@ -134,9 +136,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
           })}
         </ul>
       </section>
-      <aside>
-        <NewEpisodeForm key={filter ?? ""} series={series} initialSeries={filter && filter !== NO_SERIES ? filter : undefined} bank={bank} />
-      </aside>
     </div>
   );
 }

@@ -61,7 +61,7 @@ pnpm studio                   # geliştirme: http://localhost:3100
 pnpm studio:build && pnpm studio:start   # production derlemesi, aynı port
 ```
 
-1. **Yeni bölüm.** Konuyu gir; dili, süreyi, hareket modunu, çizgi stilini, sesi, bütçeyi ve gerçeklik denetiminin açık olup olmayacağını seç. Canlı tahmin her mod için maliyeti ve süreyi gösterir.
+1. **Yeni bölüm.** Üst menünün başındaki **Yeni bölüm** düğmesine tıkla; form tam genişlikte kendi sayfasında açılır. Konuyu gir; dili, süreyi, hareket modunu, çizgi stilini, sesi, bütçeyi ve gerçeklik denetiminin açık olup olmayacağını seç. Her hareket modu kartı kendi tahmini maliyetini gösterir; sağdaki panel seçilen modu aşama aşama döker.
 2. **Senaryo.** Sahneleri düzenle ve onayla.
 3. **Konsept.** Karakterler ve mekânlar seçilip çizilir. Kalite kapısı paneli her çizimi referanslarıyla, puanlarıyla, kusurlarıyla ve çizim planıyla gösterir. Kabul et, reddet ya da notla yeniden çizdir.
 4. **Üretim.** Pipeline şeridi, canlı panel ve etkinlik günlüğü her ajan çağrısını modeli, maliyeti ve süresiyle gösterir. Çekimler sekmesi render'dan önce her çekimin önizleme karesini gösterir.

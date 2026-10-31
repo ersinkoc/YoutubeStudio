@@ -71,6 +71,7 @@ vi.mock("../../src/app/new-episode-form", () => ({
     <div data-form={series.map((s) => s.name).join("|")} data-initial={initialSeries ?? ""} data-bank={bank.map((c) => c.name).join("|")} />
   ),
 }));
+vi.mock("../../src/app/nav-menu", () => ({ NavMenu: () => <nav data-nav="" /> }));
 vi.mock("../../src/app/auto-refresh", () => ({ AutoRefresh: ({ everyMs }: { everyMs: number }) => <i data-refresh={everyMs} /> }));
 vi.mock("../../src/app/episodes/[id]/parts", () => ({
   Badge: ({ status, children }: { status: string; children: ReactNode }) => <b data-status={status}>{children}</b>,
@@ -95,6 +96,7 @@ const RulesPage = (await import("../../src/app/rules/page.tsx")).default;
 const ModelsPage = (await import("../../src/app/models/page.tsx")).default;
 const CharactersPage = (await import("../../src/app/characters/page.tsx")).default;
 const EpisodePage = (await import("../../src/app/episodes/[id]/page.tsx")).default;
+const NewEpisodePage = (await import("../../src/app/episodes/new/page.tsx")).default;
 const layout = await import("../../src/app/layout.tsx");
 
 const html = async (el: Promise<ReactElement> | ReactElement) => renderToStaticMarkup(await el);
@@ -164,8 +166,9 @@ describe("Ana sayfa", () => {
     expect(t).toContain("Vektör");
     expect(t).toContain("2/12 · $3.00");
     expect(h).toContain('href="/episodes/e-video"');
-    expect(h).toContain('data-form="Osmanlı"');
-    expect(h).toContain('data-initial=""');
+    // Form artık kendi sayfasında; ana sayfada yalnız ona giden düğme var.
+    expect(h).not.toContain("data-form");
+    expect(h).toContain('href="/episodes/new"');
     expect(h).not.toContain("e-demo");
   });
 
@@ -175,13 +178,13 @@ describe("Ana sayfa", () => {
     expect(text(series)).toContain("Seri: OSMANLI");
     expect(series).toContain('href="/episodes/e-calisan"');
     expect(series).not.toContain('href="/episodes/e-bos"');
-    expect(series).toContain('data-initial="OSMANLI"');
+    expect(series).toContain('href="/episodes/new?series=OSMANLI"');
 
     const none = await html(Home({ searchParams: Promise.resolve({ series: "-" }) }));
     expect(text(none)).toContain("Bölümler");
     expect(none).toContain('href="/episodes/e-bos"');
     expect(none).not.toContain('href="/episodes/e-video"');
-    expect(none).toContain('data-initial=""');
+    expect(none).toContain('href="/episodes/new"');
     expect(none).toContain('data-refresh="30000"');
   });
 
@@ -397,11 +400,11 @@ describe("Karakterler sayfası", () => {
     expect(await html(CharactersPage())).toContain('data-job="null"');
   });
 
-  it("ana sayfadaki forma yalnız paketli (seçilebilir) karakterler gider", async () => {
+  it("yeni bölüm formuna yalnız paketli (seçilebilir) karakterler gider", async () => {
     await libraryCharacter("a", "Ada", "flat-explainer");
     await libraryCharacter("b", "Özel");
     await libraryCharacter("c", "Eski paket", "kaldirilmis-paket");
-    expect(await html(Home({ searchParams: Promise.resolve({}) }))).toContain('data-bank="Ada"');
+    expect(await html(NewEpisodePage({ searchParams: Promise.resolve({}) }))).toContain('data-bank="Ada"');
   });
 });
 
@@ -411,6 +414,20 @@ describe("Modeller sayfası", () => {
     const h = await html(ModelsPage());
     expect(h).toContain(`data-models="{&quot;screenwriter&quot;:&quot;claude-haiku-5-5&quot;}"`);
     expect(text(h)).toContain(translator("tr")("models.title"));
+  });
+});
+
+describe("Yeni bölüm sayfası", () => {
+  it("başlık, geri bağlantısı, seriler (demo hariç) ve adresteki seri", async () => {
+    fake.episodes = [ep("e1", {}, { series: "Osmanlı" }), ep("e2", {}, { series: "Demo", topic: "render demo" })];
+    const h = await html(NewEpisodePage({ searchParams: Promise.resolve({ series: "Osmanlı" }) }));
+    expect(text(h)).toContain("Yeni bölüm");
+    expect(text(h)).toContain("Bölümlere dön");
+    expect(h).toContain('href="/"');
+    expect(h).toContain('data-form="Osmanlı"');
+    expect(h).toContain('data-initial="Osmanlı"');
+    // Boş seri parametresi seri seçmez.
+    expect(await html(NewEpisodePage({ searchParams: Promise.resolve({ series: "" }) }))).toContain('data-initial=""');
   });
 });
 
@@ -433,7 +450,7 @@ describe("Kök yerleşim", () => {
     expect(h).toContain('<html lang="tr">');
     expect(h).toContain('data-locale="tr"');
     expect(text(h)).toContain("YoutubeStudio v1.2.3");
-    for (const href of ["/costs", "/pricing", "/lessons", "/rules", "/models"]) expect(h).toContain(`href="${href}"`);
+    expect(h).toContain("data-nav");
     expect(h).toContain("<p>içerik</p>");
     expect(text(h)).not.toContain("Yeni sürüm");
   });

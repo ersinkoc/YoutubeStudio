@@ -49,7 +49,7 @@ describe("yeni bölüm formu: karakter bankası", () => {
   }
   // Mod, tahmin zamanlayıcısıyla (400 ms) forma yansır.
   const mode = async (m: string) => {
-    fireEvent.change(document.getElementById("motionMode")!, { target: { value: m } });
+    fireEvent.click(document.getElementById(`motionMode-${m}`)!);
     await act(async () => void (await vi.advanceTimersByTimeAsync(400)));
   };
   const submit = () => act(async () => void fireEvent.submit(document.querySelector("form")!));
