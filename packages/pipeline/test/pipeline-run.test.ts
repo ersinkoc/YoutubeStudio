@@ -868,6 +868,31 @@ describe("timeline, render ve inceleme", () => {
     expect(h.logs).toContain("  başka bir render sürüyor (süreç 4242); kareler için sıra bekleniyor");
   });
 
+  it("inceleme: altyazı kapalıysa kareler altyazısız çıkar, denetçiye söylenir, altyazı alanı kusuru atılır", async () => {
+    const h = harness();
+    const id = await ready(h);
+    await h.pipeline.run(id, { only: "timeline" });
+    onAgent("sceneCritic", (items: { shotId: string }[]) => ({
+      shots: items.map((i) => ({ shotId: i.shotId, score: 5, issues: [{ type: "text_on_subtitles", detail: "feet" }, { type: "empty", detail: "wall" }] })),
+      lessons: [],
+    }));
+    const on = await h.pipeline.run(id, { only: "review" });
+    expect(render.stills.mock.calls.at(-1)![0].timeline.captions.length).toBeGreaterThan(0);
+    expect(callsOf("sceneCritic")[0]!.args[3]).toBe(true);
+    expect(on.review!.shots["s1-sh1"]!.issues.map((i) => i.type)).toEqual(["text_on_subtitles", "empty"]);
+
+    const s = await h.pipeline.load(id);
+    s.input.captions = false;
+    await h.pipeline.save(s);
+    const off = await h.pipeline.run(id, { only: "review" });
+    expect(render.stills.mock.calls.at(-1)![0].timeline.captions).toEqual([]);
+    expect(callsOf("sceneCritic").at(-1)!.args[3]).toBe(false);
+    expect(off.review!.shots["s1-sh1"]!.issues.map((i) => i.type)).toEqual(["empty"]);
+    // Anlatım yine denetçiye gider (altyazı yalnız kareden çıkar).
+    const items = callsOf("sceneCritic").slice(-2).flatMap((c) => c.args[0] as { shotId: string; intent: string }[]);
+    expect(items.find((i) => i.shotId === "s1-sh1")!.intent).toBe('shot 0 | narration: "bir"');
+  });
+
   it("inceleme grubu başarısızsa atlanır; kare çıkmayan çekimler denetlenmez", async () => {
     const h = harness();
     const id = await ready(h);

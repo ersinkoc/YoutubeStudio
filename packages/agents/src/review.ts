@@ -46,8 +46,11 @@ export interface CriticShot {
   intent: string;
 }
 
-/** Bir grup çekim karesini denetler (ucuz görsel model). */
-export function sceneCritic(shots: CriticShot[], known: string[], deps?: AgentDeps): Promise<AgentResult<SceneCriticOut>> {
+/**
+ * Bir grup çekim karesini denetler (ucuz görsel model). `subtitles` false ise videoda gömülü altyazı yoktur:
+ * alt çeyrek resme aittir, orada duran şey kusur sayılmaz.
+ */
+export function sceneCritic(shots: CriticShot[], known: string[], deps?: AgentDeps, subtitles = true): Promise<AgentResult<SceneCriticOut>> {
   return runStructured(
     {
       name: "scene-critic",
@@ -55,9 +58,9 @@ export function sceneCritic(shots: CriticShot[], known: string[], deps?: AgentDe
       effort: "low",
       schema: SceneCriticOut,
       images: shots.map((s) => s.image),
-      system: `You review frames of an animated explainer video (flat vector style, subtitles at the bottom). Image N belongs to the N-th shot listed in the prompt.
+      system: `You review frames of an animated explainer video (flat vector style, ${subtitles ? "subtitles at the bottom" : "no burned-in subtitles: the bottom of the frame belongs to the picture"}). Image N belongs to the N-th shot listed in the prompt.
 Report only problems a viewer would notice:
-- text_overlap: on-screen texts overlap each other or a face; text_on_subtitles: text sits in the bottom quarter where subtitles go; unreadable_text: low contrast or tiny.
+- text_overlap: on-screen texts overlap each other or a face; ${subtitles ? "text_on_subtitles: text sits in the bottom quarter where subtitles go; " : ""}unreadable_text: low contrast or tiny.
 - cluttered: too many elements or a busy background competing with the subject; empty: nothing meaningful on screen.
 - character_cut_off / character_floating / wrong_scale: placement problems; backdrop_box: a character or prop shows its own rectangle/disc background.
 - repetitive: looks the same as the previous frames (same colours, same layout); off_story: does not match the intent.

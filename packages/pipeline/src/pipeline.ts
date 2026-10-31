@@ -137,6 +137,9 @@ function metaOf(out: VectorAssetOut, kind: AssetBrief["kind"]): VectorAssetMeta 
 
 /** Karakterin yan görünüşünün kütüphane anahtarı: ön çiziminden türer (aynı ön çizim → aynı yan çizim). */
 const sideKeyOf = (frontKey: string) => frontKey.replace(/\.svg$/, ".side.svg");
+/** Videoda görünen timeline: altyazı kapalıysa (`input.captions === false`) gömülmez; `.srt` yine tam timeline'dan. */
+const onScreen = (state: EpisodeState, timeline: Timeline): Timeline =>
+  state.input.captions === false ? { ...timeline, captions: [] } : timeline;
 
 /** Kalite kapısını geçemeyen SVG: kullanılmaz (nesne çekimden düşer, karakter/mekân konsepti durdurur). */
 export class AssetRejectedError extends LocalizedError {}
@@ -1126,7 +1129,8 @@ export class EpisodePipeline {
   ): Promise<{ files: Record<string, string>; review: EpisodeReview }> {
     /* v8 ignore next -- iki çağıran da (taslak denetimi, inceleme) çekimleri önceden denetler */
     const shots = state.shots ?? [];
-    const files = await this.renderShotStills(timeline, dir);
+    const files = await this.renderShotStills(state, timeline, dir);
+    const subtitles = state.input.captions !== false;
 
     // O anda duyulan anlatım ve kodun yaptığı yerleşim düzeltmeleri, karenin değerlendirilmesi için.
     const spoken = (startMs: number, endMs: number) =>
@@ -1149,8 +1153,12 @@ export class EpisodePipeline {
       );
       if (!items.length) return;
       try {
-        const out = await this.agent(state, stage, sceneCritic(items, known, this.agentDeps));
-        for (const s of out.shots) review.shots[s.shotId] = { score: s.score, issues: s.issues };
+        const out = await this.agent(state, stage, sceneCritic(items, known, this.agentDeps, subtitles));
+        for (const s of out.shots) {
+          // Altyazısız videoda "altyazı alanında" kusuru olamaz (denetçi yine de derse taslak yeniden planlanmasın).
+          const issues = subtitles ? s.issues : s.issues.filter((i) => i.type !== "text_on_subtitles");
+          review.shots[s.shotId] = { score: s.score, issues };
+        }
         review.lessons.push(...out.lessons);
       } catch (e) {
         // İnceleme videoyu bozmaz; başarısız grup atlanır.
@@ -1160,8 +1168,12 @@ export class EpisodePipeline {
     return { files, review };
   }
 
-  /** Çekim başına bir kare (yerel Remotion, ücretsiz). `only` verilirse yalnız o çekimler. */
-  private async renderShotStills(timeline: Timeline, dir: string, only?: Set<string>): Promise<Record<string, string>> {
+  /**
+   * Çekim başına bir kare (yerel Remotion, ücretsiz). `only` verilirse yalnız o çekimler. Kare videoda görüneni
+   * gösterir: altyazı kapalıysa gömülmez.
+   */
+  private async renderShotStills(state: EpisodeState, full: Timeline, dir: string, only?: Set<string>): Promise<Record<string, string>> {
+    const timeline = onScreen(state, full);
     // Çekimin %80'i: giriş ve daktilo animasyonları bitmiş olur (ortadan alınca yarım yazı kusur sanılıyordu).
     const frames = Object.fromEntries(
       timeline.visuals.filter((v) => !only || only.has(v.shotId)).map((v) => [v.shotId, v.fromFrame + Math.floor(v.durationInFrames * 0.8)]),
@@ -1208,7 +1220,7 @@ export class EpisodePipeline {
     try {
       const dir = await this.draftDir(state);
       const timeline = buildTimeline(state, (key) => key, await this.vectorAssets(state));
-      await this.storeStills(state, await this.renderShotStills(timeline, dir, only));
+      await this.storeStills(state, await this.renderShotStills(state, timeline, dir, only));
       /* v8 ignore next -- çekim yoksa buildTimeline daha önce fırlatır */
       const n = only?.size ?? state.shots?.length ?? 0;
       this.log(msg("log.preview.done", { n }));
@@ -2006,7 +2018,7 @@ export class EpisodePipeline {
       }
       let lastPct = -1;
       await renderEpisode({
-        timeline: state.input.captions === false ? { ...timeline, captions: [] } : timeline,
+        timeline: onScreen(state, timeline),
         publicDir,
         outputPath,
         onProgress: (p) => {

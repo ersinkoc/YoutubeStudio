@@ -171,6 +171,11 @@ describe("görsel denetçiler", () => {
     const b = await capture((d) => sceneCritic(shots, ["Yazıyı üste koy"], d));
     expect(b.system).toContain("- Yazıyı üste koy");
     expect(b.system).not.toContain("(none yet)");
+    expect(a.system).toContain("subtitles at the bottom");
+    expect(a.system).toContain("text_on_subtitles:");
+    const c = await capture((d) => sceneCritic(shots, [], d, false));
+    expect(c.system).toContain("no burned-in subtitles");
+    expect(c.system).not.toContain("text_on_subtitles:");
   });
 
   it("ders küratörü kuralları indeksli listeler", async () => {
