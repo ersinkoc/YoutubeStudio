@@ -1,6 +1,6 @@
 import { VectorAnim } from "@ys/core";
 import { describe, expect, it } from "vitest";
-import { gaitOf, hop, paceWalks, physicalAnims, travelled, type Body } from "../src/motion.ts";
+import { gaitOf, gestureWeight, hop, paceWalks, physicalAnims, travelled, type Body } from "../src/motion.ts";
 
 const anims = (list: object[]) => list.map((a) => VectorAnim.parse(a));
 const types = (list: VectorAnim[]) => list.map((a) => a.type);
@@ -113,6 +113,39 @@ describe("hareket fiziği: yürüyüş", () => {
     const rest = anims([{ type: "move", toX: 1160 }, { type: "walk" }, { type: "pulse" }]);
     expect(paceWalks(rest, 960, PX, 10, false)).toEqual(rest);
     expect(paceWalks(anims([{ type: "walk", toX: 1160 }]), 960, PX, 0, true)[0]!.end).toBe(1);
+  });
+
+  it("jest saniyeyle girer: önce hafif ters (hazırlık), sonra hedefi geçip oturur; inişte taşma yok", () => {
+    const [g] = anims([{ type: "explain", start: 0.2, end: 0.8 }]);
+    const w = (sec: number, lag = 0) => gestureWeight(sec / 10, g!, 10, lag);
+    expect(w(1.9)).toBe(0);
+    const rise = Array.from({ length: 46 }, (_, i) => w(2 + i * 0.01));
+    expect(Math.min(...rise)).toBeLessThan(0);
+    expect(Math.max(...rise)).toBeGreaterThan(1);
+    expect(w(2.45)).toBeCloseTo(1);
+    expect(w(5)).toBe(1);
+    const fall = Array.from({ length: 41 }, (_, i) => w(7.6 + i * 0.01));
+    expect(Math.min(...fall)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...fall)).toBeLessThanOrEqual(1);
+    expect(w(8)).toBe(0);
+    expect(w(8.1)).toBe(0);
+    // Süre saniyedir: 4 sn'lik çekimde de kalkış 0,45 sn.
+    expect(gestureWeight(0.2 + 0.45 / 4, g!, 4)).toBeCloseTo(1);
+  });
+
+  it("ön kol üst kolu geriden izler: kalkışta da inişte de gecikir", () => {
+    const [g] = anims([{ type: "explain", start: 0.2, end: 0.8 }]);
+    expect(gestureWeight(0.2, g!, 10, 0.08)).toBe(0);
+    expect(gestureWeight(0.208, g!, 10, 0.08)).toBe(0);
+    // İnişte üst kol yere inmişken ön kol hâlâ kalkıktır.
+    expect(gestureWeight(0.8, g!, 10)).toBe(0);
+    expect(gestureWeight(0.8, g!, 10, 0.08)).toBeGreaterThan(0);
+    expect(gestureWeight(0.81, g!, 10, 0.08)).toBe(0);
+  });
+
+  it("çekim boyunca süren jest kesmede zaten sürer (kalkış/iniş yok)", () => {
+    const [g] = anims([{ type: "point" }]);
+    expect([gestureWeight(0, g!, 5), gestureWeight(0, g!, 5, 0.08), gestureWeight(1, g!, 5)]).toEqual([1, 1, 1]);
   });
 
   it("sıçrayış parabolü: kalkışta ve inişte sıfır, ortada tepe", () => {

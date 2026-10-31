@@ -326,6 +326,9 @@ describe("vektör sahne: karakter iskeleti", () => {
     const t = 150 / 30;
     const tr = transformOf(heroAt(150, { anims: [{ type: "cheer" }] }).box);
     expect(tr.y).toBeCloseTo(-Math.abs(Math.sin(t * 6)) * 18, 1);
+    cleanup();
+    // Pencereden önce zıplamaz.
+    expect(transformOf(heroAt(30, { anims: [{ type: "cheer", start: 0.5 }] }).box).y).toBe(0);
   });
 
   it("nod başı mevcut salınımın üstüne sallar", () => {
@@ -340,6 +343,15 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect(heroAt(150, { anims: [{ type: "talk" }] }).get("mouth").sy).toBeCloseTo(want, 2);
     cleanup();
     expect(heroAt(150, { anims: [{ type: "talk" }], expression: "sad" }).get("mouth").sy).toBeCloseTo(-want, 2);
+  });
+
+  it("jest girerken ön kol üst kolu geriden izler", () => {
+    // Pencere 5. sn'de (kare 150) başlar; 2 kare sonra üst kol kalkmaya başlamış, ön kol (0,08 sn gecikme) henüz değil.
+    const rest = heroAt(152).get;
+    cleanup();
+    const g = heroAt(152, { anims: [{ type: "shrug", start: 0.5, end: 1 }] }).get;
+    expect(g("arm-l").rotate).not.toBeCloseTo(rest("arm-l").rotate, 2);
+    expect(g("forearm-l").rotate).toBeCloseTo(rest("forearm-l").rotate, 2);
   });
 
   it("pencere dışındaki jest pozu değiştirmez", () => {

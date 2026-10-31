@@ -21,7 +21,7 @@ import {
 } from "@ys/core";
 import { useMemo, type CSSProperties } from "react";
 import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from "remotion";
-import { gaitOf, hop, paceWalks, physicalAnims, type Gait } from "./motion.ts";
+import { FOREARM_LAG, gaitOf, gestureWeight, hop, paceWalks, physicalAnims, type Gait } from "./motion.ts";
 
 /**
  * Vektör sahne: Claude'un JSON tarifini deterministik olarak çizer. Bütün hareket burada hesaplanır;
@@ -184,6 +184,7 @@ function rigPose(
   gait: Gait = STILL,
   flip = false,
   attention: Attention = {},
+  dur = 1,
 ): Partial<Record<RigPart, PartPose>> {
   const pose: Partial<Record<RigPart, PartPose>> = {};
   const part = (k: RigPart) => (pose[k] ??= { rotate: 0, sx: 1, sy: 1, tx: 0, ty: 0 });
@@ -261,13 +262,17 @@ function rigPose(
     part("arm-r").rotate -= 6 * s * gait.amount;
   }
 
-  // --- Claude'un istediği jestler; envelope ile yumuşak girip çıkar
+  // --- Claude'un istediği jestler: hazırlık + taşmayla girer (gestureWeight), ön kol üst kolu geriden izler.
   for (const a of anims) {
-    const w = envelope(p, a);
-    if (w <= 0) continue;
+    const arm = gestureWeight(p, a, dur);
+    const fore = gestureWeight(p, a, dur, FOREARM_LAG);
+    if (arm === 0 && fore === 0) continue;
+    // Baş sallama ve konuşma genliği taşmaz.
+    const w = Math.min(1, Math.max(0, arm));
     const mix = (k: RigPart, field: keyof PartPose, target: number) => {
       const pp = part(k);
-      pp[field] = pp[field] * (1 - w) + target * w;
+      const wk = k.startsWith("forearm-") ? fore : arm;
+      pp[field] = pp[field] * (1 - wk) + target * wk;
     };
     switch (a.type) {
       case "wave":
@@ -432,7 +437,7 @@ function motionOf(
     aim: focus.aim ? [toRigX(focus.aim[0]), (focus.aim[1] - tr.y - (placed.y - placed.height)) / k] : undefined,
     lookDir: focus.lookX === undefined ? undefined : Math.sign(toRigX(focus.lookX) - RIG.width / 2),
   };
-  return { tr, pose: rigPose(anims, p, t, prefix, placed.sitting, layer.expression, gait, layer.flip, attention) };
+  return { tr, pose: rigPose(anims, p, t, prefix, placed.sitting, layer.expression, gait, layer.flip, attention, dur) };
 }
 
 /**

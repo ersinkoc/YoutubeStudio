@@ -132,6 +132,29 @@ export function gaitOf(anims: readonly VectorAnim[], p: number, t: number, baseX
   return { steps, amount: ease(Math.max(0, amount)), dir: dx > 0.01 ? 1 : dx < -0.01 ? -1 : 0 };
 }
 
+/** Jestin kalkış ve iniş süresi (sn); ön kol üst kolu bu kadar geriden izler (örtüşen hareket). */
+const GESTURE_RISE = 0.45;
+const GESTURE_FALL = 0.4;
+export const FOREARM_LAG = 0.08;
+/** Kalkış: önce hafifçe ters yöne (hazırlık), sonra hedefi az geçip yerine oturur. */
+const riseCurve = Easing.inOut(Easing.back(1.4));
+const fallCurve = Easing.inOut(Easing.cubic);
+
+/**
+ * Jestin bu andaki ağırlığı. Süreler saniyedir (çekim oranı değil): eskiden 4 sn'lik çekimde 0,6 sn, 9 sn'likte 1,35 sn
+ * sürüyordu ve hep düz bir eğriyle (mekanik) giriyordu. Ağırlık kalkışta kısa süre eksiye iner (hazırlık) ve 1'i aşar
+ * (taşma); poz karıştırması bunu olduğu gibi uygular. Çekim başında başlayan jest kesmeyle zaten sürüyordur (kalkış yok),
+ * çekim sonuna kadar süren jest kesmede iner gibi görünmez. lag: bu parçanın gecikmesi (sn).
+ */
+export function gestureWeight(p: number, a: VectorAnim, dur: number, lag = 0): number {
+  const since = (p - a.start) * dur - lag;
+  const left = (a.end - p) * dur + lag;
+  if ((a.start > 0 && since < 0) || left < 0) return 0;
+  const up = a.start <= 0 ? 1 : riseCurve(Math.min(1, since / GESTURE_RISE));
+  const down = a.end >= 1 ? 1 : fallCurve(Math.min(1, left / GESTURE_FALL));
+  return up * down;
+}
+
 /**
  * Sıçrayış: yerden kalkıp yerçekimiyle geri iner (parabol). u 0–1 havada geçen süre; dönüş yükseklik oranı.
  * "surprised" irkilmesi pencere başında bir kez zıplar, sonra ayaklar yerdedir.
