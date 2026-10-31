@@ -21,13 +21,17 @@ minimumReleaseAgeExclude:
   - '@aws-sdk/nested-clients@3.997.53'
   - '@aws-sdk/token-providers@3.1160.0'
   - postgres@4.0.0
-  - '@trigger.dev/build@4.8.2'
-  - '@trigger.dev/core@4.8.2'
-  - '@trigger.dev/schema-to-json@4.8.2'
-  - '@trigger.dev/sdk@4.8.2'
-  - trigger.dev@4.8.2
+  - '@trigger.dev/build@4.8.3'
+  - '@trigger.dev/core@4.8.3'
+  - '@trigger.dev/schema-to-json@4.8.3'
+  - '@trigger.dev/sdk@4.8.3'
+  - trigger.dev@4.8.3
   - lucide-react@1.64.0
 overrides:
   # Güvenlik: trigger.dev zincirindeki eski tar/zod (aynı büyük sürüm içinde yükseltme).
   tar@<7.5.22: 7.5.22
   zod@>=4 <4.6.6: 4.6.7
+  # Güvenlik (Dependabot): Prisma config (trigger.dev) ve drizzle-kit zincirindeki geliştirme araçları; yamalı sürüm
+  # üst sürümde, CLI'lar bu sürümlerle denendi. minimatch 11 trigger.dev CLI'sını kırıyor (makeRe yok): o 10'da kalır.
+  deepmerge-ts@<8.0.0: 8.0.2
+  esbuild@<0.25.0: 0.25.12
