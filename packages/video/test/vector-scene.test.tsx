@@ -12,7 +12,9 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, cameraTransform } = await import("../src/Vector.tsx");
+/** Yerleşmiş katman örneği (kamera testleri). */
+const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
 afterEach(() => {
   cleanup();
@@ -801,14 +803,46 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
 
   it("kamera odak noktasına doğru yakınlaşır; ışık havası uygulanır", () => {
     const c = scene({ camera: { zoomFrom: 1, zoomTo: 1.2, focusX: 300, focusY: 200 }, mood: "night" }, { frame: 300 });
-    const cam = [...c.querySelectorAll("div")].find((d) => d.style.transformOrigin === "300px 200px") as HTMLElement;
-    expect(cam.style.transform).toBe("scale(1.2) translateX(0%)");
+    // Odak noktası ekranda yerinde kalır: kayma = odak × (1 − zoom).
+    const cam = [...c.querySelectorAll("div")].find((d) => d.style.transform.includes("scale(1.2)")) as HTMLElement;
+    expect(cam.style.transform).toBe("translate(-60px, -40px) scale(1.2) translateX(0%)");
+    expect(cam.style.transformOrigin).toMatch(/^0(px)? 0(px)?$/);
     expect([...c.querySelectorAll("div")].some((d) => d.style.mixBlendMode === "multiply")).toBe(true);
   });
 
   it("odak verilmezse kadraj merkezine yakınlaşır", () => {
     const c = scene({});
-    expect([...c.querySelectorAll("div")].some((d) => d.style.transformOrigin === "960px 540px")).toBe(true);
+    expect([...c.querySelectorAll("div")].some((d) => d.style.transform.startsWith("translate(-0px, -0px) scale(1)") || d.style.transform.startsWith("translate(0px, 0px) scale(1)"))).toBe(true);
+  });
+
+  it("yakın çekimde özne çok küçükse zoom büyür ve özne ortalanır; büyük özne ve harita çekimi olduğu gibi", () => {
+    const tiny = { ...PL, width: 40, height: 30, x: 1500, y: 900, grounded: true };
+    const wall = { ...PL, index: 1, width: 40, height: 40, x: 960, y: 560, grounded: false };
+    const cam = { zoomFrom: 1.6, zoomTo: 1.9, panX: 0, focusX: 960, focusY: 540 };
+    // Duvardaki öğe odağa daha yakın ama yerdeki nesne özne seçilir.
+    const out = closeUpCamera(cam, [tiny, wall], false);
+    expect(out.centre).toBe(true);
+    expect(out.cam).toMatchObject({ focusX: 1500, focusY: 885 });
+    expect(out.cam.zoomTo).toBeCloseTo(3.2);
+    expect(out.cam.zoomFrom).toBeCloseTo((1.6 * 3.2) / 1.9);
+    expect(cameraTransform(out.cam, 1, true)).toBe("translate(-3840px, -2292px) scale(3.2) translateX(0%)");
+    // Köşedeki özne ortalanamaz: kamera tuvalin dışını göstermez, kenara dayanır.
+    expect(cameraTransform({ ...out.cam, focusX: 1900, focusY: 1070 }, 1, true)).toBe("translate(-4224px, -2376px) scale(3.2) translateX(0%)");
+    // Odak verilmezse merkeze en yakın yerdeki nesne seçilir.
+    const near = { ...tiny, index: 2, x: 1000, y: 600 };
+    expect(closeUpCamera({ zoomFrom: 1.6, zoomTo: 1.9, panX: 0 }, [tiny, near], false).cam).toMatchObject({ focusX: 1000, focusY: 585 });
+    expect(closeUpCamera({ zoomFrom: 1.6, zoomTo: 1.9, panX: 0 }, [near, tiny], false).cam).toMatchObject({ focusX: 1000 });
+    // Yalnız havada öğe varsa o özne olur; zoom tavandaysa yalnız odak düzelir.
+    expect(closeUpCamera({ ...cam, zoomFrom: 3.2, zoomTo: 3.2 }, [wall], false).cam).toMatchObject({ zoomTo: 3.2, focusX: 960, focusY: 540 });
+    for (const keep of [
+      closeUpCamera(cam, [{ ...tiny, height: 400 }], false),
+      closeUpCamera(cam, [tiny], true),
+      closeUpCamera({ ...cam, zoomFrom: 1, zoomTo: 1.2 }, [tiny], false),
+      closeUpCamera(cam, [], false),
+    ])
+      expect(keep).toEqual({ cam: expect.objectContaining({ zoomTo: keep.cam.zoomTo }), centre: false });
+    // Odaksız kamera merkezden yaklaşır; tuvalden küçük zoom'da da ortada kalır.
+    expect(cameraTransform({ zoomFrom: 0.5, zoomTo: 0.5, panX: 0 }, 0, true)).toBe("translate(480px, 270px) scale(0.5) translateX(0%)");
   });
 
   it("dikey kadrajda sahne 1,3 kat yakın çekimle ortalanır, boşluğu bulanık arka plan doldurur", () => {

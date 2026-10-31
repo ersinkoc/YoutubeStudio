@@ -421,6 +421,53 @@ export function focusOf(spec: VectorShot, placed: PlacedLayer[], index: number, 
   return { aim, lookX: near(people)?.x, holding: placed.some((pl) => pl.heldBy === index) };
 }
 
+/** Yakın çekim çerçevesi: bu zoom'dan itibaren yakın çekim sayılır; özne kare yüksekliğinin en az min'i kadar görünmeli. */
+const CLOSE_UP = { zoom: 1.5, min: 0.2, target: 0.4, maxZoom: 3.2 };
+
+/**
+ * Yakın çekimde odağa en yakın şey kadrajda çok küçük kalıyorsa (31 Eki: 12 cm'lik reçine kabı yerde, 1,9 zoom'da
+ * 57 px'ti; yakın çekimlerin ~%10'u) zoom büyütülür ve odak öznenin merkezine taşınır. Kamera odak noktasını sabit
+ * tutarak yaklaşır, boş bir noktaya odaklanmak özneyi kenara itiyordu. Harita/bayrak (gerçek veri) çekimlerine dokunulmaz.
+ */
+export function closeUpCamera(
+  cam: VectorShot["camera"],
+  placed: PlacedLayer[],
+  exactBackground: boolean,
+): { cam: VectorShot["camera"]; centre: boolean } {
+  const z = Math.max(cam.zoomFrom, cam.zoomTo);
+  const keep = { cam, centre: false };
+  if (z < CLOSE_UP.zoom || exactBackground || !placed.length) return keep;
+  const fx = cam.focusX ?? W / 2;
+  const fy = cam.focusY ?? H / 2;
+  const centre = (pl: PlacedLayer) => [pl.x, pl.y - pl.height / 2] as const;
+  const dist = (pl: PlacedLayer) => Math.hypot(centre(pl)[0] - fx, centre(pl)[1] - fy);
+  // Duvardaki/havadaki öğe (ışın, ok, poster) yalnız başka aday yoksa özne olur.
+  const standing = placed.filter((pl) => pl.grounded || pl.heldBy !== undefined);
+  const subject = (standing.length ? standing : placed).reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  const side = Math.max(subject.width, subject.height);
+  if (side * z >= CLOSE_UP.min * H) return keep;
+  const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side) / z;
+  const [x, y] = centre(subject);
+  // Zoom zaten tavandaysa yalnız odak düzelir.
+  return { cam: { ...cam, zoomFrom: cam.zoomFrom * Math.max(1, k), zoomTo: cam.zoomTo * Math.max(1, k), focusX: x, focusY: y }, centre: true };
+}
+
+/**
+ * Kameranın bu karedeki dönüşümü (sol üst köşe kökenli). Odak noktası ekranda yerinde kalarak yaklaşılır (yönetmenin
+ * kadrajı); centre ile (kod özneyi yeniden çerçevelediyse) odak kadrajın ortasına gelir, tuvalin dışı görünmez. Sabit
+ * odak alttaki küçük nesneyi kadrajın dibinde bırakıyordu; her çekimi ortalamak ise iyi kadrajları bozuyordu.
+ */
+export function cameraTransform(cam: VectorShot["camera"], k: number, centre = false): string {
+  const scale = cam.zoomFrom + (cam.zoomTo - cam.zoomFrom) * k;
+  const panX = (cam.panX * (k - 0.5) * (scale - 1) * 100) / scale;
+  const shift = (size: number, focus: number) => {
+    const edge = size - size * scale;
+    const px = centre ? Math.min(Math.max(size / 2 - focus * scale, Math.min(edge, 0)), Math.max(edge, 0)) : focus * (1 - scale);
+    return Math.round(px * 100) / 100;
+  };
+  return `translate(${shift(W, cam.focusX ?? W / 2)}px, ${shift(H, cam.focusY ?? H / 2)}px) scale(${scale}) translateX(${panX}%)`;
+}
+
 /** Katmanın bu karedeki hareketi: katman dönüşümü ve (karakterse) iskelet pozu. */
 interface Motion {
   tr: Transform;
@@ -777,10 +824,6 @@ export function VectorScene({
   const spec = useMemo(() => uniqueCharacters(visual.vector!, (id) => assets[id]?.kind === "character"), [visual.vector, assets]);
   const p = Math.min(1, frame / Math.max(1, visual.durationInFrames));
   const t = frame / fps;
-  const cam = spec.camera;
-  const k = interpolate(p, [0, 1], [0, 1], { easing: ease });
-  const scale = cam.zoomFrom + (cam.zoomTo - cam.zoomFrom) * k;
-  const panX = (cam.panX * (k - 0.5) * (scale - 1) * 100) / scale;
   // Varlıklar üretimde temizlenir; gömmeden önce bir kez daha (savunma derinliği).
   const safe = useMemo(
     () =>
@@ -800,6 +843,8 @@ export function VectorScene({
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
   const texts = useMemo(() => layoutTexts(spec.texts), [spec.texts]);
   const bg = spec.background ? safe[spec.background] : undefined;
+  const { cam, centre } = useMemo(() => closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact)), [spec.camera, placed, bg]);
+  const k = interpolate(p, [0, 1], [0, 1], { easing: ease });
   const dur = visual.durationInFrames / fps;
   const motions = new Map(
     placed.map((pl) => {
@@ -824,9 +869,9 @@ export function VectorScene({
       )}
       <AbsoluteFill
         style={{
-          transform: `scale(${scale}) translateX(${panX}%)`,
-          // Yakın çekim: odak noktasına doğru yaklaşır.
-          transformOrigin: `${cam.focusX ?? W / 2}px ${cam.focusY ?? H / 2}px`,
+          // Yakın çekim: odak noktasına doğru yaklaşır ve onu ortalar.
+          transform: cameraTransform(cam, k, centre),
+          transformOrigin: "0 0",
         }}
       >
         {bg && (
