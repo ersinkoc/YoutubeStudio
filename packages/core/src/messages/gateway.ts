@@ -57,6 +57,10 @@ export const GATEWAY_MESSAGES = {
     en: "{id} (unverified; enable with FAL_ENABLE_UNVERIFIED=1)",
   },
   "gw.skip.noKey": { tr: "{scope} ({key} yok)", en: "{scope} (no {key})" },
+  "gw.skip.veoShutDown": {
+    tr: "gemini:veo ({model} Gemini API'de kapatıldı; yerine gemini-omni-1.1-flash öneriliyor)",
+    en: "gemini:veo ({model} was shut down on the Gemini API; gemini-omni-1.1-flash is the suggested replacement)",
+  },
   "gw.skip.veo": {
     tr: "gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)",
     en: "gemini:veo (veo-3.1-generate-preview was shut down; enable with GEMINI_VEO_MODEL, unverified)",

@@ -95,6 +95,10 @@ describe("createProvidersFromEnv", () => {
     expect(def.providers.map((p) => p.id)).toEqual(ids);
     // veo-3.1-generate-preview 22 Eki 2026'da kapandı: varsayılan kurulmaz, sıralamaya/tahmine girmez.
     expect(def.skipped).toContain("gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)");
+    // Kapatılmış kimlik yazılıysa Veo kurulmaz, nedeni raporlanır.
+    const dead = createProvidersFromEnv({ GEMINI_API_KEY: "g", GEMINI_VEO_MODEL: "veo-3.1-generate-preview" }, dir);
+    expect(dead.providers.some((p) => p.id === "gemini:veo")).toBe(false);
+    expect(dead.skipped).toContain("gemini:veo (veo-3.1-generate-preview Gemini API'de kapatıldı; yerine gemini-omni-1.1-flash öneriliyor)");
 
     // Model adının istek URL'sine yansıdığını sahte fetch ile doğrula.
     const urls: string[] = [];

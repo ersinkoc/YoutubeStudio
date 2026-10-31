@@ -49,6 +49,11 @@ export const COSTS_MESSAGES = {
     en: "silent ${silent}/s, with audio ${audio}/s (audio control ${control}/s)",
   },
   "price.note.seedance": { tr: "720p, video girdisi yok; ses dahil", en: "720p, no video input; audio included" },
+  "price.note.minimaxTurbo": {
+    tr: "768P standart fiyat (16 Kas 2026'dan); öncesinde %30–35 kampanya",
+    en: "768P standard rate (from 16 Nov 2026); 30–35% promo before that",
+  },
+  "price.note.vidu": { tr: "720p; ses fiyatı değiştirmez", en: "720p; audio does not change the price" },
   "price.note.nanoBanana21": {
     tr: "1K; $30/1M görsel token. Batch API'de $0.0168",
     en: "1K; $30/1M image tokens. $0.0168 with the Batch API",

@@ -21,6 +21,22 @@ export function geminiTtsPricePer1k(now: Date): number {
   return now.getTime() >= Date.UTC(2027, 0, 1) ? 0.033 : 0.017;
 }
 
+/**
+ * Gemini API'de kapatılmış Veo kimlikleri (https://ai.google.dev/gemini-api/docs/deprecations, 31 Eki 2026): hepsinin
+ * kapanış tarihi geçti, yerine gemini-omni-1.1-flash öneriliyor. Bunlardan biri yazılıysa sağlayıcı kurulmaz; yoksa
+ * premium seviyede yönlendirici ölü modeli seçip her çekimde hata alıyordu.
+ */
+const VEO_SHUT_DOWN = new Set([
+  "veo-2.0-generate-001",
+  "veo-3.0-generate-001",
+  "veo-3.0-fast-generate-001",
+  "veo-3.0-generate-preview",
+  "veo-3.0-fast-generate-preview",
+  "veo-3.1-generate-preview",
+  "veo-3.1-fast-generate-preview",
+  "veo-3.1-lite-generate-preview",
+]);
+
 export const DEFAULT_COMFY_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../comfy-workflows");
 
 export interface RegistryReport {
@@ -112,7 +128,9 @@ export function createProvidersFromEnv(
     );
     // veo-3.1-generate-preview 22 Eki 2026'da kapatıldı (https://ai.google.dev/gemini-api/docs/deprecations; yerine
     // gemini-omni-1.1-flash önerilir, o ayrı bir API). Veo yalnız açıkça model verilince kurulur, doğrulanmamış sayılır.
-    if (env.GEMINI_VEO_MODEL) {
+    if (env.GEMINI_VEO_MODEL && VEO_SHUT_DOWN.has(env.GEMINI_VEO_MODEL)) {
+      skipped.push(msg("gw.skip.veoShutDown", { model: env.GEMINI_VEO_MODEL }));
+    } else if (env.GEMINI_VEO_MODEL) {
       providers.push(
         new VeoAdapter({
           id: "gemini:veo",

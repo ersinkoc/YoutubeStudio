@@ -380,6 +380,90 @@ describe("FAL_MODELS girdileri", () => {
     expect(m.outputUrls({ video: { url: "v3" } })).toEqual(["v3"]);
   });
 
+  it("seedream 4.5: en az 2560×1440 özel boyut, olumsuz prompt prompt'a; düzenlemede yalnız görsel referanslar", () => {
+    const t2i = model("fal:seedream-4.5");
+    expect(t2i.buildInput({ capability: "t2i", quality: "standard", prompt: "p", negativePrompt: "n", seed: 3 })).toEqual({
+      prompt: "p\n\nAvoid: n",
+      image_size: { width: 2560, height: 1440 },
+      seed: 3,
+      num_images: 1,
+    });
+    expect(t2i.buildInput({ capability: "t2i", quality: "standard", aspectRatio: "9:16" }).image_size).toEqual({ width: 1440, height: 2560 });
+    expect(t2i.buildInput({ capability: "t2i", quality: "standard", aspectRatio: "1:1" }).image_size).toEqual({ width: 2048, height: 2048 });
+    expect(t2i.outputUrls({ images: [{ url: "s" }] })).toEqual(["s"]);
+    const edit = model("fal:seedream-4.5-edit");
+    const audio = { role: "source_audio" as const, bytes: new Uint8Array([9]), mimeType: "audio/wav" };
+    expect(edit.buildInput({ capability: "i2i_multiref", quality: "standard", prompt: "p", refs: [png("character", 1), audio, png("style", 2)] })).toMatchObject({
+      image_urls: [uri(1), uri(2)],
+      image_size: { width: 2560, height: 1440 },
+    });
+    expect(edit.buildInput({ capability: "i2i_multiref", quality: "standard" }).image_urls).toBeUndefined();
+  });
+
+  it("minimax h3 turbo: ilk/son kare, ondalıklı süre 1–10, 768P; olumsuz prompt prompt'a", () => {
+    const m = model("fal:minimax-h3-turbo-i2v");
+    expect(m.buildInput({ capability: "first_last_frame", quality: "draft", prompt: "p", negativePrompt: "n", refs: [png("first_frame", 1), png("last_frame", 2)], durationSec: 6.4, seed: 5 })).toEqual({
+      prompt: "p\n\nAvoid: n",
+      image_url: uri(1),
+      end_image_url: uri(2),
+      duration: 6.4,
+      resolution: "768P",
+      prompt_expansion_mode: "balanced",
+      seed: 5,
+    });
+    expect(m.buildInput({ capability: "i2v", quality: "draft" }).duration).toBe(5);
+    expect(m.buildInput({ capability: "i2v", quality: "draft", durationSec: 30 }).duration).toBe(10);
+    expect(m.buildInput({ capability: "i2v", quality: "draft", durationSec: 0.2 }).duration).toBe(1);
+    expect(m.outputUrls({ video: { url: "m" } })).toEqual(["m"]);
+  });
+
+  it("pixverse v6: yalnız ilk kare, tamsayı süre 1–15, 720p; ses anahtarı istekten", () => {
+    const m = model("fal:pixverse-v6-i2v");
+    expect(m.buildInput({ capability: "i2v", quality: "draft", prompt: "p", negativePrompt: "n", refs: [png("character", 1)], durationSec: 4.2 })).toEqual({
+      prompt: "p",
+      image_url: uri(1),
+      duration: 5,
+      resolution: "720p",
+      negative_prompt: "n",
+      seed: undefined,
+      generate_audio_switch: false,
+    });
+    expect(m.buildInput({ capability: "i2v", quality: "draft", withAudio: true, durationSec: 40 })).toMatchObject({ duration: 15, generate_audio_switch: true });
+    expect(m.buildInput({ capability: "i2v", quality: "draft" }).duration).toBe(5);
+    expect(m.price).toEqual({ unit: "per_second", usd: 0.045, withAudioUsd: 0.06 });
+  });
+
+  it("vidu q3 turbo: ilk/son kare, tamsayı süre 1–16, ses varsayılan kapalı", () => {
+    const m = model("fal:vidu-q3-turbo-i2v");
+    expect(m.buildInput({ capability: "first_last_frame", quality: "standard", prompt: "p", refs: [png("last_frame", 2), png("first_frame", 1)], durationSec: 7.5 })).toEqual({
+      prompt: "p",
+      image_url: uri(1),
+      end_image_url: uri(2),
+      duration: 8,
+      resolution: "720p",
+      audio: false,
+      seed: undefined,
+    });
+    expect(m.buildInput({ capability: "i2v", quality: "standard", withAudio: true })).toMatchObject({ duration: 5, audio: true, end_image_url: undefined });
+  });
+
+  it("kling 2.6 pro: süre yalnız 5 ya da 10, doğrulanmamış (fiyat yalnız genel sayfadan)", () => {
+    const m = model("fal:kling-v2.6-pro-i2v");
+    expect(m.verified).toBe(false);
+    expect(m.price).toEqual({ unit: "per_second", usd: 0.07, stepSec: 5, minSec: 5 });
+    const req: GenerationRequest = { capability: "i2v", quality: "standard", prompt: "p", refs: [png("character", 1)] };
+    expect(m.buildInput(req)).toEqual({
+      prompt: "p",
+      start_image_url: uri(1),
+      end_image_url: undefined,
+      duration: "5",
+      negative_prompt: undefined,
+      generate_audio: false,
+    });
+    expect(m.buildInput({ ...req, durationSec: 7 }).duration).toBe("10");
+    expect(m.buildInput({ ...req, durationSec: 5, withAudio: true })).toMatchObject({ duration: "5", generate_audio: true });
+  });
+
   it("seedance: yalnız görsel referansları gönderir, varsayılan 5 sn 720p 16:9; süre metin", () => {
     const m = model("fal:seedance-2-ref2v");
     const audio = { role: "source_audio" as const, bytes: new Uint8Array([9]), mimeType: "audio/wav" };
