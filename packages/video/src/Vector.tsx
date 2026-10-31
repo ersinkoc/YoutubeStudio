@@ -160,6 +160,8 @@ interface Attention {
   aim?: readonly [number, number];
   /** Sahnedeki en yakın diğer karakterin yönü: −1 sol, 1 sağ. */
   lookDir?: number;
+  /** Sağ elinde nesne var: yüze giden jest sol elle yapılır. */
+  holding?: boolean;
 }
 
 /** İskelet parçalarının bu karedeki pozu: sürekli canlılık + Claude'un istediği jestler. */
@@ -328,13 +330,16 @@ function rigPose(
         mix("brows", "ty", -3 + Math.sin(t * 3) * 2);
         break;
       }
-      case "think":
-        mix("arm-r", "rotate", -8);
-        mix("forearm-r", "rotate", 162);
+      case "think": {
+        // Sağ el nesne tutuyorsa sol el çeneye gider; yoksa tutulan defter yüzü kapatıyordu.
+        const hand = attention.holding ? -1 : 1;
+        mix(hand > 0 ? "arm-r" : "arm-l", "rotate", -8 * hand);
+        mix(hand > 0 ? "forearm-r" : "forearm-l", "rotate", 162 * hand);
         mix("head", "rotate", 7);
         mix("brows", "ty", -5);
         mix("eyes", "tx", 5);
         break;
+      }
       case "cheer":
         mix("arm-l", "rotate", 150 + Math.sin(t * 6) * 8);
         mix("arm-r", "rotate", -150 - Math.sin(t * 6) * 8);
@@ -393,6 +398,8 @@ const rot = ([x, y]: readonly [number, number], deg: number): [number, number] =
 export interface Focus {
   aim?: readonly [number, number];
   lookX?: number;
+  /** Elinde bir şey tutuyor (nesne sağ eli izler). */
+  holding?: boolean;
 }
 
 /**
@@ -411,7 +418,7 @@ export function focusOf(spec: VectorShot, placed: PlacedLayer[], index: number, 
   const beside = near(others.filter((pl) => Math.abs(pl.x - self.x) > self.width * 0.4));
   const text = spec.texts[0];
   const aim = explicit ? center(explicit) : beside ? center(beside) : text ? ([text.x, text.y] as const) : undefined;
-  return { aim, lookX: near(people)?.x };
+  return { aim, lookX: near(people)?.x, holding: placed.some((pl) => pl.heldBy === index) };
 }
 
 /** Katmanın bu karedeki hareketi: katman dönüşümü ve (karakterse) iskelet pozu. */
@@ -479,6 +486,7 @@ function motionOf(
   const attention: Attention = {
     aim: focus.aim ? [toRigX(focus.aim[0]), (focus.aim[1] - tr.y - (placed.y - placed.height)) / k] : undefined,
     lookDir: focus.lookX === undefined ? undefined : Math.sign(toRigX(focus.lookX) - RIG.width / 2),
+    holding: focus.holding,
   };
   return { tr, flip: layer.flip, squash, pose: rigPose(anims, p, t, prefix, placed.sitting, layer.expression, gait, layer.flip, attention, dur) };
 }

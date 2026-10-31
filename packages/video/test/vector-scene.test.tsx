@@ -575,6 +575,14 @@ describe("vektör sahne: elde tutulan nesne", () => {
     return r;
   };
 
+  it("nesne tutan karakter sol eliyle düşünür: nesne yüze kalkmaz", () => {
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, anims: [{ type: "think" }] }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame: 150 });
+    expect(pose(c, "forearm-l").rotate).toBeCloseTo(-162, 0);
+    expect(Math.abs(pose(c, "forearm-r").rotate)).toBeLessThan(40);
+    cleanup();
+    expect(held({ anims: [{ type: "think" }] }).top).toBeCloseTo(held({}).top, -1);
+  });
+
   it("nesne tutanın elini izler: el kalkınca nesne de yükselir", () => {
     const down = held({});
     const up = held({ anims: [{ type: "wave" }] });
