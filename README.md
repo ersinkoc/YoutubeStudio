@@ -98,6 +98,7 @@ Useful options for `episode new`:
 - `--manual`: stop at the approval gates.
 - `--no-qa`: turn off the frame checks.
 - `--no-realism`: turn off the reality check.
+- `--side-views`: vector mode only. Characters that walk get a second, profile drawing and turn to it while walking. Each one costs a designer call and a gate check (about $0.15–0.35) and is kept in the library.
 - `--vertical`: render in 9:16.
 
 Run `pnpm ys --help` for everything.

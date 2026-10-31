@@ -98,6 +98,7 @@ pnpm ys version
 - `--manual`: onaylarda durur.
 - `--no-qa`: kare denetimini kapatır.
 - `--no-realism`: gerçeklik denetimini kapatır.
+- `--side-views`: yalnız vektör modunda. Yürüyen karakterlere ikinci, yandan bir çizim yapılır ve yürürken ona döner. Her biri bir tasarımcı çağrısı ve kapı denetimi tutar (~$0,15–0,35), kütüphanede saklanır.
 - `--vertical`: 9:16 render eder.
 
 Hepsi için: `pnpm ys --help`.

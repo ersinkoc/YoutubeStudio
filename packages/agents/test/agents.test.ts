@@ -234,6 +234,20 @@ describe("vektör ajanları", () => {
     expect(b.options.effort).toBe("medium");
   });
 
+  it("yan görünüş: yan iskelet tuvali, ön çizimin SVG'si ve görüntüsü; gerçek özne metni yok", async () => {
+    const a = await capture((d) =>
+      vectorDesigner({ kind: "character", name: "Billy", description: "rider", view: "side", front: "<svg>ön</svg>", references: [img(5)] }, style, d),
+    );
+    expect(a.system).toContain("strict SIDE VIEW (profile) FACING RIGHT");
+    expect(a.system).toContain('- <g id="head">: rotates around (205, 250)');
+    expect(a.system).not.toContain("front view, feet at y≈750");
+    expect(a.prompt).toContain("approved FRONT view");
+    expect(a.prompt).toContain("<front_svg>\n<svg>ön</svg>\n</front_svg>");
+    expect(a.prompt).not.toContain("REAL subject");
+    expect(a.images).toEqual(["BQ=="]);
+    expect(a.model).toBe(models().creative);
+  });
+
   it("plan metni siluet ve ipuçlarını içerir, boş listeleri atlar", () => {
     expect(planBlock(plan)).toBe(
       "Drawing plan (prepared from the references; where it differs from the description, the plan wins):\nSubject: a saddle\nPose/view: side view\nSilhouette: wide and low\nMust be clearly visible: stirrups; horn",

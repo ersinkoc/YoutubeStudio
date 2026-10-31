@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
-import { RIG, TimelineVisual, VectorAsset, VectorShot, type LineStyle } from "@ys/core";
+import { RIG, RIG_SIDE, TimelineVisual, VectorAsset, VectorShot, type LineStyle } from "@ys/core";
 import { random } from "remotion";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -48,6 +48,9 @@ const ASSETS = {
   }),
   flag: asset("flag", "background", '<svg viewBox="0 0 1920 1080"><rect id="red" width="1920" height="1080" fill="#e30a17"/></svg>', 1920, 1080, { exact: true }),
   broken: asset("broken", "prop", "bu bir svg değil", 100, 100),
+  // Aynı karakterin ön (kırmızı) ve yan (mavi) çizimi.
+  walker: asset("walker", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#aa0000"/></g>`).join("")}</svg>`, 400, 800),
+  "walker~side": asset("walker~side", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#0000aa"/></g>`).join("")}</svg>`, 400, 800),
 };
 
 interface Opts {
@@ -472,6 +475,77 @@ describe("vektör sahne: dikkat (işaret ve bakış)", () => {
     }
     expect(toward).toBeGreaterThan(away);
     expect(toward).toBeGreaterThan(8);
+  });
+});
+
+describe("vektör sahne: yan görünüş", () => {
+  /** Ön görünüşü "hero", yan görünüşü "walker~side" olan karakter (yan çizim mavi). */
+  const walkerAt = (frame: number, layer: object, extra: object[] = []) => {
+    const c = scene({ layers: [{ asset: "walker", x: 600, depth: 0, ...layer }, ...extra] }, { frame });
+    const box = layerBox(c, "body");
+    return { c, box, side: box.innerHTML.includes("#0000aa"), tr: transformOf(box), css: c.querySelector("style")!.textContent! };
+  };
+
+  it("yürürken yan çizime döner: iskelet yan dönme noktalarıyla pozlanır, bacaklar öne-arkaya salınır", () => {
+    const { side, tr, css } = walkerAt(25, { anims: [{ type: "walk", toX: 1500 }] });
+    expect(side).toBe(true);
+    expect(tr.sx).toBeGreaterThan(0); // sağa giderken çizim olduğu gibi (sağa bakar)
+    expect(css).toContain(`#s1-0-head{transform:`);
+    expect(css).toContain(`transform-origin:${RIG_SIDE.pivots.head[0]}px ${RIG_SIDE.pivots.head[1]}px`);
+    const legs = [pose(css, "leg-l").rotate, pose(css, "leg-r").rotate];
+    expect(legs[0]).toBeCloseTo(-legs[1]!, 5);
+    expect(pose(css, "eyes").tx).toBe(0);
+    cleanup();
+  });
+
+  it("yerinde yürüyüşte (hedefsiz) yön yoktur: yan çizim katmanın aynalamasını kullanır", () => {
+    expect(walkerAt(60, { anims: [{ type: "walk", start: 0, end: 1 }] }).side).toBe(true);
+    cleanup();
+    expect(walkerAt(60, { anims: [{ type: "walk", start: 0, end: 1 }], flip: true }).tr.sx).toBeLessThan(0);
+    cleanup();
+  });
+
+  it("sola yürürken çizim aynalanır; durunca ön çizime döner", () => {
+    expect(walkerAt(25, { anims: [{ type: "walk", toX: 0 }] }).tr.sx).toBeLessThan(0);
+    cleanup();
+    const rest = walkerAt(290, { anims: [{ type: "walk", toX: 1000 }] });
+    expect(rest.side).toBe(false);
+    expect(rest.tr.sx).toBe(1);
+    cleanup();
+  });
+
+  it("önden yana geçerken çizim yatayda daralır (dönüş); yan görünüş yoksa daralma olmaz", () => {
+    // Yürüyüşün ilk kareleri: genlik yarının altında, hâlâ ön çizim ama daralmış.
+    let turning: ReturnType<typeof walkerAt> | undefined;
+    for (let f = 1; f < 20 && !turning; f++) {
+      const r = walkerAt(f, { anims: [{ type: "walk", toX: 1500 }] });
+      if (!r.side && r.tr.sx < 0.99) turning = r;
+      cleanup();
+    }
+    expect(turning!.tr.sx).toBeGreaterThanOrEqual(0.6);
+    const plain = transformOf(heroAt(25, { anims: [{ type: "walk", toX: 1500 }] }).box);
+    expect(plain.sx).toBe(1);
+  });
+
+  it("yan görünüşte kol jesti uygulanmaz (kollar yürür), yüz jesti sürer", () => {
+    const { css } = walkerAt(25, { anims: [{ type: "walk", toX: 1500 }, { type: "wave" }, { type: "surprised" }] });
+    expect(Math.abs(pose(css, "arm-r").rotate)).toBeLessThan(25);
+    expect(pose(css, "mouth").sy).toBeCloseTo(1.6, 1);
+    cleanup();
+  });
+
+  it("yan görünüşte yürürken tutulan nesne yine elde kalır", () => {
+    const c = scene({ layers: [{ asset: "walker", x: 600, depth: 0, anims: [{ type: "walk", toX: 1500 }] }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame: 25 });
+    const body = layerBox(c, "body");
+    const cup = layerBox(c, "cup");
+    const bodyX = parseFloat(body.style.left) + parseFloat(body.style.width) / 2 + transformOf(body).x;
+    const cupX = parseFloat(cup.style.left) + parseFloat(cup.style.width) / 2;
+    expect(Math.abs(cupX - bodyX)).toBeLessThan(parseFloat(body.style.width) / 2);
+  });
+
+  it("oturan karakter yan görünüşe dönmez", () => {
+    const c = scene({ layers: [{ asset: "chair", x: 600, depth: 0 }, { asset: "walker", x: 600, on: 0, anims: [{ type: "walk", toX: 1500 }] }] }, { frame: 25 });
+    expect(layerBox(c, "body").innerHTML).not.toContain("#0000aa");
   });
 });
 

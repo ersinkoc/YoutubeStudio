@@ -70,6 +70,11 @@ export const PIPELINE_MESSAGES = {
     en: "  ✗ REJECTED {name}: failed the quality gate in {draws} attempts ({score}): {defects}",
   },
   "log.asset.drawn": { tr: "  {name}: çizildi ({kb} KB, {draws} deneme)", en: "  {name}: drawn ({kb} KB, {draws} attempts)" },
+  "log.side.name": { tr: "{name} (yan görünüş)", en: "{name} (side view)" },
+  "log.side.fallback": {
+    tr: "  {name}: yan görünüş kalite kapısından geçemedi; karakter önden yürüyecek",
+    en: "  {name}: the side view failed the quality gate; the character will walk in front view",
+  },
   "log.asset.readyMadeFailed": { tr: "  {name}: hazır SVG aranamadı ({error})", en: "  {name}: could not search for a ready-made SVG ({error})" },
   "log.asset.readyMade": {
     tr: '  {name}: hazır SVG "{title}" ({license}) → {score} {mark}',

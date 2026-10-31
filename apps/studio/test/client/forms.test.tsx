@@ -79,7 +79,7 @@ describe("NewEpisodeForm", () => {
     expect(api.estimates).toHaveLength(0);
     await tick(1);
     expect(api.estimates).toEqual([
-      { lang: "tr", minutes: 3, tier: "standard", motionMode: "animated", voiceId: VOICES[0]!.id, budgetUsd: 20, vertical: false, qa: true, realism: true },
+      { lang: "tr", minutes: 3, tier: "standard", motionMode: "animated", voiceId: VOICES[0]!.id, budgetUsd: 20, vertical: false, qa: true, realism: true, sideViews: false },
     ]);
     expect(screen.getByText(fmtTr.usd(9))).toBeTruthy();
     expect(screen.getByText(`~${fmtTr.duration(estimates.animated.totalSeconds)}`)).toBeTruthy();
@@ -189,6 +189,7 @@ describe("NewEpisodeForm", () => {
         vertical: false,
         qa: true,
         realism: true,
+        sideViews: false,
         stylePack: "auto",
       },
     ]);

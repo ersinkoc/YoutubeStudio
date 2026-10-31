@@ -32,6 +32,7 @@ interface CreateBody {
   vertical?: boolean;
   qa?: boolean;
   realism?: boolean;
+  sideViews?: boolean;
   lineStyle?: string;
   stylePack?: string;
   series?: string;
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
     autoApprove: false,
     qa: body.qa !== false,
     realism: body.realism !== false,
+    sideViews: body.sideViews === true,
     // Boş: stil paketinin çizgi stili.
     lineStyle: body.lineStyle ? LineStyle.optional().catch(undefined).parse(body.lineStyle) : undefined,
     series: typeof body.series === "string" ? cleanSeries(body.series) : undefined,

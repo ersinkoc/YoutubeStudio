@@ -45,6 +45,7 @@ import {
   resolveLayout,
   RIG,
   sanitizeSvg,
+  sideAssetId,
   stripBackdrop,
   svgSize,
   trText,
@@ -131,6 +132,9 @@ interface GateResult {
 function metaOf(out: VectorAssetOut, kind: AssetBrief["kind"]): VectorAssetMeta {
   return { realHeight: out.realHeight, grounded: out.grounded, surface: out.surface, floorY: kind === "background" ? out.floorY : undefined };
 }
+
+/** Karakterin yan görünüşünün kütüphane anahtarı: ön çiziminden türer (aynı ön çizim → aynı yan çizim). */
+const sideKeyOf = (frontKey: string) => frontKey.replace(/\.svg$/, ".side.svg");
 
 /** Kalite kapısını geçemeyen SVG: kullanılmaz (nesne çekimden düşer, karakter/mekân konsepti durdurur). */
 export class AssetRejectedError extends LocalizedError {}
@@ -1236,6 +1240,138 @@ export class EpisodePipeline {
     state.keyframes = {};
     // Çizilemeyen nesne çekimden düşer; video yine de çıkar.
     if (failed.length) this.log(msg("log.props.failed", { n: failed.length, list: joinTexts(failed, "log.join.indented") }));
+    await this.vectorSideViews(state);
+  }
+
+  /**
+   * Yan görünüş (input.sideViews): çekimlerde yer değiştiren (walk/move/slide_in) karakterlerin sağa bakan ikinci
+   * çizimi. Onaylı ön çizime bakılarak çizilir ve kapıda ön çizimle aynı kişi mi diye denetlenir. Anahtar ön çizimden
+   * türer, kütüphanede durur: tekrar kullanılan karakterde para gitmez. Geçemezse karakter önden yürür (null, yeniden
+   * çizilmez).
+   */
+  private async vectorSideViews(state: EpisodeState): Promise<void> {
+    if (!state.input.sideViews) return;
+    const sides = (state.sideViews ??= {});
+    const moving = new Set(
+      (state.shots ?? []).flatMap((s) =>
+        (s.vector?.layers ?? []).filter((l) => l.anims.some((a) => a.type === "walk" || a.type === "move" || a.type === "slide_in")).map((l) => l.asset),
+      ),
+    );
+    // Seçimi değişen karakterin eski yan çizimi geçersizdir: yeni ön çizim için yeniden çizilir.
+    const todo = (state.cast?.characters ?? []).filter((c) => {
+      const front = state.concept?.selected[c.id]?.key;
+      return moving.has(c.id) && front && sides[c.id]?.key !== sideKeyOf(front);
+    });
+    await mapLimit(todo, this.deps.concurrency ?? 3, async (c) => {
+      const front = state.concept!.selected[c.id]!.key;
+      sides[c.id] = { key: sideKeyOf(front), ok: await this.designSideView(state, c, front) };
+      await this.save(state);
+    });
+  }
+
+  /** Yan görünüşü çizer ya da kütüphaneden alır; kapıdan geçerse true. */
+  private async designSideView(state: EpisodeState, c: { id: string; name: string; visualDescription: string }, frontKey: string): Promise<boolean> {
+    const key = sideKeyOf(frontKey);
+    const name = msg("log.side.name", { name: c.name });
+    const label = trText(name);
+    const record = (check: AssetCheck) => ((state.assetChecks ??= {})[key] = check);
+    const cached = VectorAssetMeta.safeParse((await getJson(this.deps.store, `${key}.json`)) ?? {}).data;
+    if (cached?.check?.passed && (await this.deps.store.get(key))) {
+      record({ ...cached.check, entityId: sideAssetId(c.id) });
+      this.log(msg("log.asset.fromLibrary", { name }));
+      return true;
+    }
+    // İnsanın reddettiği paylaşılan yan çizim yerinde yeniden çizilmez (kütüphane bir bölümün kararıyla değişmez).
+    if (cached?.check?.override?.decision === "rejected") {
+      record({ ...cached.check, entityId: sideAssetId(c.id) });
+      this.log(msg("log.side.fallback", { name: c.name }));
+      return false;
+    }
+    const front = new TextDecoder().decode(await this.bytes(frontKey));
+    const frontMeta = VectorAssetMeta.parse((await getJson(this.deps.store, `${frontKey}.json`)) ?? {});
+    // Kapı yan çizimi ön çizimle karşılaştırır: "referans" onaylı ön çizimin görüntüsüdür (kimlik denetimi).
+    const references = [await rasterizeSvg(front)];
+    const brief: AssetBrief = {
+      kind: "character",
+      id: c.id,
+      name: label,
+      description: `The same person as in the reference image, drawn in side view (profile) facing right. Judge identity (face, hair, headgear, outfit, colours), not the viewing angle.`,
+    };
+    let best: { svg: string; res: GateResult } | undefined;
+    let fix: string | undefined;
+    let previous: string | undefined;
+    let draws = 0;
+    for (let attempt = 1; attempt <= QUALITY_GATE.maxDraws; attempt++) {
+      draws = attempt;
+      let out: VectorAssetOut;
+      try {
+        out = await this.agent(
+          state,
+          "keyframes",
+          vectorDesigner(
+            { kind: "character", name: c.name, description: c.visualDescription, lineStyle: lineStyleOf(state), view: "side", front, references, fix, previous },
+            state.style!,
+            this.agentDeps,
+          ),
+        );
+      } catch (e) {
+        // Tasarımcının kendi hatası bir çizim hakkı yer; iptal gibi diğer hatalar yukarı çıkar.
+        if (!(e instanceof AgentError)) throw e;
+        this.log(msg("log.asset.designerError", { name, attempt, error: firstLine(e) }));
+        continue;
+      }
+      let svg: string;
+      try {
+        const clean = sanitizeSvg(out.svg);
+        svg = stripBackdrop(clean, svgSize(clean));
+        const missing = RIG.required.filter((id) => !svg.includes(`id="${id}"`));
+        if (missing.length) throw new LocalizedError(msg("err.asset.rigMissing", { parts: missing.join(", ") }));
+      } catch (e) {
+        fix = `- The SVG was invalid: ${trText(errorText(e))}`;
+        this.log(msg("log.asset.invalidSvg", { name, attempt, error: errorText(e) }));
+        continue;
+      }
+      const res = await this.gateCheck(state, "keyframes", brief, svg, references);
+      const passed = gatePasses("character", res.scores);
+      if (betterGate("character", res.scores, best?.res.scores)) best = { svg, res };
+      this.log(msg("log.asset.attempt", { name, attempt, score: scoreText(res), mark: passed ? "✓" : "✗" }));
+      if (passed) break;
+      previous = svg;
+      fix = res.defects.map((d) => `- ${d}`).join("\n");
+    }
+    if (!best) {
+      this.log(msg("log.side.fallback", { name: c.name }));
+      return false;
+    }
+    const check: AssetCheck = {
+      kind: "character",
+      name: label,
+      guess: best.res.guess,
+      recognizable: best.res.scores.recognizable,
+      fidelity: best.res.scores.fidelity,
+      passed: gatePasses("character", best.res.scores),
+      defects: best.res.defects,
+      attempts: draws,
+      sources: [],
+      refs: [],
+      // Sahibi "<karakter>~side": Stüdyo'daki kabul/ret ön çizimi (konsept seçimini) değil yan görünüşü etkiler.
+      entityId: sideAssetId(c.id),
+    };
+    const meta = { realHeight: frontMeta.realHeight, grounded: true };
+    if (!check.passed) {
+      // En iyi deneme yalnız Stüdyo'da gösterilir; insan kabul ederse kullanılır.
+      const rejectedKey = key.replace(/\.svg$/, ".rejected.svg");
+      await this.deps.store.put(rejectedKey, new TextEncoder().encode(best.svg), "image/svg+xml");
+      await putJson(this.deps.store, `${rejectedKey}.json`, meta);
+      record({ ...check, rejectedKey });
+      this.log(msg("log.side.fallback", { name: c.name }));
+      return false;
+    }
+    record(check);
+    await this.deps.store.put(key, new TextEncoder().encode(best.svg), "image/svg+xml");
+    await putJson(this.deps.store, `${key}.json`, { ...meta, check });
+    this.log(msg("log.asset.drawn", { name, kb: (best.svg.length / 1024).toFixed(1), draws }));
+    return true;
   }
 
   /**
@@ -1273,6 +1409,10 @@ export class EpisodePipeline {
     };
     const selected = state.concept?.selected ?? {};
     for (const c of state.cast?.characters ?? []) if (selected[c.id]) await add(c.id, "character", selected[c.id]!.key);
+    // Yan görünüşler (yürürken render bunlara döner); seçimi değişmiş karakterin eski yan çizimi kullanılmaz.
+    for (const [id, side] of Object.entries(state.sideViews ?? {})) {
+      if (side.ok && selected[id] && side.key === sideKeyOf(selected[id]!.key)) await add(sideAssetId(id), "character", side.key);
+    }
     for (const l of state.cast?.locations ?? []) if (selected[l.id]) await add(l.id, "background", selected[l.id]!.key);
     for (const [id, p] of Object.entries(state.vectorProps ?? {})) if (p.key) await add(id, p.kind ?? "prop", p.key);
     return out;

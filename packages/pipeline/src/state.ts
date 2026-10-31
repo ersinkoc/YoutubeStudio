@@ -58,6 +58,11 @@ export interface EpisodeInput {
    * (tanınırlık denetimi her zaman açıktır).
    */
   realism?: boolean;
+  /**
+   * Vektör modunda yürüyen karakterlere yan görünüş çizilir (karakter başına bir tasarımcı + kapı çağrısı, kütüphanede
+   * saklanır); yürürken o çizime döner. Varsayılan kapalı (ek Claude maliyeti).
+   */
+  sideViews?: boolean;
   width: number;
   height: number;
   fps: number;
@@ -216,6 +221,11 @@ export interface EpisodeState {
       rejected?: boolean;
     }
   >;
+  /**
+   * Yürüyen karakterlerin yan görünüşleri (input.sideViews): karakter kimliği → ön çizimden türeyen SVG anahtarı;
+   * ok false: kapıdan geçemedi (karakter önden yürür, aynı ön çizim için yeniden çizilmez).
+   */
+  sideViews?: Record<string, { key: string; ok: boolean }>;
   /** Kalite kapısı sonuçları (varlık anahtarı → sonuç); reddedilenler de görünür. */
   assetChecks?: Record<string, AssetCheck>;
   /** Elle istenen yeniden çizim sayısı (çekim başına); seed olarak kullanılır. */

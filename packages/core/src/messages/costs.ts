@@ -107,6 +107,10 @@ export const COSTS_MESSAGES = {
   "cost.basis.textGuess": { tr: "metin tahmini", en: "text estimate" },
   "cost.basis.shotGuess": { tr: "çekim sayısı tahmini", en: "shot count estimate" },
   "cost.basis.scenes": { tr: "tahmin: sahne başı ~${usd} (kısa JSON)", en: "estimate: ~${usd} per scene (short JSON)" },
+  "cost.basis.sideViews": {
+    tr: "yürüyen karakter başına yan görünüş (~${usd} + kapı); kütüphanede olanlar ücretsiz",
+    en: "side view per walking character (~${usd} + gate); those already in the library are free",
+  },
   "cost.basis.props": {
     tr: "tahmin: yeni nesneler; kütüphanede olanlar ücretsiz",
     en: "estimate: new objects only; those already in the library are free",

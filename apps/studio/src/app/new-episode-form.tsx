@@ -32,6 +32,7 @@ function estimateInput(form: HTMLFormElement) {
     vertical: f.get("vertical") === "on",
     qa: f.get("qa") === "on",
     realism: f.get("realism") === "on",
+    sideViews: f.get("sideViews") === "on",
   };
 }
 
@@ -117,6 +118,7 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
           vertical: form.get("vertical") === "on",
           qa: form.get("qa") === "on",
           realism: form.get("realism") === "on",
+          sideViews: form.get("sideViews") === "on",
           lineStyle: form.get("lineStyle") || undefined,
           stylePack: form.get("stylePack"),
         }),
@@ -259,6 +261,13 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
         <span>
           {t("form.realism")}
           <span className="block text-xs text-muted">{t("form.realism.hint")}</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="sideViews" className="mt-1" />
+        <span>
+          {t("form.sideViews")}
+          <span className="block text-xs text-muted">{t("form.sideViews.hint")}</span>
         </span>
       </label>
 

@@ -1,4 +1,4 @@
-import { LocalizedError, msg, VectorAssetMeta } from "@ys/core";
+import { LocalizedError, msg, sideAssetId, VectorAssetMeta } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import { libraryIdOf, noteCharacterUse } from "./library.ts";
 import { cleanSeries } from "./series.ts";
@@ -153,9 +153,22 @@ function ownerOf(state: EpisodeState, check: { entityId?: string; name: string }
   return cast?.id ?? (state.vectorProps?.[check.name] ? check.name : undefined);
 }
 
+/**
+ * Yan görünüş kaydı ("<karakter>~side"): kabul edilince karakter yürürken o çizime döner, reddedilince bu bölümde
+ * önden yürür (paylaşılan kütüphane kaydı ret notuyla işaretlenir; yerinde yeniden çizilmez). Kurgu yenilenir.
+ */
+function sideOwner(state: EpisodeState, entityId: string, key: string, ok: boolean): boolean {
+  const suffix = sideAssetId("");
+  if (!entityId.endsWith(suffix)) return false;
+  (state.sideViews ??= {})[entityId.slice(0, -suffix.length)] = { key, ok };
+  if (state.done.timeline) invalidateFrom(state, "timeline");
+  return true;
+}
+
 /** Varlığı sahibine bağlar: kadro varlığı konsepte aday ve seçim olur, nesne çekimlere girer. */
 function attach(state: EpisodeState, entityId: string | undefined, key: string): void {
   if (!entityId) return;
+  if (sideOwner(state, entityId, key, true)) return;
   const isCast = [...(state.cast?.characters ?? []), ...(state.cast?.locations ?? [])].some((e) => e.id === entityId);
   if (isCast && state.concept) {
     const ref = { key, mimeType: "image/svg+xml" };
@@ -175,6 +188,7 @@ function attach(state: EpisodeState, entityId: string | undefined, key: string):
 /** Varlığı sahibinden ayırır; yeniden çizilmesi için ilgili aşama açılır. */
 function detach(state: EpisodeState, entityId: string | undefined, key: string): void {
   if (!entityId) return;
+  if (sideOwner(state, entityId, key, false)) return;
   const isCast = [...(state.cast?.characters ?? []), ...(state.cast?.locations ?? [])].some((e) => e.id === entityId);
   if (isCast && state.concept) {
     state.concept.candidates[entityId] = (state.concept.candidates[entityId] ?? []).filter((r) => r.key !== key);

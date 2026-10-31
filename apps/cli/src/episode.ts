@@ -35,6 +35,7 @@ export interface EpisodeArgs {
   manual?: boolean;
   noQa?: boolean;
   noRealism?: boolean;
+  sideViews?: boolean;
   stylePack?: string;
   series?: string;
   line?: string;
@@ -75,6 +76,7 @@ export async function episodeCommand(
         autoApprove: !args.manual,
         qa: !args.noQa,
         realism: !args.noRealism,
+        sideViews: args.sideViews === true,
         lineStyle: args.line ? LineStyle.parse(args.line) : undefined,
         stylePack: parseStylePack(args.stylePack),
         series: args.series?.trim() || undefined,

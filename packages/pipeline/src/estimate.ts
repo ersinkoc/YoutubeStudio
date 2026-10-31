@@ -66,6 +66,12 @@ const VECTOR = { characterUsd: 0.15, backgroundUsd: 0.04, assetSec: 30, sceneUsd
 // readyMadeUsd: nesne için Commons'taki hazır SVG adaylarının denetimi (en çok 2 × kapı + boy ajanı). Bulunursa çizim
 // parası hiç harcanmaz; bulunma oranı ölçülmediği için tasarruf düşülmez (tahmin üstten).
 const GATE = { checkUsd: 0.002, extraDraws: 0.6, planUsd: 0.015, readyMadeUsd: 0.005 };
+/**
+ * Yan görünüş (input.sideViews): yürüyen karakter başına bir tasarımcı çizimi + kapı, kapıdan dönerse düzeltme.
+ * 31 Eki defter ölçümü: vector-designer:character ~$0.128, redraw ~$0.183, kör tahmin + kapı ~$0.028.
+ */
+const SIDE_VIEW = { drawUsd: 0.13, redrawUsd: 0.18, checkUsd: 0.028, sec: 40 };
+
 const withReality = (drawUsd: number) => GATE.planUsd + drawUsd * (1 + GATE.extraDraws) + GATE.checkUsd * (1 + GATE.extraDraws);
 
 /** Render sonrası inceleme. Henüz ölçülmedi: kare denetiminin (Haiku, ~$0.001/görsel) 6 karelik grubundan tahmin. */
@@ -254,6 +260,20 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       seconds: Math.ceil(props / PARALLEL) * VECTOR.propSec,
       basis: msg("cost.basis.props"),
     });
+    if (input.sideViews) {
+      // Kaç karakterin yürüyeceği çekim planından önce bilinmez: üst sınır olarak bütün karakterler.
+      const walkers = state.sideViews ? Object.keys(state.sideViews).length : chars;
+      add({
+        stage: "keyframes",
+        providerId: "claude",
+        via: msg("cost.via.svg"),
+        quantity: walkers,
+        unit: msg("unit.asset"),
+        costUsd: walkers * (SIDE_VIEW.drawUsd + SIDE_VIEW.checkUsd + GATE.extraDraws * (SIDE_VIEW.redrawUsd + SIDE_VIEW.checkUsd)),
+        seconds: Math.ceil(walkers / PARALLEL) * SIDE_VIEW.sec,
+        basis: msg("cost.basis.sideViews", { usd: SIDE_VIEW.drawUsd }),
+      });
+    }
     // Render öncesi taslak denetimi: her çekime bir kare + ucuz eleştiri, sorunlu sahneler bir kez yeniden planlanır.
     const draftBatches = Math.ceil(shotCount / REVIEW.perBatch);
     const replans = Math.ceil(scenes * VECTOR.reviseRate);

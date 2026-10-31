@@ -76,6 +76,18 @@ describe("tahmin: vektör modu", () => {
     expect(rows("clips")[0]).toMatchObject({ costUsd: 0, basis: "hareket modu: animasyon yok" });
     // Vektör modunda görsel/video sağlayıcısı istenmez ama ses yine router'dan.
     expect(rows("voice")[0]!.providerId).toBe("tts");
+    expect(rows("keyframes").some((r) => r.basis.includes("yan görünüş"))).toBe(false);
+  });
+
+  it("yan görünüş açıksa yürüyen karakter başına satır: planlamadan önce bütün kadro, sonra çizilenler", () => {
+    const sideRow = (s: EpisodeState) => estimateEpisode(s, { providers, latency: {} }, "vector").rows.find((r) => r.basis.includes("yan görünüş"))!;
+    const before = sideRow(state({ cast }, { sideViews: true }));
+    expect(before).toMatchObject({ stage: "keyframes", providerId: "claude", via: "SVG", quantity: 1, unit: "varlık" });
+    // Çizim + kapı, kapıdan dönerse (%60) düzeltme + kapı.
+    expect(before.costUsd).toBeCloseTo(0.13 + 0.028 + 0.6 * (0.18 + 0.028));
+    expect(before.basis).toBe("yürüyen karakter başına yan görünüş (~$0.13 + kapı); kütüphanede olanlar ücretsiz");
+    const after = sideRow(state({ cast, sideViews: { c1: { key: "k", ok: true }, c2: { key: "k2", ok: false } } }, { sideViews: true }));
+    expect(after.quantity).toBe(2);
   });
 });
 

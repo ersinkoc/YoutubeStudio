@@ -35,6 +35,35 @@ export const RIG = {
 } as const;
 export type RigPart = keyof typeof RIG.pivots;
 
+/**
+ * Yan görünüş iskeleti (31 Eki): önden çizilen karakter yana yürürken gerçekçi görünmüyordu. Aynı karakterin sağa
+ * bakan ikinci çizimi; parça kimlikleri ön görünüşle aynı (kod aynı pozları uygular), "-l" uzak, "-r" yakın taraftır.
+ * Kol ve bacaklar omuz/kalçadan öne-arkaya döner. Bölüm ayarı açıksa yalnız yürüyen karakterler için çizilir.
+ */
+export const RIG_SIDE = {
+  width: RIG.width,
+  height: RIG.height,
+  pivots: {
+    head: [205, 250],
+    body: [200, 520],
+    "arm-l": [200, 300],
+    "arm-r": [200, 300],
+    "forearm-l": [200, 400],
+    "forearm-r": [200, 400],
+    "leg-l": [200, 520],
+    "leg-r": [200, 520],
+    "shin-l": [200, 630],
+    "shin-r": [200, 630],
+    brows: [235, 140],
+    eyes: [235, 170],
+    mouth: [240, 215],
+  },
+  required: RIG.required,
+} as const satisfies { pivots: Record<RigPart, readonly [number, number]> } & Record<string, unknown>;
+
+/** Timeline'da karakterin yan görünüşünün varlık kimliği: `<karakter>~side`. */
+export const sideAssetId = (id: string) => `${id}~side`;
+
 export const VectorAssetKind = z.enum(["character", "background", "prop"]);
 export type VectorAssetKind = z.infer<typeof VectorAssetKind>;
 

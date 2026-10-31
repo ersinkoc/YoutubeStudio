@@ -46,7 +46,7 @@ Komutlar:
   episode approve <id> script|concept
   episode select <id> <varlık>=<sıra>      örn. c1=2 (konsept adayı seç)
   episode preview <id>              seçilen referanslarla deneme kareleri
-              new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--no-realism: gerçeklik denetimi kapalı] [--line outline|flat|sketch|ink]
+              new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--no-realism: gerçeklik denetimi kapalı] [--side-views: yürüyen karakterlere yan görünüş] [--line outline|flat|sketch|ink]
               [--series "Seri adı"] [--style-pack auto|custom|<paket>]  (paketler: pnpm ys styles)
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
   lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir (Claude çağırır, ~$0.01)
@@ -118,6 +118,7 @@ async function main(): Promise<void> {
       manual: { type: "boolean", default: false },
       "no-qa": { type: "boolean", default: false },
       "no-realism": { type: "boolean", default: false },
+      "side-views": { type: "boolean", default: false },
       curate: { type: "boolean", default: false },
       line: { type: "string" },
       "style-pack": { type: "string" },
@@ -236,6 +237,7 @@ async function main(): Promise<void> {
       ...values,
       noQa: values["no-qa"],
       noRealism: values["no-realism"],
+      sideViews: values["side-views"],
       stylePack: values["style-pack"],
       gate: positionals[3],
       pick: positionals[3],

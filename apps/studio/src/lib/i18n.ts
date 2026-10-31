@@ -173,6 +173,9 @@ const tr = {
   "gate.planCues": "Görünmesi gerekenler: {items}",
   "gate.planMoved": "Bu çizime girmeyen: {items}",
   "form.realism": "Gerçeklik denetimi",
+  "form.sideViews": "Yürürken yan görünüş",
+  "form.sideViews.hint":
+    "Vektör modunda yürüyen karakterlere ikinci (yandan) çizim yapılır, yürürken ona döner. Karakter başına bir çizim + kalite denetimi (~$0,15–0,35 Claude), kütüphanede saklanır.",
   "form.realism.hint": "Gerçek bir kişi, yer ya da nesnenin çizimi internetten bulunan görsellerine sadık mı diye bakılır. Kapatılırsa yalnız tanınırlık denetlenir (stilize anlatımlar için).",
   "rules.gate.human": "Son söz insanındır: Stüdyo'da reddedilen bir çizimi \"Yine de kullan\" ile kabul edebilir, geçen bir çizimi notla reddedip yeniden çizdirebilirsin. Karar kartta \"insan kabul etti / reddetti\" olarak görünür ve kütüphaneye yazılır.",
   "rules.gate.realism": "Gerçeklik (referansa sadakat) denetimi bölüm bazında geçici olarak kapatılabilir; tanınırlık denetimi her zaman açıktır.",
@@ -638,6 +641,9 @@ const en: Record<MessageKey, string> = {
   "gate.planCues": "Must be visible: {items}",
   "gate.planMoved": "Not in this drawing: {items}",
   "form.realism": "Reality check",
+  "form.sideViews": "Side view when walking",
+  "form.sideViews.hint":
+    "In vector mode, walking characters get a second (profile) drawing and turn to it while walking. One drawing + quality check per character (~$0.15–0.35 Claude), kept in the library.",
   "form.realism.hint": "Checks that drawings of real people, places and objects stay faithful to images found online. When off, only recognisability is checked (for stylised storytelling).",
   "rules.gate.human": "Humans have the last word: in the Studio you can accept a rejected drawing with \"Use anyway\", or reject a passing one with a note and have it redrawn. The decision shows on the card as \"accepted / rejected by human\" and is stored in the library.",
   "rules.gate.realism": "The reality (fidelity to references) check can be switched off temporarily per episode; the recognisability check is always on.",

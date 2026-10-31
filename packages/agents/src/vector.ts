@@ -1,4 +1,4 @@
-import { FlagSpec, MapSpec, RIG, VectorShot, type AssetPlan, type LineStyle } from "@ys/core";
+import { FlagSpec, MapSpec, RIG, RIG_SIDE, VectorShot, type AssetPlan, type LineStyle } from "@ys/core";
 import { z } from "zod";
 import { indexWords } from "./agents.ts";
 import { lessonsBlock, models, runStructured, type AgentDeps, type AgentImage, type AgentResult } from "./runner.ts";
@@ -26,9 +26,19 @@ export const VectorAssetOut = z.object({
 });
 export type VectorAssetOut = z.infer<typeof VectorAssetOut>;
 
-const pivots = Object.entries(RIG.pivots)
-  .map(([id, [x, y]]) => `- <g id="${id}">: rotates around (${x}, ${y})`)
-  .join("\n");
+const pivotList = (table: Record<string, readonly [number, number]>) =>
+  Object.entries(table)
+    .map(([id, [x, y]]) => `- <g id="${id}">: rotates around (${x}, ${y})`)
+    .join("\n");
+const pivots = pivotList(RIG.pivots);
+
+/** Yan görünüş: aynı karakterin sağa bakan ikinci çizimi (yürürken kullanılır). */
+const SIDE_CANVAS = `Canvas: viewBox="0 0 ${RIG_SIDE.width} ${RIG_SIDE.height}", the SAME character in a strict SIDE VIEW (profile) FACING RIGHT, standing, feet at y≈750, body centred on x=200. Same height, proportions, outfit, colours and line style as the front view.
+The character is a puppet that code animates (walking). Use EXACTLY these group ids; each part rotates around the given point, so draw it in rest pose (arms hanging straight down beside the body, legs straight and together):
+${pivotList(RIG_SIDE.pivots)}
+"-l" is the FAR side (partly hidden behind the body), "-r" the NEAR side (towards the camera). Nesting (required): <g id="leg-l"> contains <g id="shin-l"> (lower leg + shoe pointing right); same for leg-r/shin-r. <g id="arm-l"> contains the upper arm and <g id="forearm-l"> (forearm + hand); same for arm-r/forearm-r. <g id="head"> contains neck, profile face (nose pointing right), hair, ear, <g id="brows">, <g id="eyes"> (one eye) and <g id="mouth">.
+Draw order: arm-l, leg-l, body, leg-r, head, arm-r (far limbs behind the body, near limbs in front). Make far limbs one shade darker. Every part overlaps its neighbour by ~15 px at the joint (round caps) so swinging never opens a gap.
+Anatomy: shoulder joint at (200, 300), hip at (200, 520), knee at (200, 630), ankle y≈735; arms reach mid-thigh. realHeight is the person's height (same as the front view).`;
 
 const SVG_RULES = `SVG rules:
 - Output exactly one <svg xmlns="http://www.w3.org/2000/svg" viewBox="..."> element. No width/height attributes.
@@ -64,6 +74,9 @@ export interface VectorAssetBrief {
   previous?: string;
   /** Çizimden önce hazırlanan plan (assetPlanner); tarifle çeliştiği yerde plan geçerlidir. */
   plan?: AssetPlan;
+  /** Karakterin yan görünüşü: front onaylı ön çizimdir (aynı kişi yandan çizilir; references ön çizimin görüntüsü). */
+  view?: "side";
+  front?: string;
 }
 
 /** Varlık türünün kısıtı: plan bunun dışına çıkan her şeyi "moved" listesine ayırır. */
@@ -165,8 +178,10 @@ export function vectorDesigner(
   style: StyleBibleOut,
   deps?: AgentDeps,
 ): Promise<AgentResult<VectorAssetOut>> {
-  const canvas =
-    brief.kind === "character"
+  const side = brief.kind === "character" && brief.view === "side";
+  const canvas = side
+    ? SIDE_CANVAS
+    : brief.kind === "character"
       ? `Canvas: viewBox="0 0 ${RIG.width} ${RIG.height}", character standing, front view, feet at y≈750, centered on x=200. Head about 1/6 of the height (adult proportions, slightly stylised).
 The character is a puppet that code animates. Use EXACTLY these group ids; each part rotates around the given point, so draw it in rest pose (arms hanging straight down, legs straight):
 ${pivots}
@@ -205,7 +220,10 @@ ${canvas}${isolated}
 ${SVG_RULES}${lessonsBlock(brief.lessons)}`,
       prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}
 ${brief.description}${brief.plan ? `\n\n${planBlock(brief.plan)}` : ""}${brief.variation ? `\nThis is variation #${brief.variation}: make a clearly different design while keeping the same identity.` : ""}${
-        brief.references?.length
+        // Yan görünüşte ekli görsel gerçek özne değil, onaylı ön çizimin görüntüsüdür.
+        side
+          ? `\n\nThis is the approved FRONT view of this character (the attached image shows it rendered). Draw the same person in profile facing right: keep the identity (face shape, hair, headgear, outfit, colours, accessories, line weight) exactly.\n<front_svg>\n${brief.front}\n</front_svg>`
+          : brief.references?.length
           ? `\n\nThe ${brief.references.length} attached image(s) show the REAL subject. Realism is mandatory: match its silhouette, proportions, colours, materials and the number and arrangement of its distinctive parts (pins, windows, arches, domes, buttons, stripes, headgear, beard, glasses). Simplify textures into flat vector shapes in the art style; do not copy readable text, logos or watermarks. If a reference shows extra things around the subject, draw only the subject.`
           : ""
       }${brief.fix ? `\n\nA quality reviewer rejected your previous drawing. Fix these problems:\n${brief.fix}` : ""}${
