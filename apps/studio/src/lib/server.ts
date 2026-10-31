@@ -2,6 +2,7 @@ import "server-only";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { LocalizedError, msg, type Msg } from "@ys/core/messages";
 import { createDb, DbCostLedger } from "@ys/db";
 import {
   createProvidersFromEnv,
@@ -26,7 +27,7 @@ interface Studio {
   repo: EpisodeRepo;
   ledger: CostLedger;
   providers: ProviderAdapter[];
-  skipped: string[];
+  skipped: Msg[];
   gateway: MediaGateway;
   jobs: Map<string, Job>;
   quotas: Map<string, { at: number; quota: Quota | undefined }>;
@@ -103,7 +104,7 @@ const MAX_LOG = 400;
 export function startJob(episodeId: string, label: string, args: string[]): JobView {
   const { jobs } = init();
   const current = jobs.get(episodeId);
-  if (current?.status === "running") throw new Error(`Zaten çalışan bir iş var: ${current.label}`);
+  if (current?.status === "running") throw new LocalizedError(msg("api.jobRunning", { label: current.label }));
 
   const tsx = join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
   const child = spawn(process.execPath, [tsx, join(ROOT, "apps", "cli", "src", "index.ts"), ...args], {

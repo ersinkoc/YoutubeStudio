@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentImage } from "@ys/agents";
-import { QUALITY_GATE, sanitizeSvg, svgSize } from "@ys/core";
+import { errorText, msg, QUALITY_GATE, sanitizeSvg, svgSize, type Text } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import sharp from "sharp";
 
@@ -108,7 +108,7 @@ const fileOf = (u: string) => decodeURIComponent(u.split("?")[0]!.split("/").pop
 
 export async function findReferences(
   query: string,
-  deps: { store: AssetStore; fetch?: typeof fetch; log?: (m: string) => void },
+  deps: { store: AssetStore; fetch?: typeof fetch; log?: (t: Text) => void },
 ): Promise<References> {
   const q = query.trim();
   const dir = `library/reference/${createHash("sha256").update(q.toLowerCase()).digest("hex").slice(0, 24)}`;
@@ -126,7 +126,7 @@ export async function findReferences(
       candidates.push(...(await search(fetchFn, q)));
     } catch (e) {
       searchFailed = true;
-      deps.log?.(`  referans araması başarısız (${search.name}): ${e instanceof Error ? e.message : String(e)}`);
+      deps.log?.(msg("log.ref.searchFailed", { source: search.name, error: errorText(e) }));
     }
   }
   const seen = new Set<string>();
@@ -158,7 +158,7 @@ export async function findReferences(
       out.keys.push(key);
     } catch (e) {
       searchFailed = true;
-      deps.log?.(`  referans indirilemedi (${c.title}): ${e instanceof Error ? e.message : String(e)}`);
+      deps.log?.(msg("log.ref.downloadFailed", { title: c.title, error: errorText(e) }));
     }
   }
   // Arama yarıda kaldıysa (ağ, 429/5xx) sonuç önbelleğe yazılmaz: geçici bir hata kalıcı "referans yok" olmasın.
@@ -219,7 +219,7 @@ const STOP = new Set(["the", "a", "an", "of", "and", "with", "in", "on", "for", 
  */
 export async function findVectorSources(
   query: string,
-  deps: { store: AssetStore; fetch?: typeof fetch; log?: (m: string) => void },
+  deps: { store: AssetStore; fetch?: typeof fetch; log?: (t: Text) => void },
   limit = 2,
 ): Promise<VectorSource[]> {
   const q = query.trim();
@@ -239,7 +239,7 @@ export async function findVectorSources(
     pages = byIndex((await getJsonUrl<Pages<{ title: string; imageinfo?: Info[] }>>(fetchFn, url))?.query?.pages);
   } catch (e) {
     failed = true;
-    deps.log?.(`  hazır SVG araması başarısız: ${e instanceof Error ? e.message : String(e)}`);
+    deps.log?.(msg("log.ref.vectorSearchFailed", { error: errorText(e) }));
   }
   const wanted = words(q).filter((w) => !STOP.has(w));
   const out: VectorSource[] = [];

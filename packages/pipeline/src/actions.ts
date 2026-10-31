@@ -1,4 +1,4 @@
-import { VectorAssetMeta } from "@ys/core";
+import { LocalizedError, msg, VectorAssetMeta } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import { libraryIdOf, noteCharacterUse } from "./library.ts";
 import { cleanSeries } from "./series.ts";
@@ -33,7 +33,7 @@ export class EpisodeRepo {
 
   async load(id: string): Promise<EpisodeState> {
     const state = await getJson<EpisodeState>(this.store, stateKey(id));
-    if (!state) throw new Error(`Bölüm bulunamadı: ${id}`);
+    if (!state) throw new LocalizedError(msg("err.episode.notFound", { id }));
     return state;
   }
 
@@ -64,10 +64,10 @@ export function invalidateFrom(state: EpisodeState, stage: (typeof STAGES)[numbe
 }
 
 export function approve(state: EpisodeState, gate: Gate): void {
-  if (gate === "script" && !state.script) throw new Error("Önce senaryo üretilmeli");
+  if (gate === "script" && !state.script) throw new LocalizedError(msg("err.action.scriptFirst"));
   if (gate === "concept") {
     const missing = missingSelections(state);
-    if (missing.length) throw new Error(`Seçim yapılmamış: ${missing.join(", ")}`);
+    if (missing.length) throw new LocalizedError(msg("err.selection.missing", { ids: missing.join(", ") }));
   }
   state.approvals = { ...state.approvals, [gate]: new Date().toISOString() };
   if (state.waitingFor === gate) delete state.waitingFor;
@@ -85,7 +85,7 @@ export function missingSelections(state: EpisodeState): string[] {
 
 export function selectCandidate(state: EpisodeState, entityId: string, index: number): void {
   const candidate = state.concept?.candidates[entityId]?.[index];
-  if (!state.concept || !candidate) throw new Error(`Aday yok: ${entityId}#${index}`);
+  if (!state.concept || !candidate) throw new LocalizedError(msg("err.action.noCandidate", { id: `${entityId}#${index}` }));
   state.concept.selected[entityId] = candidate;
   // Referans değişince eski deneme kareleri artık temsil edici değil.
   delete state.concept.previews;
@@ -93,16 +93,16 @@ export function selectCandidate(state: EpisodeState, entityId: string, index: nu
 
 /** Onaydan önce anlatım metni düzenlenebilir. */
 export function editNarration(state: EpisodeState, sceneId: string, narration: string): void {
-  if (state.approvals?.script) throw new Error("Senaryo onaylandı; düzenlemek için önce onayı geri al");
+  if (state.approvals?.script) throw new LocalizedError(msg("err.action.scriptApproved"));
   const scene = state.script?.scenes.find((s) => s.id === sceneId);
-  if (!scene) throw new Error(`Sahne yok: ${sceneId}`);
+  if (!scene) throw new LocalizedError(msg("err.action.noScene", { id: sceneId }));
   scene.narration = narration.trim();
   // Eski ses yeni metni okumaz.
   delete state.voice?.[sceneId];
 }
 
 export function setMotion(state: EpisodeState, motionMode: MotionMode, aiClipRatio?: number): void {
-  if (state.approvals?.concept) throw new Error("Konsept onaylandı; hareket modu değiştirilemez");
+  if (state.approvals?.concept) throw new LocalizedError(msg("err.action.conceptApproved"));
   // Görsel ve vektör modlarının konsept varlıkları farklıdır (PNG/JPEG ↔ SVG); geçişte konsept yeniden üretilir.
   const wasVector = state.input.motionMode === "vector";
   if (wasVector !== (motionMode === "vector") && state.concept) {
@@ -120,7 +120,7 @@ export function setMotion(state: EpisodeState, motionMode: MotionMode, aiClipRat
 export function redrawShots(state: EpisodeState, shotIds: string[]): void {
   const known = new Set(state.shots?.map((s) => s.id));
   const ids = shotIds.filter((id) => known.has(id));
-  if (ids.length === 0) throw new Error("Yeniden çizilecek çekim yok");
+  if (ids.length === 0) throw new LocalizedError(msg("err.action.noShots"));
   state.redraws ??= {};
   for (const id of ids) {
     state.redraws[id] = (state.redraws[id] ?? 0) + 1;
@@ -137,7 +137,7 @@ export function redrawShots(state: EpisodeState, shotIds: string[]): void {
  * zamanlama değiştiği için çekim planı ve sonrası da yeniden üretilir.
  */
 export function changeVoice(state: EpisodeState, voiceId: string | undefined): void {
-  if (state.done.render) throw new Error("Video render edildi; ses değiştirmek için yeni bölüm aç");
+  if (state.done.render) throw new LocalizedError(msg("err.action.rendered"));
   state.input.voiceId = voiceId || undefined;
   delete state.voice;
   delete state.voiceProviderId;
@@ -196,12 +196,12 @@ function detach(state: EpisodeState, entityId: string | undefined, key: string):
  */
 export async function acceptAsset(store: AssetStore, state: EpisodeState, key: string): Promise<void> {
   const check = state.assetChecks?.[key];
-  if (!check) throw new Error(`Kapı kaydı yok: ${key}`);
+  if (!check) throw new LocalizedError(msg("err.action.noGateRecord", { key }));
   const override = { decision: "accepted" as const, at: new Date().toISOString() };
   const next = { ...check, passed: true, override };
   if (check.rejectedKey) {
     const svg = await store.get(check.rejectedKey);
-    if (!svg) throw new Error("Reddedilen çizim depoda yok");
+    if (!svg) throw new LocalizedError(msg("err.action.rejectedMissing"));
     const meta = VectorAssetMeta.parse((await getJson(store, `${check.rejectedKey}.json`)) ?? {});
     await store.put(key, svg, "image/svg+xml");
     await putJson(store, `${key}.json`, { ...meta, check: next });
@@ -221,7 +221,7 @@ export async function acceptAsset(store: AssetStore, state: EpisodeState, key: s
  */
 export async function rejectAsset(store: AssetStore, state: EpisodeState, key: string, note?: string): Promise<void> {
   const check = state.assetChecks?.[key];
-  if (!check) throw new Error(`Kapı kaydı yok: ${key}`);
+  if (!check) throw new LocalizedError(msg("err.action.noGateRecord", { key }));
   const override = { decision: "rejected" as const, note: note?.trim() || undefined, at: new Date().toISOString() };
   const next = { ...check, passed: false, override };
   // Kütüphaneden tekrar kullanılan karakter: "bu kişi değil" kararı yalnız bu bölümü ilgilendirir; paylaşılan kayıt
@@ -245,11 +245,11 @@ export async function rejectAsset(store: AssetStore, state: EpisodeState, key: s
  */
 export async function reuseCharacter(store: AssetStore, state: EpisodeState, castId: string, key: string): Promise<void> {
   const character = state.cast?.characters.find((c) => c.id === castId);
-  if (!character || !state.concept) throw new Error(`Kadroda yok: ${castId}`);
+  if (!character || !state.concept) throw new LocalizedError(msg("err.action.notInCast", { id: castId }));
   const meta = VectorAssetMeta.parse((await getJson(store, `${key}.json`)) ?? {});
-  if (!meta.identity || !meta.check?.passed || meta.check.override?.decision === "rejected") throw new Error("Kütüphanede onaylı karakter değil");
+  if (!meta.identity || !meta.check?.passed || meta.check.override?.decision === "rejected") throw new LocalizedError(msg("err.action.notApproved"));
   if (state.input.realism !== false && meta.check.fidelitySkipped && meta.check.override?.decision !== "accepted") {
-    throw new Error("Bu karakter gerçeklik denetimi kapalıyken geçti; gerçeklik açık bölümde kullanılamaz");
+    throw new LocalizedError(msg("err.action.realismSkipped"));
   }
   const ref = { key, mimeType: "image/svg+xml" };
   const list = (state.concept.candidates[castId] ??= []);

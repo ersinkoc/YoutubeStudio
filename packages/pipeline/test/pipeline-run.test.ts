@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentError } from "@ys/agents";
-import { STYLE_PACKS } from "@ys/core";
+import { formatText, STYLE_PACKS } from "@ys/core";
 import { FRAME_RULES, levelOf, QuotaError, type EpisodeState } from "../src/index.ts";
 import { callsOf, onAgent, render, media, resetFakes } from "./pipeline-fakes.ts";
 import { CAST, harness, makeState, scene, SCRIPT, STYLE, voiceOf } from "./pipeline-harness.ts";
@@ -88,6 +88,10 @@ describe("run düzeni", () => {
     expect(h.ledger.entries[0]).toMatchObject({ capability: "llm", stage: "story", durationMs: 1500, cacheHit: false });
     const saved = await h.load(id);
     expect(saved.activity?.some((a) => a.level === "stage" && a.msg.startsWith("✓ story"))).toBe(true);
+    // Günlük satırı çevrilebilir: Stüdyo seçili dilde gösterir.
+    const models = saved.activity?.find((a) => a.text?.key === "log.run.models");
+    expect(models?.msg).toBe("model seçimi: screenwriter → claude-haiku-5-5");
+    expect(formatText("en", models?.text).trim()).toBe("model choice: screenwriter → claude-haiku-5-5");
     expect(h.store.json("library/lessons.json").lessons[0]).toMatchObject({ target: "script", rule: "Open with the danger" });
     // Kilit bırakıldı.
     expect(h.store.json(`episodes/${id}/run.lock.json`)).toBeNull();
@@ -502,6 +506,7 @@ describe("seslendirme aşaması", () => {
     expect(err).toBeInstanceOf(QuotaError);
     expect((err as Error).message).toMatch(/tts:fake kotası yetmiyor: .* karakter gerekli, 10 kaldı \(starter, yenilenme /);
     expect(h.gateway.generate).not.toHaveBeenCalled();
+    expect(formatText("en", (await h.load(id)).lastError?.text)).toMatch(/^tts:fake quota is not enough: .* characters needed, 10 left \(starter, resets /);
 
     h.gateway.quota.mockResolvedValueOnce({ unit: "chars", used: 999, limit: 1000 });
     await expect(h.pipeline.run(id, { only: "voice" })).rejects.toThrow(/1 kaldı \(plan\)\./);

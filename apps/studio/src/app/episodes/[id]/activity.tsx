@@ -1,9 +1,10 @@
 "use client";
 
+import { formatText } from "@ys/core/messages";
 import type { ActivityEntry, Stage } from "@ys/pipeline/light";
 import { AlertTriangle, ChevronRight, CircleAlert, Play } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { MessageKey, Translate } from "../../../lib/i18n";
+import type { Locale, MessageKey, Translate } from "../../../lib/i18n";
 import type { JobView } from "../../../lib/types";
 import { useI18n } from "../../locale-provider";
 import { stageKey } from "./parts";
@@ -23,7 +24,8 @@ function LevelIcon({ level }: { level: ActivityEntry["level"] }) {
 }
 
 /** Pipeline'ın makine dilindeki aşama satırlarını ("▶ script", "✓ story (29 sn)") arayüz diline çevirir. */
-function readable(entry: ActivityEntry, t: Translate, duration: (s: number) => string): string {
+function readable(entry: ActivityEntry, t: Translate, duration: (s: number) => string, locale: Locale): string {
+  if (entry.text) return formatText(locale, entry.text);
   const start = /^▶ (\w+)/.exec(entry.msg);
   if (start) return t("act.started", { stage: t(stageKey(start[1]!)) });
   const done = /^✓ (\w+)(?: \((\d+) sn\))?/.exec(entry.msg);
@@ -35,7 +37,7 @@ function readable(entry: ActivityEntry, t: Translate, duration: (s: number) => s
 
 /** Tek satır: saat · aşama · mesaj. Hem canlı panelde hem günlük sekmesinde kullanılır. */
 export function ActivityLine({ entry, showStage = true }: { entry: ActivityEntry; showStage?: boolean }) {
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
   return (
     <li className="flex items-start gap-2 py-1 text-[13px] leading-snug">
       <span className="w-[70px] shrink-0 font-mono text-[11px] leading-5 text-muted/70 tabular-nums">{fmt.time(entry.at)}</span>
@@ -43,7 +45,7 @@ export function ActivityLine({ entry, showStage = true }: { entry: ActivityEntry
       {showStage && entry.stage && entry.level !== "stage" && (
         <span className="shrink-0 rounded bg-panel-2 px-1.5 text-[11px] leading-5 text-muted">{t(stageKey(entry.stage))}</span>
       )}
-      <span className={`min-w-0 break-words whitespace-pre-wrap ${LEVEL_STYLE[entry.level]}`}>{readable(entry, t, fmt.duration)}</span>
+      <span className={`min-w-0 break-words whitespace-pre-wrap ${LEVEL_STYLE[entry.level]}`}>{readable(entry, t, fmt.duration, locale)}</span>
     </li>
   );
 }

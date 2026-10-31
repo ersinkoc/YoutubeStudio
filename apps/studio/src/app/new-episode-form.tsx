@@ -1,5 +1,6 @@
 "use client";
 
+import { formatText } from "@ys/core/messages";
 import type { EpisodeEstimate, MotionMode, SeriesSummary } from "@ys/pipeline/light";
 import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -9,6 +10,7 @@ import { useFormStatus } from "react-dom";
 import type { MessageKey } from "../lib/i18n";
 import { VOICES } from "../lib/voices";
 import { errorKey } from "../lib/errors";
+import { providerText } from "../lib/text";
 import { useI18n } from "./locale-provider";
 
 const LANGS = ["tr", "en", "es", "pt-BR", "de", "fr", "ar", "hi", "ja", "id"];
@@ -276,7 +278,7 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
               .map((r) => (
                 <li key={r.stage} className="flex justify-between gap-2">
                   <span className="truncate">
-                    {t(`stage.${r.stage}` as MessageKey)} · {r.providerId ?? "—"}
+                    {t(`stage.${r.stage}` as MessageKey)} · {providerText(locale, r)}
                   </span>
                   <span>{fmt.usd(r.costUsd)}</span>
                 </li>
@@ -290,9 +292,11 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
             ))}
           </div>
           {overBudget && <p className="mt-2 text-xs text-bad">{t("form.overBudget")}</p>}
-          {est.warnings.map((w) => (
-            <p key={w} className="mt-1 text-xs text-bad">⚠ {w}</p>
-          ))}
+          {est.warnings
+            .map((w) => formatText(locale, w))
+            .map((w) => (
+              <p key={w} className="mt-1 text-xs text-bad">⚠ {w}</p>
+            ))}
         </div>
       )}
 

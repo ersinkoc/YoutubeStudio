@@ -6,6 +6,7 @@ import { ElevenLabsMusicAdapter, ElevenLabsSfxAdapter, ElevenLabsTtsAdapter } fr
 import { FalAdapter } from "./providers/fal.ts";
 import { FAL_MODELS } from "./providers/fal-models.ts";
 import { GeminiImageAdapter, GeminiTtsAdapter, VeoAdapter } from "./providers/gemini.ts";
+import { msg, type Msg } from "@ys/core";
 import type { ProviderAdapter } from "./types.ts";
 
 const GEMINI_PRICING = "https://ai.google.dev/gemini-api/docs/pricing";
@@ -24,7 +25,8 @@ export const DEFAULT_COMFY_DIR = resolve(dirname(fileURLToPath(import.meta.url))
 
 export interface RegistryReport {
   providers: ProviderAdapter[];
-  skipped: string[];
+  /** Kurulmayan sağlayıcılar ve nedenleri (Stüdyo'da seçili dilde, CLI'da trText ile). */
+  skipped: Msg[];
 }
 
 /** Anahtarı tanımlı olan sağlayıcıları kurar; eksik olanları nedeniyle birlikte raporlar. */
@@ -34,7 +36,7 @@ export function createProvidersFromEnv(
   now = new Date(),
 ): RegistryReport {
   const providers: ProviderAdapter[] = [];
-  const skipped: string[] = [];
+  const skipped: Msg[] = [];
 
   // --- Yerel GPU (ComfyUI) ---
   const manifestPath = join(comfyDir, "manifest.json");
@@ -43,13 +45,13 @@ export function createProvidersFromEnv(
     for (const spec of specs) {
       const file = join(comfyDir, spec.file);
       if (!existsSync(file)) {
-        skipped.push(`comfy:${spec.id} (workflow dosyası yok: ${spec.file})`);
+        skipped.push(msg("gw.skip.comfyFile", { id: spec.id, file: spec.file }));
         continue;
       }
       providers.push(new ComfyUiAdapter(spec, JSON.parse(readFileSync(file, "utf8")), env.COMFYUI_URL));
     }
   } else {
-    skipped.push("comfy:* (COMFYUI_URL veya manifest.json yok)");
+    skipped.push(msg("gw.skip.comfy"));
   }
 
   // --- fal ---
@@ -57,10 +59,10 @@ export function createProvidersFromEnv(
     const allowUnverified = env.FAL_ENABLE_UNVERIFIED === "1";
     for (const spec of FAL_MODELS) {
       if (spec.verified || allowUnverified) providers.push(new FalAdapter(spec, env.FAL_KEY));
-      else skipped.push(`${spec.id} (doğrulanmadı; FAL_ENABLE_UNVERIFIED=1 ile aç)`);
+      else skipped.push(msg("gw.skip.unverified", { id: spec.id }));
     }
   } else {
-    skipped.push("fal:* (FAL_KEY yok)");
+    skipped.push(msg("gw.skip.noKey", { scope: "fal:*", key: "FAL_KEY" }));
   }
 
   // --- Google Gemini ---
@@ -84,7 +86,7 @@ export function createProvidersFromEnv(
         priceSource: {
           url: "https://www.developersdigest.tech/blog/image-video-generation-api-pricing-2026",
           checked: "2026-10-18",
-          note: "1K; $30/1M görsel token. Batch API'de $0.0168",
+          note: msg("price.note.nanoBanana21"),
         },
       }),
       new GeminiImageAdapter({
@@ -93,7 +95,7 @@ export function createProvidersFromEnv(
         apiKey,
         qualityPrior: 0.8,
         price: { unit: "per_output", usd: 0.067 },
-        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: "Google'ın listesinde 'legacy'; 2.1'in iki katı" },
+        priceSource: { url: GEMINI_PRICING, checked: "2026-10-18", note: msg("price.note.nanoBanana2") },
       }),
       new GeminiTtsAdapter({
         id: "gemini:tts",
@@ -104,7 +106,7 @@ export function createProvidersFromEnv(
         priceSource: {
           url: GEMINI_PRICING,
           checked: "2026-10-31",
-          note: "Ses $9/1M token (2027'den $18), 25 token/sn; ~14 karakter/sn varsayımıyla 1000 karakter ≈ 71 sn",
+          note: msg("price.note.geminiTts"),
         },
       }),
     );
@@ -122,15 +124,15 @@ export function createProvidersFromEnv(
           priceSource: {
             url: GEMINI_PRICING,
             checked: "2026-10-18",
-            note: "Doğrulanmadı: fiyat sayfasında artık Veo yok (preview kapandı)",
+            note: msg("price.note.veo"),
           },
         }),
       );
     } else {
-      skipped.push("gemini:veo (veo-3.1-generate-preview kapandı; GEMINI_VEO_MODEL ile aç, doğrulanmadı)");
+      skipped.push(msg("gw.skip.veo"));
     }
   } else {
-    skipped.push("gemini:* (GEMINI_API_KEY yok)");
+    skipped.push(msg("gw.skip.noKey", { scope: "gemini:*", key: "GEMINI_API_KEY" }));
   }
 
   // --- ElevenLabs ---
@@ -141,7 +143,7 @@ export function createProvidersFromEnv(
       new ElevenLabsMusicAdapter(env.ELEVENLABS_API_KEY, env.ELEVENLABS_MUSIC_MODEL ?? "music_v1"),
     );
   } else {
-    skipped.push("elevenlabs:* (ELEVENLABS_API_KEY yok)");
+    skipped.push(msg("gw.skip.noKey", { scope: "elevenlabs:*", key: "ELEVENLABS_API_KEY" }));
   }
 
   return { providers, skipped };

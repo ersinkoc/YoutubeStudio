@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderAdapter } from "@ys/media-gateway";
-import { estimateEpisode, progressOf, runStatusOf, STALL_AFTER_MS } from "../src/estimate.ts";
+import { formatText, trText } from "@ys/core";
+import { estimateEpisode as estimateRaw, progressOf as progressRaw, runStatusOf, STALL_AFTER_MS } from "../src/estimate.ts";
 import type { EpisodeState, PlannedShotState } from "../src/state.ts";
+
+/** Tahmini Türkçe metinleriyle karşılaştırmak için: mesajlar trText ile düz metne çevrilir. */
+const estimateEpisode = (...args: Parameters<typeof estimateRaw>) => {
+  const e = estimateRaw(...args);
+  return {
+    ...e,
+    rows: e.rows.map((r) => ({ ...r, label: trText(r.label), unit: trText(r.unit), basis: trText(r.basis), via: r.via && trText(r.via) })),
+    warnings: e.warnings.map(trText),
+  };
+};
+const progressOf = (...args: Parameters<typeof progressRaw>) => {
+  const p = progressRaw(...args);
+  return p && { ...p, label: trText(p.label) };
+};
 
 const adapter = (id: string, over: Partial<ProviderAdapter>): ProviderAdapter => ({
   id,
@@ -51,10 +66,10 @@ describe("tahmin: vektör modu", () => {
     const e = estimateEpisode(state({ cast }), { providers, latency: {} }, "vector");
     const rows = (s: string) => e.rows.filter((r) => r.stage === s);
     expect(e.mode).toBe("vector");
-    expect(rows("concept")).toEqual([expect.objectContaining({ providerId: "claude (SVG)", quantity: 3, unit: "varlık" })]);
+    expect(rows("concept")).toEqual([expect.objectContaining({ providerId: "claude", via: "SVG", quantity: 3, unit: "varlık" })]);
     expect(rows("concept")[0]!.basis).not.toContain("kadro tahmini");
     expect(rows("shots")).toEqual([expect.objectContaining({ providerId: "claude", unit: "sahne", quantity: 2 })]);
-    expect(rows("keyframes").map((r) => r.providerId)).toEqual(["claude (SVG)", "claude (taslak denetimi)"]);
+    expect(rows("keyframes").map((r) => [r.providerId, r.via])).toEqual([["claude", "SVG"], ["claude", "taslak denetimi"]]);
     expect(rows("keyframes")[0]!.quantity).toBe(4);
     expect(rows("render")[0]).toMatchObject({ seconds: 30 + 60 * 1.9 });
     expect(rows("render")[0]!.basis).toContain("vektör");
@@ -107,6 +122,28 @@ describe("tahmin: girdi çeşitleri", () => {
     const e = estimateEpisode(state(), { providers: [], latency: {} }, "still");
     expect(e.rows.find((r) => r.stage === "concept")).toMatchObject({ costUsd: 0, providerId: undefined, basis: "sağlayıcı yok; kadro tahmini (2 karakter, 3 mekân)" });
     expect(e.warnings).toEqual(expect.arrayContaining(['"t2i" için uygun sağlayıcı yok (anahtar eksik olabilir)', '"tts" için uygun sağlayıcı yok (anahtar eksik olabilir)']));
+  });
+});
+
+describe("tahmin: çevrilebilir metinler", () => {
+  it("birim, dayanak, açıklama ve uyarılar İngilizce de biçimlenir", () => {
+    const e = estimateRaw(state({}, { budgetUsd: 0.01 }), { providers: [], latency: {} }, "vector");
+    const en = (s: string) => e.rows.filter((r) => r.stage === s).map((r) => ({ unit: formatText("en", r.unit), basis: formatText("en", r.basis), via: formatText("en", r.via) }));
+    expect(en("concept")[0]).toEqual({
+      unit: "assets",
+      via: "SVG",
+      basis: "measured (Oct 30): character ~$0.15, location ~$0.04; cast estimate (2 characters, 3 locations); every drawing passes the quality gate (~60% extra drawings)",
+    });
+    expect(en("render")[0]).toMatchObject({ unit: "s of video", via: "local (Remotion)", basis: "estimate: ~1.9× video length (vector scenes)" });
+    expect(en("voice")[0]).toMatchObject({ unit: "characters", basis: "no provider; text estimate" });
+    expect(formatText("en", e.rows[0]!.label)).toBe("Style");
+    // Aynı uyarı (her klip için "sağlayıcı yok") bir kez.
+    expect(e.warnings.map((w) => formatText("en", w))).toEqual([
+      'No suitable provider for "t2i" (an API key may be missing)',
+      'No suitable provider for "tts" (an API key may be missing)',
+      'No suitable provider for "i2i_multiref" (an API key may be missing)',
+      expect.stringMatching(/^Estimated total \(\$\d+\.\d\d\) exceeds the budget cap \(\$0\.01\)$/),
+    ]);
   });
 });
 

@@ -1,3 +1,4 @@
+import { msg } from "@ys/core";
 import { toDataUri } from "../http.ts";
 import { ContentRejectedError, promptWithAvoid, type AspectRatio, type GenerationRequest, type RefInput } from "../types.ts";
 import type { FalModelSpec } from "./fal.ts";
@@ -34,7 +35,7 @@ const imageUrls = (res: Record<string, unknown>): string[] => {
   const flags = (res.has_nsfw_concepts as boolean[] | undefined) ?? [];
   const clean = images.filter((_, i) => flags[i] !== true);
   if (images.length > 0 && clean.length === 0) {
-    throw new ContentRejectedError(`fal güvenlik filtresi ${images.length} görseli işaretledi (siyah görsel)`, { billed: true });
+    throw new ContentRejectedError(msg("gw.fal.nsfw", { n: images.length }), { billed: true });
   }
   return clean.map((i) => i.url);
 };
@@ -72,7 +73,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     // 0.55 ile standart seviyenin tabanının (0.6) altında kalır: ekonomide FLUX, standartta NB2.
     qualityPrior: 0.55,
     price: { unit: "per_output", usd: 0.025 },
-    priceSource: { url: "https://fal.ai/models/fal-ai/flux/dev", checked: "2026-09-11", note: "~1 MP; megapiksel başına" },
+    priceSource: { url: "https://fal.ai/models/fal-ai/flux/dev", checked: "2026-09-11", note: msg("price.note.perMegapixel") },
     verified: true,
     // negative_prompt alanı yok (https://fal.ai/models/fal-ai/flux/dev/api): prompt'a "Avoid:" olarak eklenir.
     buildInput: (req) => ({
@@ -116,7 +117,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     priceSource: {
       url: "https://fal.ai/models/fal-ai/kling-video/v3/standard/image-to-video",
       checked: "2026-10-31",
-      note: "sessiz $0.084/sn, sesli $0.126/sn",
+      note: msg("price.note.kling", { silent: 0.084, audio: 0.126 }),
     },
     verified: true,
     buildInput: kling3Input,
@@ -132,7 +133,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     priceSource: {
       url: "https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video",
       checked: "2026-10-31",
-      note: "sessiz $0.112/sn, sesli $0.168/sn (ses kontrolü $0.196/sn)",
+      note: msg("price.note.klingPro", { silent: 0.112, audio: 0.168, control: 0.196 }),
     },
     // Şema ve fiyat 31 Eki'de fal sayfasından doğrulandı; pahalı katmanı varsayılan açmak kullanıcı kararı.
     verified: false,
@@ -150,7 +151,7 @@ export const FAL_MODELS: FalModelSpec[] = [
     priceSource: {
       url: "https://fal.ai/models/bytedance/seedance-2.0/reference-to-video",
       checked: "2026-10-31",
-      note: "720p, video girdisi yok; ses dahil",
+      note: msg("price.note.seedance"),
     },
     verified: false,
     buildInput: (req) => ({

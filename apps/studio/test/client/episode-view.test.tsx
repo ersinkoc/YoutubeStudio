@@ -250,6 +250,12 @@ describe("EpisodeView: durum panelleri", () => {
     expect(screen.queryByRole("button", { name: tr("ep.err.toGemini") })).toBeNull();
   });
 
+  it("çevrilebilir hata seçili dilde gösterilir", async () => {
+    const lastError = { stage: "keyframes" as const, message: "Bilinmeyen hata", text: { key: "err.unknown" as const }, at: "t" };
+    await show(makeData(makeState({ lastError }), { status: { status: "error", stage: "keyframes" } }), "en");
+    expect(screen.getByText("Unknown error")).toBeTruthy();
+  });
+
   it("hata kaydı yoksa (çöken Stüdyo işi): sürecin son satırı, o da yoksa genel mesaj; sayfa çökmez", async () => {
     const job = (log: string[]) => ({ job: { label: "x", status: "error" as const, log, startedAt: "t" }, status: { status: "error" as const, stage: "keyframes" as const } });
     await show(makeData(makeState(), job(["başladı", "Süreç çıkış kodu: 3221226505 (0xC0000409)"])));

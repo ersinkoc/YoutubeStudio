@@ -1,5 +1,5 @@
 import type { ShotPlanOut } from "@ys/agents";
-import type { Timeline, VectorAsset, VectorShot, WordTiming } from "@ys/core";
+import { LocalizedError, msg, type Timeline, type VectorAsset, type VectorShot, type WordTiming } from "@ys/core";
 import type { EpisodeState, PlannedShotState, SceneVoice } from "./state.ts";
 import { lineStyleOf } from "./state.ts";
 
@@ -101,7 +101,7 @@ export function buildTimeline(
   vectorAssets: Record<string, VectorAsset> = {},
 ): Timeline {
   const { input, script, voice, shots, keyframes } = state;
-  if (!script || !voice || !shots || !keyframes) throw new Error("Timeline için script, voice, shots, keyframes gerekli");
+  if (!script || !voice || !shots || !keyframes) throw new LocalizedError(msg("err.timeline.missing"));
 
   const fps = input.fps;
   const toFrame = (ms: number) => Math.round((ms / 1000) * fps);

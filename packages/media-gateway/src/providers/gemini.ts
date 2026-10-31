@@ -1,4 +1,4 @@
-import type { Capability } from "@ys/core";
+import { LocalizedError, msg, type Capability } from "@ys/core";
 import { toWav } from "../audio.ts";
 import { afterSubmit } from "../types.ts";
 import { fromBase64, pollUntil, requestBytes, requestJson, toBase64 } from "../http.ts";
@@ -40,15 +40,16 @@ interface GeminiModelConfig {
 }
 
 function inlineParts(res: GenerateContentResponse): InlineData[] {
-  if (res.promptFeedback?.blockReason) throw new ContentRejectedError(`Gemini engelledi: ${res.promptFeedback.blockReason}`);
+  if (res.promptFeedback?.blockReason) throw new ContentRejectedError(msg("gw.gemini.blocked", { reason: res.promptFeedback.blockReason }));
   const candidate = res.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const data = parts.flatMap((p) => (p.inlineData ? [p.inlineData] : []));
   if (data.length === 0) {
     // Görsel yerine metin ya da güvenlik sonlandırması: nedeni hata mesajına taşı ki prompt düzeltilebilsin.
     const text = parts.map((p) => p.text ?? "").join(" ").trim();
+    const reason = candidate?.finishReason ?? msg("gw.noReason");
     throw new ContentRejectedError(
-      `Gemini görsel döndürmedi (${candidate?.finishReason ?? "neden yok"})${text ? `: ${text.slice(0, 200)}` : ""}`,
+      text ? msg("gw.gemini.noImageText", { reason, text: text.slice(0, 200) }) : msg("gw.gemini.noImage", { reason }),
     );
   }
   return data;
@@ -140,7 +141,7 @@ export class GeminiTtsAdapter implements ProviderAdapter {
     const audio = inlineParts(res)[0];
     // inlineParts boş listede zaten hata verir; bu satır yalnız tip daraltması için.
     /* v8 ignore next */
-    if (!audio) throw new Error("Gemini TTS ses döndürmedi");
+    if (!audio) throw new LocalizedError(msg("gw.gemini.noAudio"));
     const rate = Number(/rate=(\d+)/.exec(audio.mimeType)?.[1] ?? 24_000);
     return { files: [{ bytes: toWav(fromBase64(audio.data), rate), mimeType: "audio/wav" }] };
   }
@@ -224,10 +225,10 @@ export class VeoAdapter implements ProviderAdapter {
         },
         { intervalMs: 10_000, signal: ctx.signal },
       );
-      if (done.error) throw new Error(`Veo: ${done.error.message}`);
+      if (done.error) throw new LocalizedError(msg("gw.veo.error", { error: done.error.message }));
       const res = done.response?.generateVideoResponse;
       const uri = res?.generatedSamples?.[0]?.video?.uri;
-      if (!uri) throw new Error(`Veo video döndürmedi: ${res?.raiMediaFilteredReasons?.join(", ") ?? "bilinmiyor"}`);
+      if (!uri) throw new LocalizedError(msg("gw.veo.noVideo", { reasons: res?.raiMediaFilteredReasons?.join(", ") ?? msg("gw.unknown") }));
 
       const video = await requestBytes(ctx.fetch, uri, { headers: { "x-goog-api-key": this.cfg.apiKey } });
       return { files: [{ bytes: video.bytes, mimeType: "video/mp4" }] };

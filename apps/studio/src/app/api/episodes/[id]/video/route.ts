@@ -1,5 +1,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
+import { msg } from "@ys/core/messages";
+import { textResponse } from "../../../../../lib/api";
 import { repo } from "../../../../../lib/server";
 
 /**
@@ -24,12 +26,12 @@ function fileStream(path: string, range?: { start: number; end: number }): Reada
 /** Render edilmiş videoyu Range desteğiyle sunar (oynatıcıda ileri sarma için). */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  if (!/^[a-z0-9][a-z0-9-]{0,120}$/.test(id)) return new Response("Geçersiz bölüm", { status: 400 });
+  if (!/^[a-z0-9][a-z0-9-]{0,120}$/.test(id)) return textResponse(req, msg("api.badEpisode"), 400);
   const state = await repo().load(id);
-  if (!state.render) return new Response("Video yok", { status: 404 });
+  if (!state.render) return textResponse(req, msg("api.noVideo"), 404);
   const path = state.render.path;
   const info = await stat(path).catch(() => undefined);
-  if (!info) return new Response("Video dosyası yok", { status: 404 });
+  if (!info) return textResponse(req, msg("api.noVideoFile"), 404);
   const { size } = info;
   const download = new URL(req.url).searchParams.has("download");
   const headers: Record<string, string> = {

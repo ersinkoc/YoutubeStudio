@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { trText } from "@ys/core";
 import { FsAssetStore, getJson, putJson, type AssetStore } from "@ys/storage";
 import { findReferences, findVectorSources, searchQuery, titleMatch } from "../src/reference.ts";
 
@@ -72,7 +73,7 @@ describe("referans arama: Wikimedia sırası", () => {
     const store = tempStore();
     const logs: string[] = [];
     const { fn, calls } = fakeFetch((url) => (url.includes("wikipedia") ? new Response("", { status: 429 }) : new Response("", { status: 503 })));
-    const r = await drive(findReferences("Galata", { store, fetch: fn, log: (m) => logs.push(m) }));
+    const r = await drive(findReferences("Galata", { store, fetch: fn, log: (m) => logs.push(trText(m)) }));
     expect(r).toEqual({ images: [], sources: [], keys: [] });
     expect(calls.filter((u) => u.includes("wikipedia"))).toHaveLength(2);
     expect(logs).toEqual(["  referans araması başarısız (wikipediaLead): HTTP 429", "  referans araması başarısız (commonsSearch): HTTP 503"]);
@@ -84,7 +85,7 @@ describe("referans arama: Wikimedia sırası", () => {
     const thrower = (async () => {
       throw "kapalı";
     }) as unknown as typeof fetch;
-    await drive(findReferences("x", { store: tempStore(), fetch: thrower, log: (m) => logs.push(m) }));
+    await drive(findReferences("x", { store: tempStore(), fetch: thrower, log: (m) => logs.push(trText(m)) }));
     expect(logs[0]).toBe("  referans araması başarısız (wikipediaLead): kapalı");
 
     const store = tempStore();
@@ -144,7 +145,7 @@ describe("referans arama: adaylar", () => {
       if (url.endsWith("atar.jpg")) throw "bağlantı koptu";
       return new Response(await png());
     });
-    const r = await drive(findReferences("Kule", { store, fetch: fn, log: (m) => logs.push(m) }));
+    const r = await drive(findReferences("Kule", { store, fetch: fn, log: (m) => logs.push(trText(m)) }));
     expect(r.sources.map((s) => s.title)).toEqual(["iyi.jpg"]);
     expect(logs).toHaveLength(2);
     expect(logs[0]).toMatch(/^ {2}referans indirilemedi \(bozuk\.jpg\): /);
@@ -237,7 +238,7 @@ describe("hazır SVG: kenar durumlar", () => {
       const bad = (async () => {
         throw thrown;
       }) as unknown as typeof fetch;
-      expect(await drive(findVectorSources("cart", { store: s, fetch: bad, log: (m) => logs.push(m) }))).toEqual([]);
+      expect(await drive(findVectorSources("cart", { store: s, fetch: bad, log: (m) => logs.push(trText(m)) }))).toEqual([]);
       expect(await indexKey(s, "library/vector-source/")).toEqual([]);
     }
     expect(logs).toEqual(["  hazır SVG araması başarısız: HTTP 503", "  hazır SVG araması başarısız: kapalı"]);

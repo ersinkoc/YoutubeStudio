@@ -1,5 +1,5 @@
 import type { CastOut, LessonTarget, MotionMode, ScriptOut, ShotPlanOut, StoryOut, StyleBibleOut } from "@ys/agents";
-import type { Ambience, AssetCheck, BudgetTier, FlagSpec, LineStyle, MapSpec, Timeline, VectorShot, WordTiming } from "@ys/core";
+import type { Ambience, AssetCheck, BudgetTier, FlagSpec, LineStyle, MapSpec, Msg, Timeline, VectorShot, WordTiming } from "@ys/core";
 import { stylePackOf } from "@ys/core";
 
 export type { MotionMode };
@@ -141,7 +141,10 @@ export interface ActivityEntry {
   at: string;
   stage?: Stage;
   level: "stage" | "info" | "warn" | "error";
+  /** Türkçe metin (CLI, eski kayıtlar). */
   msg: string;
+  /** Çevrilebilir mesaj: varsa Stüdyo bunu seçili dilde gösterir. */
+  text?: Msg;
 }
 
 /** Durumda tutulan günlük satırı sınırı (state.json büyümesin). */
@@ -150,6 +153,8 @@ export const ACTIVITY_LIMIT = 400;
 export interface EpisodeError {
   stage: Stage;
   message: string;
+  /** Çevrilebilir hata metni (varsa Stüdyo bunu seçili dilde gösterir). */
+  text?: Msg;
   at: string;
 }
 

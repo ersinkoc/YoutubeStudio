@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { formatText, trText } from "@ys/core";
 import {
   ComfyUiAdapter,
   DEFAULT_COMFY_DIR,
@@ -10,8 +11,13 @@ import {
   geminiTtsPricePer1k,
 } from "../src/index.ts";
 
-/** Gerçek process.env yerine sahte değerlerle çağırır. */
-const createProvidersFromEnv = (env: Record<string, string>, dir?: string) => fromEnvTyped(env as NodeJS.ProcessEnv, dir);
+const rawEnv = (env: Record<string, string>, dir?: string) => fromEnvTyped(env as NodeJS.ProcessEnv, dir);
+
+/** Gerçek process.env yerine sahte değerlerle çağırır; atlanma nedenleri Türkçe metne çevrilir. */
+const createProvidersFromEnv = (env: Record<string, string>, dir?: string) => {
+  const r = rawEnv(env, dir);
+  return { ...r, skipped: r.skipped.map(trText) };
+};
 
 /** Geçici ComfyUI klasörü: bir workflow mevcut, biri eksik. */
 function comfyDir(): string {
@@ -42,6 +48,21 @@ describe("createProvidersFromEnv", () => {
         "elevenlabs:* (ELEVENLABS_API_KEY yok)",
       ],
     });
+  });
+
+  it("atlanma nedenleri ve fiyat notları İngilizce de biçimlenir", () => {
+    const empty = mkdtempSync(join(tmpdir(), "ys-comfy-bos-"));
+    expect(rawEnv({}, empty).skipped.map((s) => formatText("en", s))).toEqual([
+      "comfy:* (no COMFYUI_URL or manifest.json)",
+      "fal:* (no FAL_KEY)",
+      "gemini:* (no GEMINI_API_KEY)",
+      "elevenlabs:* (no ELEVENLABS_API_KEY)",
+    ]);
+    const veo = rawEnv({ GEMINI_API_KEY: "g", GEMINI_VEO_MODEL: "veo-x" }, empty).providers.find((p) => p.id === "gemini:veo")!;
+    expect(formatText("en", veo.priceSource!.note)).toBe("Unverified: Veo is no longer on the pricing page (preview shut down)");
+    const fal = rawEnv({ FAL_KEY: "k", FAL_ENABLE_UNVERIFIED: "1" }, empty).providers;
+    expect(fal.map((p) => formatText("en", p.priceSource?.note))).toContain("silent $0.084/s, with audio $0.126/s");
+    expect(fal.map((p) => formatText("tr", p.priceSource?.note))).toContain("sessiz $0.112/sn, sesli $0.168/sn (ses kontrolü $0.196/sn)");
   });
 
   it("COMFYUI_URL var ama manifest yoksa ComfyUI'ı atlar", () => {

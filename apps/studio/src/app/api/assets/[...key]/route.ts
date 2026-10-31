@@ -1,3 +1,5 @@
+import { msg } from "@ys/core/messages";
+import { textResponse } from "../../../../lib/api";
 import { store } from "../../../../lib/server";
 
 const TYPES: Record<string, string> = {
@@ -15,14 +17,14 @@ const TYPES: Record<string, string> = {
 const ROOTS = new Set(["assets", "library"]);
 
 /** Depodaki üretilmiş varlıkları sunar. Anahtarlar içerik hash'li olduğu için kalıcı önbelleklenebilir. */
-export async function GET(_req: Request, ctx: { params: Promise<{ key: string[] }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ key: string[] }> }) {
   const { key } = await ctx.params;
   // Kodlanmış eğik çizgi (%2F) bir parçaya "../episodes/…" sokabiliyordu: parçada ayraç ve nokta ile başlama yasak.
   if (!ROOTS.has(key[0] ?? "") || key.some((k) => !k || k.startsWith(".") || /[\\/\0]/.test(k))) {
-    return new Response("Yasak", { status: 403 });
+    return textResponse(req, msg("api.forbidden"), 403);
   }
   const bytes = await store().get(key.join("/"));
-  if (!bytes) return new Response("Yok", { status: 404 });
+  if (!bytes) return textResponse(req, msg("api.notFound"), 404);
   // Yukarıdaki denetim en az bir dolu parça garanti eder; "" yalnız tip için (ulaşılamaz).
   /* v8 ignore next */
   const ext = key.at(-1)?.split(".").pop()?.toLowerCase() ?? "";

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Capability } from "@ys/core";
+import { LocalizedError, msg, type Capability } from "@ys/core";
 import { pollUntil, requestBytes, requestJson } from "../http.ts";
 import type {
   AspectRatio,
@@ -107,7 +107,7 @@ export class ComfyUiAdapter implements ProviderAdapter {
       },
       { intervalMs: 2000, timeoutMs: 60 * 60_000, signal: ctx.signal },
     );
-    if (entry.status?.status_str === "error") throw new Error(`ComfyUI hata: ${JSON.stringify(entry.status.messages)}`);
+    if (entry.status?.status_str === "error") throw new LocalizedError(msg("gw.comfy.error", { detail: JSON.stringify(entry.status.messages) }));
 
     const files: OutputFile[] = [];
     for (const node of Object.values(entry.outputs ?? {})) {

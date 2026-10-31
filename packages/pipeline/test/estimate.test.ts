@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderAdapter } from "@ys/media-gateway";
-import { estimateEpisode, progressOf, type EpisodeState } from "../src/light.ts";
+import { formatText, trText } from "@ys/core";
+import { estimateEpisode as estimateRaw, progressOf as progressRaw, type EpisodeState } from "../src/light.ts";
+
+/** Tahmini Türkçe metinleriyle karşılaştırmak için: mesajlar trText ile düz metne çevrilir. */
+const estimateEpisode = (...args: Parameters<typeof estimateRaw>) => {
+  const e = estimateRaw(...args);
+  return {
+    ...e,
+    rows: e.rows.map((r) => ({ ...r, label: trText(r.label), unit: trText(r.unit), basis: trText(r.basis), via: r.via && trText(r.via) })),
+    warnings: e.warnings.map(trText),
+  };
+};
+const progressOf = (...args: Parameters<typeof progressRaw>) => {
+  const p = progressRaw(...args);
+  return p && { ...p, label: trText(p.label) };
+};
 
 const adapter = (id: string, over: Partial<ProviderAdapter>): ProviderAdapter => ({
   id,

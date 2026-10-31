@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { usd } from "@ys/core";
+import { trText, usd } from "@ys/core";
 import { FsAssetStore } from "@ys/storage";
 import {
   AllProvidersFailedError,
@@ -106,7 +106,7 @@ describe("billing", () => {
       unitLabel: "karakter",
       micros: usd(0.25),
     });
-    expect(describePrice({ unit: "per_second", usd: 0.05, stepSec: 5, minSec: 5 })).toBe("$0.05/sn (5 sn adımlarla), en az 5 sn");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.05, stepSec: 5, minSec: 5 }))).toBe("$0.05/sn (5 sn adımlarla), en az 5 sn");
   });
 });
 

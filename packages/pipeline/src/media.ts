@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { LocalizedError, msg } from "@ys/core";
 
 const run = promisify(execFile);
 
@@ -22,7 +23,7 @@ export async function probeDurationMs(bytes: Uint8Array, ext: string): Promise<n
       file,
     ]);
     const sec = Number.parseFloat(stdout.trim());
-    if (!Number.isFinite(sec)) throw new Error(`ffprobe süre okuyamadı: ${stdout}`);
+    if (!Number.isFinite(sec)) throw new LocalizedError(msg("err.media.probe", { output: stdout }));
     return Math.round(sec * 1000);
   } finally {
     await rm(dir, { recursive: true, force: true });

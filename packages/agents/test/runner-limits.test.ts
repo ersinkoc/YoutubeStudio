@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatText, msg } from "@ys/core";
 import { z } from "zod";
 
 // Varsayılan queryFn gerçek Agent SDK'dır: burada sahtesiyle değiştirilir (ağ ve Claude çağrısı yok).
@@ -96,6 +97,7 @@ describe("runStructured: kalan durumlar", () => {
       expect(err.transient).toBe(false);
       expect(err.costUsd).toBe(0.004);
       expect(err.message).toBe(`t: API hatası${status ? ` ${status}` : ""}: invalid request`);
+      expect(formatText("en", err.text)).toBe(`t: API error${status ? ` ${status}` : ""}: invalid request`);
     }
   });
 
@@ -155,6 +157,7 @@ describe("runStructured: kalan durumlar", () => {
         await vi.runAllTimersAsync();
         const err = (await run) as InstanceType<typeof AgentError>;
         expect(err.message).toBe("t: 10 sn içinde bitmedi");
+        expect(formatText("en", err.text)).toBe("t: did not finish within 10 s");
         expect(err.transient).toBe(true);
         expect(n).toBe(3);
       }
@@ -266,5 +269,8 @@ describe("yardımcılar", () => {
     const e = new AgentError("x", 0.5, "m", "a");
     expect([e.message, e.costUsd, e.model, e.agent]).toEqual(["x", 0.5, "m", "a"]);
     expect(new AgentError("y").costUsd).toBe(0);
+    // Çevrilebilir mesaj: message Türkçe, text seçili dilde.
+    const loc = new AgentError(msg("agent.noResult", { agent: "a" }), 0.1);
+    expect([loc.message, formatText("en", loc.text)]).toEqual(["a: sonuç mesajı gelmedi", "a: no result message received"]);
   });
 });

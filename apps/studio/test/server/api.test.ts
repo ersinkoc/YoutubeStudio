@@ -41,7 +41,10 @@ async function saveEpisode(id: string, over: Partial<EpisodeState> = {}, input: 
 }
 const load = (id: string) => server.repo().load(id);
 const params = <T,>(p: T) => ({ params: Promise.resolve(p) });
-const post = (body: unknown) => new Request("http://localhost:3100/api", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+/** Türkçe tarayıcı: hata metinleri isteğin dilinde döner (İngilizcesi ayrı testte). */
+const TR = { "accept-language": "tr-TR,tr;q=0.9" };
+const post = (body: unknown, headers: Record<string, string> = TR) =>
+  new Request("http://localhost:3100/api", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", ...headers } });
 const act = (id: string, body: unknown) => action.POST(post(body), params({ id }));
 const lockOf = (id: string, pid: number) => putJson(server.store(), `episodes/${id}/run.lock.json`, { pid, host: hostname(), startedAt: "t" });
 const DEAD_PID = 2 ** 22 + 12345;
@@ -204,7 +207,7 @@ describe("/api/settings/models", () => {
 
 describe("GET /api/episodes/[id]", () => {
   const get = async (id: string) => {
-    const res = await episode.GET(new Request("http://x"), params({ id }));
+    const res = await episode.GET(new Request("http://x", { headers: TR }), params({ id }));
     return { res, body: (await res.json()) as Record<string, any> };
   };
 
@@ -367,7 +370,7 @@ describe("GET /api/episodes/[id]", () => {
 describe("GET /api/episodes/[id]/video", () => {
   const SIZE = 1000;
   const bytes = Uint8Array.from({ length: SIZE }, (_, i) => i % 256);
-  const get = (id: string, headers: Record<string, string> = {}, query = "") =>
+  const get = (id: string, headers: Record<string, string> = TR, query = "") =>
     video.GET(new Request(`http://localhost/api/episodes/${id}/video${query}`, { headers }), params({ id }));
 
   beforeEach(async () => {
@@ -455,6 +458,21 @@ describe("POST /api/episodes/[id]/action", () => {
     await saveEpisode("a1");
     await fail("a1", { type: "uç" }, "Bilinmeyen eylem: uç");
     await fail("yok", { type: "resume" }, "Bölüm bulunamadı");
+  });
+
+  it("hata isteğin dilinde: çerez tarayıcı dilinden önce gelir, geçersiz çerezde tarayıcı dili", async () => {
+    const en = async (id: string, body: unknown, headers: Record<string, string>) =>
+      ((await (await action.POST(post(body, headers), params({ id }))).json()) as { error: string }).error;
+    expect(await en("../x", { type: "resume" }, { cookie: "a=1; ys-lang=en", "accept-language": "tr" })).toBe("Invalid episode");
+    expect(await en("../x", { type: "resume" }, { cookie: "ys-lang=xx", "accept-language": "tr" })).toBe("Geçersiz bölüm");
+    expect(await en("../x", { type: "resume" }, {})).toBe("Invalid episode");
+    await saveEpisode("a-en");
+    expect(await en("a-en", { type: "uç" }, { cookie: "ys-lang=en" })).toBe("Unknown action: uç");
+    expect(await en("a-en", { type: "set-motion", motionMode: "x" }, { cookie: "ys-lang=en" })).toBe("Invalid motion mode");
+    const created = await episodes.POST(post({}, { cookie: "ys-lang=en" }));
+    expect(await created.json()).toEqual({ error: "A topic is required" });
+    const asset = await assets.GET(new Request("http://x", { headers: { cookie: "ys-lang=en" } }), params({ key: ["x"] }));
+    expect(await asset.text()).toBe("Forbidden");
   });
 
   it("iş sürerken iptal dışında hiçbir eylem yapılmaz; iptal süreci öldürür", async () => {

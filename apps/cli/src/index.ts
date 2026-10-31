@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { parseArgs } from "node:util";
-import { BudgetTier, Capability, Quality, STYLE_PACKS, formatUsd, usd } from "@ys/core";
+import { BudgetTier, Capability, Quality, STYLE_PACKS, formatUsd, trText, usd } from "@ys/core";
 import { createDb, DbCostLedger } from "@ys/db";
 import {
   createProvidersFromEnv,
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
       console.log(`  ${p.id.padEnd(28)} q=${p.qualityPrior.toFixed(2)}  ${price.padEnd(26)} ${p.capabilities.join(", ")}`);
     }
     console.log("\nAtlananlar:");
-    for (const s of skipped) console.log(`  ${s}`);
+    for (const s of skipped) console.log(`  ${trText(s)}`);
     return;
   }
 

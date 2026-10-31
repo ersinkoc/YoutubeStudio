@@ -1,4 +1,4 @@
-import type { Capability } from "@ys/core";
+import { msg, type Capability, type Msg, type Text } from "@ys/core";
 import { billing, rankProviders, type GenerationRequest, type ProviderAdapter } from "@ys/media-gateway";
 import { gateBefore, isApproved, motionModeOf, STAGES, type EpisodeState, type MotionMode, type Stage } from "./state.ts";
 import { clipSeconds } from "./timing.ts";
@@ -10,20 +10,16 @@ import { clipSeconds } from "./timing.ts";
  * Bölüm ilerledikçe varsayımlar gerçek sayılarla değişir (karakter sayısı, çekim sayısı ve süreleri).
  */
 
-export const STAGE_LABELS: Record<Stage, string> = {
-  style: "Stil",
-  story: "Hikâye",
-  script: "Senaryo",
-  cast: "Casting",
-  concept: "Konsept görselleri",
-  voice: "Seslendirme",
-  shots: "Çekim planı",
-  keyframes: "Kareler",
-  clips: "Animasyon",
-  timeline: "Kurgu",
-  render: "Render",
-  review: "İnceleme",
-};
+/*
+ * Satır metinleri (etiket, birim, dayanak, uyarı) çevrilebilir mesajdır: Stüdyo seçili dilde gösterir.
+ */
+export const STAGE_LABELS: Record<Stage, Msg> = Object.fromEntries(
+  STAGES.map((s) => [s, msg(`cost.stage.${s}` as const)]),
+) as Record<Stage, Msg>;
+
+/** Dayanak parçalarını "a; b" olarak birleştirir (boş parçalar atlanır). */
+const joinText = (first: Text, ...rest: (Text | false)[]): Text =>
+  rest.reduce<Text>((a, b) => (b ? msg("cost.join", { a, b }) : a), first);
 
 /** Ölçüm yokken çağrı başı süre (ms). 29 Eki çalıştırmalarından. Tahminde fiyatlanan her yetenek burada. */
 const DEFAULT_LATENCY_MS = {
@@ -82,15 +78,18 @@ const WPM_DEFAULT: Record<string, number> = { tr: 115, de: 125, fi: 110, en: 150
 
 export interface EstimateRow {
   stage: Stage;
-  label: string;
+  label: Text;
   providerId?: string;
+  /** Model sütununda sağlayıcının yanında gösterilen açıklama ("SVG", "taslak denetimi"); sağlayıcı yoksa tek başına. */
+  via?: Text;
   quantity: number;
-  unit: string;
+  /** Birim; mesajsa `.one` eki tekil biçimdir (Stüdyo miktar 1 iken onu kullanır). */
+  unit: Text;
   costUsd: number;
   seconds: number;
   done: boolean;
   /** Tahminin dayanağı: "ölçüm (n=12)" veya "varsayılan". */
-  basis: string;
+  basis: Text;
 }
 
 export interface EpisodeEstimate {
@@ -103,7 +102,7 @@ export interface EpisodeEstimate {
   remainingUsd: number;
   remainingSeconds: number;
   /** Uyarılar: sağlayıcı yok, bütçe yetmiyor… */
-  warnings: string[];
+  warnings: Text[];
 }
 
 export interface EstimateContext {
@@ -116,7 +115,14 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const input = { ...state.input, motionMode: modeOverride ?? motionModeOf(state.input) };
   const mode = input.motionMode;
   const policy = { tier: input.tier };
-  const warnings: string[] = [];
+  const warnings: Text[] = [];
+  // Aynı uyarı birden çok satırdan gelebilir (ör. her klip için "sağlayıcı yok"): anahtar + parametreyle tekilleştirilir.
+  const warned = new Set<string>();
+  const warn = (w: Msg) => {
+    const id = JSON.stringify(w);
+    if (!warned.has(id)) warnings.push(w);
+    warned.add(id);
+  };
   const quality = input.tier === "premium" ? "hero" : "standard";
   const aspectRatio = input.width === input.height ? "1:1" : input.width > input.height ? "16:9" : "9:16";
 
@@ -131,8 +137,8 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const price = (req: PricedRequest) => {
     const top = rankProviders(ctx.providers, req, policy)[0];
     if (!top) {
-      warnings.push(`"${req.capability}" için uygun sağlayıcı yok (anahtar eksik olabilir)`);
-      return { providerId: undefined, usd: 0, ms: DEFAULT_LATENCY_MS[req.capability], basis: "sağlayıcı yok", units: 0, unit: "" };
+      warn(msg("cost.noProvider", { capability: req.capability }));
+      return { providerId: undefined, usd: 0, ms: DEFAULT_LATENCY_MS[req.capability], basis: msg("cost.basis.noProvider"), units: 0 };
     }
     const bill = billing(top.adapter.price, req);
     const measured = ctx.latency[top.adapter.id];
@@ -140,9 +146,8 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       providerId: top.adapter.id,
       usd: bill.micros / 1_000_000,
       ms: measured?.avgMs ?? DEFAULT_LATENCY_MS[req.capability],
-      basis: measured ? `ölçüm (n=${measured.n})` : "varsayılan",
+      basis: measured ? msg("cost.basis.measured", { n: measured.n }) : msg("cost.basis.default"),
       units: bill.units,
-      unit: bill.unitLabel,
     };
   };
 
@@ -158,10 +163,10 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       stage,
       providerId: "claude",
       quantity: 1,
-      unit: "çağrı",
+      unit: msg("unit.call"),
       costUsd: m.usd + m.usdPerMin * minutes,
       seconds: m.sec + m.secPerMin * minutes,
-      basis: "ölçüm (29 Eki)",
+      basis: msg("cost.basis.agents"),
     });
   }
 
@@ -170,30 +175,35 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   const locs = state.cast?.locations.length ?? 3;
   const conceptImages = chars * 3 + locs * 2 + 3;
   const ci = price({ capability: "t2i", quality, aspectRatio });
-  const castNote = state.cast ? "" : `; kadro tahmini (${chars} karakter, ${locs} mekân)`;
+  const castNote = !state.cast && msg("cost.basis.castGuess", { characters: chars, locations: locs });
   if (vector) {
     const assets = chars + locs;
     add({
       stage: "concept",
-      providerId: "claude (SVG)",
+      providerId: "claude",
+      via: msg("cost.via.svg"),
       quantity: assets,
-      unit: "varlık",
+      unit: msg("unit.asset"),
       // Karakterin ilk çizimi Opus, düzeltmeleri Sonnet; mekânlar Sonnet.
       costUsd:
         chars * (GATE.planUsd + VECTOR.characterUsd + GATE.extraDraws * VECTOR.backgroundUsd * 2 + GATE.checkUsd * (1 + GATE.extraDraws)) +
         locs * withReality(VECTOR.backgroundUsd),
       seconds: (Math.ceil(assets / PARALLEL) * VECTOR.assetSec),
-      basis: `ölçüm (30 Eki): karakter ~$${VECTOR.characterUsd}, mekân ~$${VECTOR.backgroundUsd}${castNote}; her çizim kalite kapısından geçer (~%${Math.round(GATE.extraDraws * 100)} ek çizim)`,
+      basis: joinText(
+        msg("cost.basis.vectorConcept", { character: VECTOR.characterUsd, location: VECTOR.backgroundUsd }),
+        castNote,
+        msg("cost.basis.gate", { pct: Math.round(GATE.extraDraws * 100) }),
+      ),
     });
   } else {
     add({
       stage: "concept",
       providerId: ci.providerId,
       quantity: conceptImages,
-      unit: "görsel",
+      unit: msg("unit.image"),
       costUsd: ci.usd * conceptImages,
       seconds: (Math.ceil(conceptImages / PARALLEL) * ci.ms) / 1000,
-      basis: `${ci.basis}${castNote}`,
+      basis: joinText(ci.basis, castNote),
     });
   }
 
@@ -216,11 +226,11 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     stage: "voice",
     providerId: v.providerId,
     quantity: narrationChars,
-    unit: "karakter",
+    unit: msg("unit.chars"),
     costUsd: v.usd,
     // Sahneler sırayla seslendirilir; ölçüm sahne başına.
     seconds: (scenes * v.ms) / 1000,
-    basis: state.script ? v.basis : `${v.basis}; metin tahmini`,
+    basis: state.script ? v.basis : joinText(v.basis, msg("cost.basis.textGuess")),
   });
 
   if (vector) {
@@ -228,32 +238,34 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
       stage: "shots",
       providerId: "claude",
       quantity: scenes,
-      unit: "sahne",
+      unit: msg("unit.scene"),
       costUsd: scenes * VECTOR.sceneUsd,
       seconds: Math.ceil(scenes / PARALLEL) * VECTOR.sceneSec,
-      basis: `tahmin: sahne başı ~$${VECTOR.sceneUsd} (kısa JSON)`,
+      basis: msg("cost.basis.scenes", { usd: VECTOR.sceneUsd }),
     });
     const props = Math.round(scenes * VECTOR.propsPerScene);
     add({
       stage: "keyframes",
-      providerId: "claude (SVG)",
+      providerId: "claude",
+      via: msg("cost.via.svg"),
       quantity: props,
-      unit: "nesne",
+      unit: msg("unit.object"),
       costUsd: props * (withReality(VECTOR.propUsd) + GATE.readyMadeUsd),
       seconds: Math.ceil(props / PARALLEL) * VECTOR.propSec,
-      basis: "tahmin: yeni nesneler; kütüphanede olanlar ücretsiz",
+      basis: msg("cost.basis.props"),
     });
     // Render öncesi taslak denetimi: her çekime bir kare + ucuz eleştiri, sorunlu sahneler bir kez yeniden planlanır.
     const draftBatches = Math.ceil(shotCount / REVIEW.perBatch);
     const replans = Math.ceil(scenes * VECTOR.reviseRate);
     add({
       stage: "keyframes",
-      providerId: "claude (taslak denetimi)",
+      providerId: "claude",
+      via: msg("cost.via.draftReview"),
       quantity: shotCount,
-      unit: "kare",
+      unit: msg("unit.frame"),
       costUsd: draftBatches * REVIEW.batchUsd + replans * VECTOR.sceneUsd,
       seconds: shotCount * REVIEW.stillSec + Math.ceil(draftBatches / PARALLEL) * REVIEW.batchSec + Math.ceil(replans / PARALLEL) * VECTOR.sceneSec,
-      basis: `tahmin: taslak kare eleştirisi + sahnelerin ~%${Math.round(VECTOR.reviseRate * 100)}'i yeniden planlanır`,
+      basis: msg("cost.basis.draft", { pct: Math.round(VECTOR.reviseRate * 100) }),
     });
   }
 
@@ -272,15 +284,14 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     stage: "keyframes",
     providerId: kf.providerId,
     quantity: Math.round(draws),
-    unit: "görsel",
+    unit: msg("unit.image"),
     costUsd: kf.usd * draws + QA.usd * checks,
     seconds: (Math.ceil(shotCount / PARALLEL) * (kf.ms * (draws / Math.max(1, shotCount)) + (qaOn ? QA.ms : 0))) / 1000,
-    basis: [
-      shotList ? kf.basis : `${kf.basis}; çekim sayısı tahmini`,
-      qaOn ? `kare kontrolü: ~%${Math.round(QA.redrawRate * 100)} yeniden çizim, ~$${QA.usd}/kontrol (ölçüm 30 Eki)` : "",
-    ]
-      .filter(Boolean)
-      .join("; "),
+    basis: joinText(
+      kf.basis,
+      !shotList && msg("cost.basis.shotGuess"),
+      qaOn && msg("cost.basis.qa", { pct: Math.round(QA.redrawRate * 100), usd: QA.usd }),
+    ),
   });
 
   // --- animasyon: çekim süresine göre 5/10 sn klip, sağlayıcının fatura adımıyla
@@ -300,7 +311,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
   let clipMs = 0;
   let billedSec = 0;
   let clipProvider: string | undefined;
-  let clipBasis = "—";
+  let clipBasis: Text = "—";
   for (const sec of durations) {
     const c = price({ capability: "i2v", quality: "standard", aspectRatio, durationSec: clipSeconds(sec) });
     clipUsd += c.usd;
@@ -313,41 +324,42 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     stage: "clips",
     providerId: clipProvider,
     quantity: billedSec,
-    unit: "sn (faturalanan)",
+    unit: msg("unit.billedSec"),
     costUsd: clipUsd,
     seconds: (Math.ceil(clipCount / PARALLEL) * clipMs) / 1000,
-    basis: clipCount === 0 ? "hareket modu: animasyon yok" : `${clipBasis}; ${clipCount} klip`,
+    basis: clipCount === 0 ? msg("cost.basis.noClips") : joinText(clipBasis, msg("cost.basis.clips", { n: clipCount })),
   });
 
   // --- kurgu ve render (yerel, ücretsiz): 29 Eki ölçümü 4 dk video ≈ 258 sn render + ses normalizasyonu
-  add({ stage: "timeline", providerId: "yerel", quantity: 1, unit: "—", costUsd: 0, seconds: 1, basis: "yerel" });
+  add({ stage: "timeline", via: msg("cost.via.local"), quantity: 1, unit: msg("unit.none"), costUsd: 0, seconds: 1, basis: msg("cost.basis.local") });
   add({
     stage: "render",
-    providerId: "yerel (Remotion)",
+    via: msg("cost.via.remotion"),
     quantity: Math.round(videoSec),
-    unit: "sn video",
+    unit: msg("unit.videoSec"),
     costUsd: 0,
     seconds: 30 + videoSec * (vector ? VECTOR.renderX : 1.1),
-    basis: vector ? `tahmin: ~${VECTOR.renderX}× video süresi (vektör sahneler)` : "ölçüm (29 Eki): ~1,1× video süresi",
+    basis: vector ? msg("cost.basis.renderVector", { x: VECTOR.renderX }) : msg("cost.basis.render"),
   });
 
   // --- inceleme: çekim başına bir kare (yerel), 6 karelik gruplar halinde ucuz görsel model
   const batches = Math.ceil(shotCount / REVIEW.perBatch);
   add({
     stage: "review",
-    providerId: "claude (görsel)",
+    providerId: "claude",
+    via: msg("cost.via.vision"),
     quantity: shotCount,
-    unit: "kare",
+    unit: msg("unit.frame"),
     costUsd: batches * REVIEW.batchUsd,
     seconds: shotCount * REVIEW.stillSec + Math.ceil(batches / PARALLEL) * REVIEW.batchSec,
-    basis: `tahmin: ${REVIEW.perBatch} kare/çağrı, ~$${REVIEW.batchUsd}/çağrı; dersler sonraki bölümlere aktarılır`,
+    basis: msg("cost.basis.review", { n: REVIEW.perBatch, usd: REVIEW.batchUsd }),
   });
 
   rows.sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage));
   const sum = (rs: EstimateRow[], f: (r: EstimateRow) => number) => rs.reduce((n, r) => n + f(r), 0);
   const remaining = rows.filter((r) => !r.done);
   const totalUsd = sum(rows, (r) => r.costUsd);
-  if (totalUsd > input.budgetUsd) warnings.push(`Tahmini toplam ($${totalUsd.toFixed(2)}) bütçe tavanını ($${input.budgetUsd}) aşıyor`);
+  if (totalUsd > input.budgetUsd) warn(msg("cost.overBudget", { total: totalUsd.toFixed(2), cap: input.budgetUsd }));
 
   return {
     mode,
@@ -358,7 +370,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
     totalSeconds: sum(rows, (r) => r.seconds),
     remainingUsd: sum(remaining, (r) => r.costUsd),
     remainingSeconds: sum(remaining, (r) => r.seconds),
-    warnings: [...new Set(warnings)],
+    warnings,
   };
 }
 
@@ -366,7 +378,7 @@ export function estimateEpisode(state: EpisodeState, ctx: EstimateContext, modeO
 
 export interface Progress {
   stage: Stage;
-  label: string;
+  label: Text;
   done: number;
   total: number;
   /** Kalan süre tahmini (sn); aşama içindeki gerçek hızdan. */

@@ -1,10 +1,12 @@
-export class HttpError extends Error {
+import { LocalizedError, msg } from "@ys/core";
+
+export class HttpError extends LocalizedError {
   constructor(
     readonly status: number,
     readonly url: string,
     readonly body: string,
   ) {
-    super(`HTTP ${status} ${url}: ${body.slice(0, 500)}`);
+    super(msg("gw.http", { status, url, body: body.slice(0, 500) }));
   }
 }
 
@@ -35,12 +37,12 @@ const MAX_RETRY_AFTER_MS = 60_000;
 export type RequestOptions = RequestInit & { timeoutMs?: number };
 
 /** İstek, süre sınırı içinde tamamlanmadı (çağıranın iptali değil). */
-export class RequestTimeoutError extends Error {
+export class RequestTimeoutError extends LocalizedError {
   constructor(
     readonly url: string,
     readonly timeoutMs: number,
   ) {
-    super(`İstek zaman aşımı (${timeoutMs} ms): ${url}`);
+    super(msg("gw.timeout.request", { ms: timeoutMs, url }));
   }
 }
 
@@ -139,9 +141,9 @@ export async function pollUntil<T>(
 }
 
 /** pollUntil süresi doldu: iş sağlayıcıda hâlâ sürüyor olabilir (iptal edilmeli). */
-export class PollTimeoutError extends Error {
+export class PollTimeoutError extends LocalizedError {
   constructor(readonly timeoutMs: number) {
-    super(`Zaman aşımı (${timeoutMs} ms)`);
+    super(msg("gw.timeout.poll", { ms: timeoutMs }));
   }
 }
 

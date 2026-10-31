@@ -1,5 +1,5 @@
 import { query, type Options, type SDKResultMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { modelFor, type ModelSettings } from "@ys/core";
+import { LocalizedError, modelFor, msg, type ModelSettings, type Msg, type Text } from "@ys/core";
 import { z } from "zod";
 
 export type QueryFn = typeof query;
@@ -46,17 +46,20 @@ export interface AgentDeps {
   models?: ModelSettings;
 }
 
-/** Ajan hatası; çağrı Claude'a ulaştıysa harcanan para da taşınır (deftere yazılsın diye). */
-export class AgentError extends Error {
+/**
+ * Ajan hatası; çağrı Claude'a ulaştıysa harcanan para da taşınır (deftere yazılsın diye). Mesaj çevrilebilir: `message`
+ * Türkçe, `text` Stüdyo'da seçili dilde. Düz metin de kabul edilir (eski çağrılar, testler).
+ */
+export class AgentError extends LocalizedError {
   constructor(
-    message: string,
+    message: Text,
     readonly costUsd = 0,
     readonly model?: string,
     readonly agent?: string,
     /** Geçici (aşırı yük, oran sınırı, 5xx, zaman aşımı, sonuçsuz bitiş): yeniden denemek güvenli. */
     readonly transient = false,
   ) {
-    super(message);
+    super(typeof message === "string" ? msg("gw.text", { text: message }) : message);
   }
 }
 
@@ -159,7 +162,7 @@ export async function runStructured<T>(call: AgentCall<T>, deps: AgentDeps = {})
     } catch (e) {
       const delay = RETRY_DELAYS_MS[attempt];
       if (delay === undefined || !isTransientAgentFailure(e)) {
-        if (failedCost && e instanceof AgentError) throw new AgentError(e.message, e.costUsd + failedCost, e.model, e.agent, e.transient);
+        if (failedCost && e instanceof AgentError) throw new AgentError(e.text, e.costUsd + failedCost, e.model, e.agent, e.transient);
         throw e;
       }
       if (e instanceof AgentError) failedCost += e.costUsd;
@@ -178,7 +181,7 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
   const abort = new AbortController();
   const timeoutMs = AGENT_TIMEOUT_MS();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
-  const timedOut = () => new AgentError(`${call.name}: ${timeoutMs / 1000} sn içinde bitmedi`, 0, model, call.name, true);
+  const timedOut = () => new AgentError(msg("agent.timeout", { agent: call.name, sec: timeoutMs / 1000 }), 0, model, call.name, true);
   const q = queryFn({
     prompt: call.images?.length ? withImages(call.prompt, call.images) : call.prompt,
     options: {
@@ -209,7 +212,7 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
   }
   if (abort.signal.aborted) throw timedOut();
   // Akış sonuç mesajı vermeden bitti: alt süreç düştü sayılır, yeniden denenir.
-  throw new AgentError(`${call.name}: sonuç mesajı gelmedi`, 0, model, call.name, true);
+  throw new AgentError(msg("agent.noResult", { agent: call.name }), 0, model, call.name, true);
 }
 
 /**
@@ -222,14 +225,15 @@ function finish<T>(call: AgentCall<T>, model: string, message: SDKResultMessage,
   const cost = message.total_cost_usd;
   if (message.subtype !== "success") {
     const detail = message.errors?.length ? `: ${message.errors.join("; ").slice(0, 300)}` : "";
-    throw new AgentError(`${call.name}: ${message.subtype}${detail} (maliyet $${cost.toFixed(4)})`, cost, model, call.name);
+    const failed: Msg = msg("agent.failed", { agent: call.name, subtype: message.subtype, detail, cost: cost.toFixed(4) });
+    throw new AgentError(failed, cost, model, call.name);
   }
   // "success" ama is_error: tur bir API hatasıyla bitti (aşırı yük, oran sınırı, 5xx) ve yapılandırılmış çıktı yok.
   // Önceden "şemaya uymayan çıktı" sanılıp yeniden denenmiyordu.
   if (message.is_error) {
     const status = message.api_error_status;
     throw new AgentError(
-      `${call.name}: API hatası${status ? ` ${status}` : ""}: ${message.result.slice(0, 200)}`,
+      msg("agent.apiError", { agent: call.name, status: status ? ` ${status}` : "", result: message.result.slice(0, 200) }),
       cost,
       model,
       call.name,
@@ -238,7 +242,7 @@ function finish<T>(call: AgentCall<T>, model: string, message: SDKResultMessage,
   }
   const parsed = call.schema.safeParse(message.structured_output);
   if (!parsed.success) {
-    throw new AgentError(`${call.name}: şemaya uymayan çıktı: ${z.prettifyError(parsed.error)}`, cost, model, call.name);
+    throw new AgentError(msg("agent.schema", { agent: call.name, detail: z.prettifyError(parsed.error) }), cost, model, call.name);
   }
   deps.log?.(`ajan: ${call.name} bitti, $${cost.toFixed(4)}`);
   return { data: parsed.data, name: call.name, costUsd: cost, model, durationMs: message.duration_ms };

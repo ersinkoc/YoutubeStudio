@@ -1,3 +1,4 @@
+import { formatText, msg, type Msg } from "@ys/core/messages";
 import { describePrice, measuredLatency, type ProviderAdapter, type Quota } from "@ys/media-gateway";
 import type { MessageKey } from "../../lib/i18n";
 import { getI18n } from "../../lib/locale";
@@ -5,9 +6,11 @@ import { catalog, ledgerEntries, quotaOf } from "../../lib/server";
 
 export const dynamic = "force-dynamic";
 
+const QUOTA_UNIT: Record<Quota["unit"], Msg> = { chars: msg("unit.chars"), credits: msg("unit.credits"), usd: msg("unit.usd") };
+
 export default async function PricingPage() {
   const { providers, skipped } = catalog();
-  const { t, fmt } = await getI18n();
+  const { t, fmt, locale } = await getI18n();
   const { duration, number } = fmt;
   const latency = measuredLatency(await ledgerEntries());
   const quotas = new Map<string, Quota | undefined>(
@@ -56,7 +59,7 @@ export default async function PricingPage() {
                       {p.local && <span className="text-xs text-ok">{t("pricing.local")}</span>}
                     </td>
                     <td className="py-2 pr-3 text-xs text-muted">{p.capabilities.join(", ")}</td>
-                    <td className="py-2 pr-3">{describePrice(p.price)}</td>
+                    <td className="py-2 pr-3">{formatText(locale, describePrice(p.price))}</td>
                     <td className="py-2 pr-3 text-right">
                       <QualityBar value={p.qualityPrior} />
                     </td>
@@ -72,7 +75,7 @@ export default async function PricingPage() {
                     <td className="py-2 pr-3 text-xs">
                       {q ? (
                         <span className={q.used >= q.limit ? "text-bad" : "text-muted"}>
-                          {number(q.limit - q.used)} / {number(q.limit)} {q.unit}
+                          {number(q.limit - q.used)} / {number(q.limit)} {formatText(locale, QUOTA_UNIT[q.unit])}
                           {q.plan && ` · ${q.plan}`}
                         </span>
                       ) : (
@@ -86,7 +89,7 @@ export default async function PricingPage() {
                             {new URL(p.priceSource.url).hostname}
                           </a>{" "}
                           · {p.priceSource.checked}
-                          {p.priceSource.note && <div>{p.priceSource.note}</div>}
+                          {p.priceSource.note && <div>{formatText(locale, p.priceSource.note)}</div>}
                         </>
                       ) : (
                         "—"
@@ -105,9 +108,11 @@ export default async function PricingPage() {
           <h2 className="mb-2 text-lg font-semibold">{t("pricing.disabled")}</h2>
           <p className="mb-2 text-sm text-muted">{t("pricing.disabled.hint")}</p>
           <ul className="grid gap-1 text-sm text-muted">
-            {skipped.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
+            {skipped
+              .map((s) => formatText(locale, s))
+              .map((s) => (
+                <li key={s}>{s}</li>
+              ))}
           </ul>
         </section>
       )}

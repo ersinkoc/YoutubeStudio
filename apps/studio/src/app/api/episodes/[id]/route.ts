@@ -1,13 +1,15 @@
+import { msg } from "@ys/core/messages";
 import { groupCosts } from "@ys/media-gateway";
 import { estimateEpisode, lineStyleOf, listLibraryCharacters, motionModeOf, progressOf, runStatusOf, type MotionMode } from "@ys/pipeline/light";
+import { errorResponse, textResponse } from "../../../../lib/api";
 import { episodeBusy, episodeSpentUsd, estimateContext, getJob, ledgerEntries, quotaOf, repo, store } from "../../../../lib/server";
 import type { EpisodeResponse, QuotaView } from "../../../../lib/types";
 
 const MODES: MotionMode[] = ["animated", "mixed", "still", "vector"];
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  if (!/^[a-z0-9][a-z0-9-]{0,120}$/.test(id)) return new Response("Geçersiz bölüm", { status: 400 });
+  if (!/^[a-z0-9][a-z0-9-]{0,120}$/.test(id)) return textResponse(req, msg("api.badEpisode"), 400);
   try {
     const [state, entries, estimateCtx] = await Promise.all([repo().load(id), ledgerEntries(id), estimateContext()]);
     const estimates = Object.fromEntries(MODES.map((m) => [m, estimateEpisode(state, estimateCtx, m)])) as EpisodeResponse["estimates"];
@@ -58,6 +60,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     };
     return Response.json(body);
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 404 });
+    return errorResponse(req, e, 404);
   }
 }

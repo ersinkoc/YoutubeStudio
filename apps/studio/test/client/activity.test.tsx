@@ -19,6 +19,13 @@ const entries: ActivityEntry[] = [
 ];
 
 describe("ActivityLine", () => {
+  it("çevrilebilir mesaj seçili dilde gösterilir (Türkçe msg yerine)", () => {
+    const entry: ActivityEntry = { at, level: "info", msg: "Bilinmeyen hata", text: { key: "err.unknown" } };
+    renderIn(<ul><ActivityLine entry={entry} /></ul>, "en");
+    expect(screen.getByText("Unknown error")).toBeTruthy();
+    expect(screen.queryByText("Bilinmeyen hata")).toBeNull();
+  });
+
   it("makine dilindeki aşama satırlarını arayüz diline çevirir", () => {
     renderIn(
       <ul>

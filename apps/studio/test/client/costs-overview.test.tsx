@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { msg } from "@ys/core/messages";
 import type { CostGroup } from "@ys/media-gateway";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -92,6 +93,34 @@ describe("CostsTab", () => {
     cleanup();
     renderIn(<CostsTab data={data} />, "en");
     expect(screen.getByText(en("ct.col.stage"))).toBeTruthy();
+  });
+});
+
+describe("CostsTab: çevrilebilir tahmin metinleri", () => {
+  it("birim (tekil/çoğul), model açıklaması, dayanak ve uyarılar seçili dilde", () => {
+    const state = makeState({}, { motionMode: "vector" });
+    const rows = [
+      row({ stage: "concept", providerId: "claude", via: msg("cost.via.svg"), quantity: 1, unit: msg("unit.asset"), basis: msg("cost.basis.measured", { n: 3 }) }),
+      row({ stage: "keyframes", providerId: "claude", via: msg("cost.via.draftReview"), quantity: 12, unit: msg("unit.frame"), basis: msg("cost.basis.props") }),
+      row({ stage: "render", via: msg("cost.via.remotion"), quantity: 1, unit: msg("unit.videoSec"), basis: msg("cost.basis.local") }),
+    ];
+    const data = makeData(state, {
+      estimates: { ...makeData(state).estimates, vector: makeEstimate("vector", { rows, warnings: [msg("cost.noProvider", { capability: "tts" })] }) },
+    });
+    renderIn(<CostsTab data={data} />, "en");
+    expect(screen.getByText("1 asset")).toBeTruthy();
+    expect(screen.getByText("12 frames")).toBeTruthy();
+    expect(screen.getByText("1 s of video")).toBeTruthy();
+    expect(screen.getByText("claude (SVG)")).toBeTruthy();
+    expect(screen.getByText("claude (draft review)")).toBeTruthy();
+    expect(screen.getByText("local (Remotion)")).toBeTruthy();
+    expect(screen.getByText("measured (n=3)")).toBeTruthy();
+    expect(screen.getByText(/No suitable provider for "tts"/)).toBeTruthy();
+    cleanup();
+    renderIn(<CostsTab data={data} />, "tr");
+    expect(screen.getByText("1 varlık")).toBeTruthy();
+    expect(screen.getByText("claude (taslak denetimi)")).toBeTruthy();
+    expect(screen.getByText("yerel (Remotion)")).toBeTruthy();
   });
 });
 

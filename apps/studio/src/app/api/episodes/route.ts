@@ -1,5 +1,7 @@
 import { BudgetTier, LineStyle, STYLE_AUTO, STYLE_CUSTOM, stylePackOf } from "@ys/core";
 import { cleanSeries, newEpisodeState, type MotionMode } from "@ys/pipeline/light";
+import { msg } from "@ys/core/messages";
+import { apiError } from "../../../lib/api";
 import { repo, startJob } from "../../../lib/server";
 
 export async function GET() {
@@ -38,11 +40,11 @@ interface CreateBody {
 /** Bölümü oluşturur ve senaryo üretimini hemen başlatır (stil → hikâye → senaryo, sonra onay bekler). */
 export async function POST(req: Request) {
   const body = (await req.json()) as CreateBody;
-  if (typeof body.topic !== "string" || !body.topic.trim()) return Response.json({ error: "Konu gerekli" }, { status: 400 });
+  if (typeof body.topic !== "string" || !body.topic.trim()) return apiError(req, msg("api.topic"));
   const minutes = Number(body.minutes ?? 3);
   const budget = Number(body.budgetUsd ?? 20);
-  if (!Number.isFinite(minutes) || minutes < 0.5 || minutes > 30) return Response.json({ error: "Süre 0,5–30 dk olmalı" }, { status: 400 });
-  if (!Number.isFinite(budget) || budget <= 0) return Response.json({ error: "Bütçe pozitif olmalı" }, { status: 400 });
+  if (!Number.isFinite(minutes) || minutes < 0.5 || minutes > 30) return apiError(req, msg("api.minutes"));
+  if (!Number.isFinite(budget) || budget <= 0) return apiError(req, msg("api.budget"));
   const motionMode = (["animated", "mixed", "still", "vector"] as const).find((m) => m === body.motionMode) ?? "animated";
   const lang = typeof body.lang === "string" && /^[a-z]{2,3}(-[A-Z]{2})?$/.test(body.lang) ? body.lang : "tr";
   const state = newEpisodeState({

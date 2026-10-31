@@ -1,4 +1,4 @@
-import type { Capability } from "@ys/core";
+import { LocalizedError, msg, type Capability } from "@ys/core";
 import { charAlignmentToWords } from "../audio.ts";
 import { fromBase64, requestBytes, requestJson } from "../http.ts";
 import type {
@@ -27,7 +27,7 @@ const PRICE_CHECKED = "2026-10-31";
 const SOURCE: PriceSource = {
   url: PRICING_URL,
   checked: PRICE_CHECKED,
-  note: "Abonelikte karakter kotasından düşer; ücretsiz plan ticari kullanıma izin vermez",
+  note: msg("price.note.elevenlabs"),
 };
 
 /** Flash/Turbo modelleri v3'ün yarı fiyatı. */
@@ -86,7 +86,7 @@ export class ElevenLabsTtsAdapter implements ProviderAdapter {
   }
 
   async generate(req: GenerationRequest, ctx: GenerateContext): Promise<GenerationResult> {
-    if (!req.voiceId || !req.text) throw new Error("ElevenLabs TTS için voiceId ve text gerekli");
+    if (!req.voiceId || !req.text) throw new LocalizedError(msg("gw.eleven.missing"));
     const res = await requestJson<TimestampResponse>(
       ctx.fetch,
       `${BASE}/text-to-speech/${encodeURIComponent(req.voiceId)}/with-timestamps?output_format=mp3_44100_128`,
@@ -122,7 +122,7 @@ export class ElevenLabsSfxAdapter implements ProviderAdapter {
   readonly qualityPrior = 0.85;
   // Süre verilmezse ElevenLabs süreyi prompt'tan tahmin eder (en çok 30 sn): tahmin üst sınırla yapılır.
   readonly price: PriceRule = { unit: "per_minute", usd: 0.12, defaultSec: 30 };
-  readonly priceSource: PriceSource = { url: PRICING_URL, checked: PRICE_CHECKED, note: "Ses efekti; 0.5–30 sn" };
+  readonly priceSource: PriceSource = { url: PRICING_URL, checked: PRICE_CHECKED, note: msg("price.note.sfx") };
 
   constructor(private readonly apiKey: string) {}
 

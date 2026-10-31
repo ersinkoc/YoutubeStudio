@@ -1,20 +1,25 @@
 import { createHash, randomBytes } from "node:crypto";
-import { formatUsd, type Micros, type WordTiming } from "@ys/core";
+import { errorText, formatUsd, LocalizedError, msg, type Micros, type Msg, type WordTiming } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 import type { CostLedger } from "./ledger.ts";
 import { billing } from "./pricing.ts";
 import { HealthTracker, rankProviders, type RankedProvider, type RoutePolicy } from "./router.ts";
 import { ContentRejectedError, SubmittedJobError, type GenerationRequest, type ProviderAdapter, type Quota } from "./types.ts";
 
-export class NoProviderError extends Error {}
-export class BudgetExceededError extends Error {}
-export class AllProvidersFailedError extends Error {
-  constructor(readonly failures: { providerId: string; error: unknown }[]) {
-    super(
-      `Tüm sağlayıcılar başarısız: ${failures
-        .map((f) => `${f.providerId}: ${f.error instanceof Error ? f.error.message : String(f.error)}`)
-        .join(" | ")}`,
-    );
+export class NoProviderError extends LocalizedError {}
+export class BudgetExceededError extends LocalizedError {}
+
+type Failure = { providerId: string; error: unknown };
+
+/** Sağlayıcı hatalarını "id: hata" listesi olarak birleştirir; her hata kendi dilinde biçimlenir. */
+function failureList(failures: Failure[], join: "gw.join.pipe" | "gw.join.semi"): Msg | string {
+  const items = failures.map((f): Msg => msg("gw.failure", { provider: f.providerId, error: errorText(f.error) }));
+  return items.length ? items.reduce((a, b) => msg(join, { a, b })) : "";
+}
+
+export class AllProvidersFailedError extends LocalizedError {
+  constructor(readonly failures: Failure[]) {
+    super(msg("gw.allFailed", { list: failureList(failures, "gw.join.pipe") }));
   }
 }
 
@@ -198,9 +203,7 @@ export class MediaGateway {
 
     const candidates = this.plan(req, run.policy);
     if (candidates.length === 0) {
-      throw new NoProviderError(
-        `"${req.capability}" (${req.quality}, ${run.policy.tier}) için uygun sağlayıcı yok`,
-      );
+      throw new NoProviderError(msg("gw.noProvider", { capability: req.capability, quality: req.quality, tier: run.policy.tier }));
     }
 
     const failures: { providerId: string; error: unknown }[] = [];
@@ -243,7 +246,7 @@ export class MediaGateway {
           signal: run.signal,
           onProgress: (m) => this.log(`${adapter.id}: ${m}`),
         });
-        if (result.files.length === 0) throw new Error("Sağlayıcı dosya döndürmedi");
+        if (result.files.length === 0) throw new LocalizedError(msg("gw.noFiles"));
         this.health.recordSuccess(adapter.id);
       } catch (error) {
         // İş kabul edildikten sonra düştü: sağlayıcı büyük olasılıkla ücretlendirdi. Tahmin deftere yazılır (tavan doğru
@@ -359,10 +362,12 @@ export class MediaGateway {
 
     // Bir sağlayıcı düştü, kalanlar bütçe yüzünden atlandıysa da kullanıcıya bütçe onayı sorulmalı.
     if (skippedForBudget > 0) {
-      const tried = failures.length
-        ? ` (başarısız: ${failures.map((f) => `${f.providerId}: ${f.error instanceof Error ? f.error.message : String(f.error)}`).join("; ")})`
-        : "";
-      throw new BudgetExceededError(`Bölüm ${run.episodeId} bütçe tavanını aşacak; onay gerekli${tried}`);
+      const episode = String(run.episodeId);
+      throw new BudgetExceededError(
+        failures.length
+          ? msg("gw.budget.failed", { episode, list: failureList(failures, "gw.join.semi") })
+          : msg("gw.budget", { episode }),
+      );
     }
     throw new AllProvidersFailedError(failures);
   }

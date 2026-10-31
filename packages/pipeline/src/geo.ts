@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import type { FlagSpec, MapLabel, MapSpec, VectorAssetMeta } from "@ys/core";
+import { LocalizedError, msg, type FlagSpec, type MapLabel, type MapSpec, type VectorAssetMeta } from "@ys/core";
 import { geoBounds, geoCentroid, geoMercator, geoNaturalEarth1, geoOrthographic, geoPath, geoGraticule10, type GeoProjection } from "d3-geo";
 import countries from "i18n-iso-countries";
 import type { Feature, FeatureCollection, Geometry, MultiPolygon, Polygon } from "geojson";
@@ -255,13 +255,13 @@ export function flagCodes(): string[] {
 export async function generateFlag(spec: FlagSpec): Promise<GeneratedAsset> {
   const raw = spec.code.trim().toLowerCase();
   const alpha2 = HISTORICAL[raw] ?? (raw.length === 3 ? countries.alpha3ToAlpha2(raw.toUpperCase())?.toLowerCase() : raw);
-  if (!alpha2 || !/^[a-z]{2}(-[a-z]+)?$/.test(alpha2)) throw new Error(`bilinmeyen bayrak kodu: ${spec.code}`);
+  if (!alpha2 || !/^[a-z]{2}(-[a-z]+)?$/.test(alpha2)) throw new LocalizedError(msg("err.flag.unknownCode", { code: spec.code }));
   const dir = join(dirname(require.resolve("flag-icons/package.json")), "flags", "4x3");
   let svg: string;
   try {
     svg = await readFile(join(dir, `${alpha2}.svg`), "utf8");
   } catch {
-    throw new Error(`bayrak bulunamadı: ${spec.code}`);
+    throw new LocalizedError(msg("err.flag.notFound", { code: spec.code }));
   }
   // Bayrak 640×480; dalgalanma render'da (sway). Direkli sürümde bayrak direğin tepesinde.
   const inner = svg.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");

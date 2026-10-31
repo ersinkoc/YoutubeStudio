@@ -1,9 +1,11 @@
-import { groupCosts, type CostGroup } from "@ys/media-gateway";
+import type { MessageLocale } from "@ys/core/messages";
+import { groupCosts, unitText, type CostGroup } from "@ys/media-gateway";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Formatters, MessageKey, Translate } from "../../lib/i18n";
 import { getI18n } from "../../lib/locale";
 import { ledgerEntries, repo } from "../../lib/server";
+import { quantityText } from "../../lib/text";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,7 @@ const dollars = (g: CostGroup) => g.micros / 1_000_000;
 const byCost = (a: CostGroup, b: CostGroup) => b.micros - a.micros;
 
 export default async function CostsPage() {
-  const [entries, episodes, { t, fmt }] = await Promise.all([ledgerEntries(), repo().list(), getI18n()]);
+  const [entries, episodes, { t, fmt, locale }] = await Promise.all([ledgerEntries(), repo().list(), getI18n()]);
   const { usd, duration, number } = fmt;
   const stageName = (k: string) => (k.startsWith("cli:") || k === "—" ? k : t(`stage.${k}` as MessageKey));
   const total = groupCosts(entries, () => "total")[0];
@@ -49,11 +51,11 @@ export default async function CostsPage() {
       </div>
 
       <Section title={t("costs.byProvider")}>
-        <GroupTable t={t} fmt={fmt} groups={byProvider} keyLabel={t("costs.col.provider")} units />
+        <GroupTable t={t} fmt={fmt} locale={locale} groups={byProvider} keyLabel={t("costs.col.provider")} units />
       </Section>
 
       <Section title={t("costs.byStage")}>
-        <GroupTable t={t} fmt={fmt} groups={byStage} keyLabel={t("costs.col.stage")} />
+        <GroupTable t={t} fmt={fmt} locale={locale} groups={byStage} keyLabel={t("costs.col.stage")} />
       </Section>
 
       <Section title={t("costs.byEpisode")}>
@@ -93,7 +95,7 @@ export default async function CostsPage() {
       </Section>
 
       <Section title={t("costs.byDay")}>
-        <GroupTable t={t} fmt={fmt} groups={byDay} keyLabel={t("costs.col.day")} />
+        <GroupTable t={t} fmt={fmt} locale={locale} groups={byDay} keyLabel={t("costs.col.day")} />
       </Section>
     </div>
   );
@@ -122,12 +124,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function GroupTable({
   t,
   fmt,
+  locale,
   groups,
   keyLabel,
   units,
 }: {
   t: Translate;
   fmt: Formatters;
+  locale: MessageLocale;
   groups: CostGroup[];
   keyLabel: string;
   units?: boolean;
@@ -157,7 +161,7 @@ function GroupTable({
               <td className="py-2 pr-3 text-right text-muted">{g.calls}</td>
               <td className="py-2 pr-3 text-right text-muted">{g.cacheHits || "—"}</td>
               <td className={`py-2 pr-3 text-right ${g.failures ? "text-bad" : "text-muted"}`}>{g.failures || "—"}</td>
-              {units && <td className="py-2 pr-3 text-right text-muted">{g.units ? `${number(g.units)} ${g.unitLabel ?? ""}` : "—"}</td>}
+              {units && <td className="py-2 pr-3 text-right text-muted">{g.units ? quantityText(locale, g.units, unitText(g.unitLabel ?? ""), number) : "—"}</td>}
               <td className="py-2 pr-3 text-right text-muted">{g.calls > 0 && g.durationMs > 0 ? duration(g.durationMs / g.calls / 1000) : "—"}</td>
               <td className="py-2 pr-3 text-right">{usd(dollars(g))}</td>
               <td className="py-2">

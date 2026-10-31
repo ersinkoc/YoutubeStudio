@@ -1,13 +1,15 @@
 "use client";
 
+import { formatText } from "@ys/core/messages";
 import type { CostGroup } from "@ys/media-gateway";
 import { AlertTriangle } from "lucide-react";
+import { providerText, quantityText } from "../../../lib/text";
 import type { EpisodeResponse } from "../../../lib/types";
 import { useI18n } from "../../locale-provider";
 import { Stat, StatusIcon, stageKey, modeOf } from "./parts";
 
 export function CostsTab({ data }: { data: EpisodeResponse }) {
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
   const { usd, duration, number } = fmt;
   const { state } = data;
   const est = data.estimates[modeOf(state.input)];
@@ -56,9 +58,9 @@ export function CostsTab({ data }: { data: EpisodeResponse }) {
                       {t(stageKey(r.stage))}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-muted">{r.providerId ?? "—"}</td>
+                  <td className="px-3 py-2 text-muted">{providerText(locale, r)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap text-muted tabular-nums">
-                    {r.quantity && r.unit ? `${number(r.quantity)} ${r.unit}` : "—"}
+                    {r.quantity && r.unit ? quantityText(locale, r.quantity, r.unit, number) : "—"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{usd(r.costUsd)}</td>
                   <td
@@ -87,7 +89,7 @@ export function CostsTab({ data }: { data: EpisodeResponse }) {
                   <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
                     {stat?.durationMs !== undefined ? duration(stat.durationMs / 1000) : "—"}
                   </td>
-                  <td className="px-3 py-2 text-xs text-muted">{r.basis}</td>
+                  <td className="px-3 py-2 text-xs text-muted">{formatText(locale, r.basis)}</td>
                 </tr>
               );
             })}
@@ -97,11 +99,13 @@ export function CostsTab({ data }: { data: EpisodeResponse }) {
 
       {est.warnings.length > 0 && (
         <ul className="grid gap-1 rounded-xl border border-bad/40 bg-bad/8 px-4 py-3 text-sm text-bad">
-          {est.warnings.map((w) => (
-            <li key={w} className="flex items-center gap-2">
-              <AlertTriangle size={14} /> {w}
-            </li>
-          ))}
+          {est.warnings
+            .map((w) => formatText(locale, w))
+            .map((w) => (
+              <li key={w} className="flex items-center gap-2">
+                <AlertTriangle size={14} /> {w}
+              </li>
+            ))}
         </ul>
       )}
 

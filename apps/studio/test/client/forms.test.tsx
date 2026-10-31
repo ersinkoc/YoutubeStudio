@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const router = { refresh: vi.fn(), push: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
+import { msg } from "@ys/core/messages";
 import { MODEL_CHOICES } from "@ys/core/models";
 import { ModelsForm } from "../../src/app/models/models-form.tsx";
 import { NewEpisodeForm } from "../../src/app/new-episode-form.tsx";
@@ -62,8 +63,13 @@ describe("NewEpisodeForm", () => {
     const estimates = makeEstimates();
     estimates.animated = makeEstimate("animated", {
       totalUsd: 9,
-      rows: [row({ stage: "script", costUsd: 0 }), row({ stage: "keyframes", providerId: "fal:flux", costUsd: 6 }), row({ stage: "clips", costUsd: 3 })],
-      warnings: ["Klip sağlayıcısı yavaş"],
+      rows: [
+        row({ stage: "script", costUsd: 0 }),
+        row({ stage: "keyframes", providerId: "fal:flux", costUsd: 6 }),
+        row({ stage: "clips", costUsd: 3 }),
+        row({ stage: "shots", providerId: "claude", via: msg("cost.via.vision"), costUsd: 1 }),
+      ],
+      warnings: ["Klip sağlayıcısı yavaş", msg("cost.overBudget", { total: "9.00", cap: 5 })],
     });
     const api = mockApi({ estimate: () => json(estimates) });
     renderIn(<NewEpisodeForm />);
@@ -84,6 +90,8 @@ describe("NewEpisodeForm", () => {
     expect(screen.getByText(`${tr("motion.animated")}: ${fmtTr.usd(9)}`).className).toBe("text-white");
     expect(screen.getByText(`${tr("motion.vector.short")}: ${fmtTr.usd(0.8)}`)).toBeTruthy();
     expect(screen.getByText("⚠ Klip sağlayıcısı yavaş")).toBeTruthy();
+    expect(screen.getByText("⚠ Tahmini toplam ($9.00) bütçe tavanını ($5) aşıyor")).toBeTruthy();
+    expect(screen.getByText(`${tr("stage.shots")} · claude (görsel)`)).toBeTruthy();
     expect(screen.queryByText(tr("form.overBudget"))).toBeNull();
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { statusLabel } from "../../../lib/status";
+import { formatText } from "@ys/core/messages";
 import type { Stage } from "@ys/pipeline/light";
 import { ArrowLeft, Mic, Pencil, Play, RefreshCw, Square } from "lucide-react";
 import Link from "next/link";
@@ -299,7 +300,7 @@ function PipelineRail({ data, onStage }: { data: EpisodeResponse; onStage: (s: S
 // ---------------- canlı durum ----------------
 
 function LivePanel({ data, busy, act, onTab }: { data: EpisodeResponse; busy: boolean; act: Act; onTab: (t: Tab) => void }) {
-  const { t, fmt } = useI18n();
+  const { t, fmt, locale } = useI18n();
   const { state, status, progress, job } = data;
   const recent = (state.activity ?? []).slice(-6).reverse();
   const tone = STATUS_TONE[status.status];
@@ -373,7 +374,7 @@ function LivePanel({ data, busy, act, onTab }: { data: EpisodeResponse; busy: bo
       // Ses sağlayıcısını değiştirmek yalnız ses aşamasındaki kota hatasında anlamlı: başka aşamada tüm sesi ve sonrasını siler.
       const quota = err?.stage === "voice" && /kota|quota/i.test(err.message);
       headline = t("ep.err.stopped", { stage: stageName });
-      body = <p className="text-sm break-words text-muted">{err?.message ?? job?.log.at(-1) ?? t("ep.err.crashed")}</p>;
+      body = <p className="text-sm break-words text-muted">{err ? (err.text ? formatText(locale, err.text) : err.message) : (job?.log.at(-1) ?? t("ep.err.crashed"))}</p>;
       actions = (
         <>
           {quota && (

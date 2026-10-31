@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { msg, type Text } from "@ys/core/messages";
 import { QUALITY_GATE } from "@ys/core/rules";
 import type { CostEntry, ProviderAdapter, Quota } from "@ys/media-gateway";
 import { saveLessons, saveModelSettings, type EpisodeInput, type EpisodeState } from "@ys/pipeline/light";
@@ -20,7 +21,7 @@ const fake = vi.hoisted(() => ({
   episodes: [] as EpisodeState[],
   entries: [] as CostEntry[],
   providers: [] as ProviderAdapter[],
-  skipped: [] as string[],
+  skipped: [] as Text[],
   quotas: new Map<string, Quota | Error>(),
   store: undefined as unknown as AssetStore,
   cookie: "tr" as string | undefined,
@@ -235,6 +236,19 @@ describe("Maliyetler sayfası", () => {
     expect(h).toContain("text-bad");
   });
 
+  it("İngilizce: defterdeki Türkçe birimler çevrilir, miktar 1 iken tekil", async () => {
+    fake.cookie = "en";
+    fake.entries = [
+      entry({ providerId: "eleven:v3", estimateMicros: 3_000_000, units: 812, unitLabel: "karakter" }),
+      entry({ providerId: "img", estimateMicros: 1_000_000, units: 1, unitLabel: "görsel" }),
+      entry({ providerId: "img2", estimateMicros: 500_000, units: 148, unitLabel: "görsel" }),
+    ];
+    const t = text(await html(CostsPage()));
+    expect(t).toContain("812 characters");
+    expect(t).toContain("1 image ");
+    expect(t).toContain("148 images");
+  });
+
   it("sıfır tutarlı tek grupta çubuk genişliği 0", async () => {
     fake.entries = [entry({ estimateMicros: 0, stage: "voice", units: 2 })];
     const h = await html(CostsPage());
@@ -272,15 +286,37 @@ describe("Fiyatlar sayfası", () => {
     expect(t).toContain("0.80");
     expect(t).toContain("4 sn (2)");
     expect(h).toContain('title="2 ölçüm"');
-    expect(t).toContain("900 / 1.000 chars · creator");
+    expect(t).toContain("900 / 1.000 karakter · creator");
     expect(t).toContain("elevenlabs.io · 2026-10-29 Creator planı");
     expect(t).toContain("ai.google.dev · 2026-10-01");
     // Kotası dolmuş sağlayıcı kırmızı.
-    expect(h).toMatch(/class="text-bad">0 \/ 50 chars/);
+    expect(h).toMatch(/class="text-bad">0 \/ 50 karakter/);
     expect(t).toContain("comfy:flux yerel");
     expect(t).toContain("ücretsiz (yerel)");
     expect(t).toContain("Devre dışı");
     expect(t).toContain("fal:* (FAL_KEY yok)");
+  });
+
+  it("İngilizce: fiyat, birim, not ve devre dışı nedenleri", async () => {
+    fake.cookie = "en";
+    fake.providers = [
+      fakeProvider({
+        id: "fal:kling",
+        capabilities: ["i2v"],
+        price: { unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 },
+        quotaValue: { unit: "credits", used: 1, limit: 10 },
+        priceSource: { url: "https://fal.ai/k", checked: "2026-10-31", note: msg("price.note.kling", { silent: 0.084, audio: 0.126 }) },
+      }),
+      fakeProvider({ id: "img", capabilities: ["t2i"], price: { unit: "per_output", usd: 0.025 } }),
+    ];
+    fake.quotas.set("fal:kling", { unit: "credits", used: 1, limit: 10 });
+    fake.skipped = [msg("gw.skip.noKey", { scope: "gemini:*", key: "GEMINI_API_KEY" })];
+    const t = text(await html(PricingPage()));
+    expect(t).toContain("$0.084/s, at least 3 s; with audio $0.126/s");
+    expect(t).toContain("$0.025/image");
+    expect(t).toContain("9 / 10 credits");
+    expect(t).toContain("silent $0.084/s, with audio $0.126/s");
+    expect(t).toContain("gemini:* (no GEMINI_API_KEY)");
   });
 
   it("sağlayıcı ve atlanan yoksa boş sayfa", async () => {

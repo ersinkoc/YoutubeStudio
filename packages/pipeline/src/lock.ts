@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { LocalizedError, msg } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
 
 /**
@@ -46,7 +47,7 @@ export async function deadLock(store: AssetStore, id: string): Promise<boolean> 
 export async function acquireLock(store: AssetStore, id: string): Promise<() => Promise<void>> {
   const held = await liveLock(store, id);
   if (held && !(held.pid === process.pid && held.host === hostname())) {
-    throw new Error(`Bu bölüm zaten çalışıyor (süreç ${held.pid}, ${held.startedAt}); bitmesini bekle ya da iptal et`);
+    throw new LocalizedError(msg("err.lock.busy", { pid: held.pid, startedAt: held.startedAt }));
   }
   const mine: RunLock = { pid: process.pid, host: hostname(), startedAt: new Date().toISOString() };
   await putJson(store, lockKey(id), mine);

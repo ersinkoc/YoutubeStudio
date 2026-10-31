@@ -1,4 +1,7 @@
-import type { Capability, Quality, WordTiming } from "@ys/core";
+import { errorText, LocalizedError, msg, type Capability, type Msg, type Quality, type Text, type WordTiming } from "@ys/core";
+
+/** Düz metni (sağlayıcının kendi hata metni, eski çağrılar) çevrilebilir mesaja sarar. */
+export const asMsg = (text: Text): Msg => (typeof text === "string" ? msg("gw.text", { text }) : text);
 
 export type RefRole =
   | "character"
@@ -87,7 +90,7 @@ export interface PriceSource {
   url: string;
   /** Kontrol tarihi (YYYY-AA-GG). */
   checked: string;
-  note?: string;
+  note?: Text;
 }
 
 /** Hesap kotası (ör. ElevenLabs aylık karakter). */
@@ -118,15 +121,15 @@ export interface ProviderAdapter {
  * Sağlayıcı isteği içerik nedeniyle reddetti (güvenlik filtresi, gerçek kişi vb.). Sağlayıcı sağlıklıdır;
  * aynı sağlayıcının başka istekleri çalışmaya devam eder, bu yüzden sağlık sayacına yazılmaz.
  */
-export class ContentRejectedError extends Error {
+export class ContentRejectedError extends LocalizedError {
   /**
    * true: üretim yapıldı ve sağlayıcı ücretlendirdi, ama çıktı filtreye takıldı (ör. fal `has_nsfw_concepts` → siyah
    * görsel). Gateway tahmini deftere yazar (tavan doğru kalsın) ama yine başka sağlayıcıya geçer.
    */
   readonly billed: boolean;
 
-  constructor(message: string, opts: { billed?: boolean } = {}) {
-    super(message);
+  constructor(message: Text, opts: { billed?: boolean } = {}) {
+    super(asMsg(message));
     this.billed = opts.billed ?? false;
   }
 }
@@ -145,12 +148,12 @@ export function promptWithAvoid(prompt: string | undefined, negative: string | u
  * İş sağlayıcıya kabul edildikten sonra başarısız oldu (bekleme süresi doldu, indirme hatası, iptal). Sağlayıcı
  * çoğunlukla ücretlendirmiştir: gateway tahmini deftere yazar ve başka sağlayıcıya geçip ikinci kez ödetmez.
  */
-export class SubmittedJobError extends Error {
+export class SubmittedJobError extends LocalizedError {
   constructor(
-    message: string,
+    message: Text,
     readonly jobId?: string,
   ) {
-    super(message);
+    super(asMsg(message));
   }
 }
 
@@ -160,6 +163,6 @@ export async function afterSubmit<T>(jobId: string | undefined, fn: () => Promis
     return await fn();
   } catch (e) {
     if (e instanceof ContentRejectedError || e instanceof SubmittedJobError) throw e;
-    throw new SubmittedJobError(`gönderilmiş iş başarısız (${jobId ?? "?"}): ${e instanceof Error ? e.message : String(e)}`, jobId);
+    throw new SubmittedJobError(msg("gw.submitted", { job: jobId ?? "?", error: errorText(e) }), jobId);
   }
 }

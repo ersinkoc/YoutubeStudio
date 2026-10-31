@@ -1,4 +1,4 @@
-import type { Capability } from "@ys/core";
+import { LocalizedError, msg, type Capability } from "@ys/core";
 import { HttpError, PollTimeoutError, pollUntil, requestBytes, requestJson } from "../http.ts";
 import { ContentRejectedError, afterSubmit } from "../types.ts";
 import type {
@@ -102,9 +102,12 @@ export class FalAdapter implements ProviderAdapter {
         );
         // Başarısız iş: sonucu indirmeye çalışmadan nedeni bildir.
         if (done.error !== undefined || done.error_type !== undefined) {
-          const reason = `fal ${done.error_type ?? "hata"}: ${done.error ?? "ayrıntı yok"}`;
+          const reason = msg("gw.fal.failed", {
+            type: done.error_type ?? msg("gw.fal.errorType"),
+            error: done.error ?? msg("gw.noDetails"),
+          });
           if (CONTENT_ERROR.test(done.error_type ?? "")) throw new ContentRejectedError(reason);
-          throw new Error(reason);
+          throw new LocalizedError(reason);
         }
       } catch (e) {
         // İptal ya da bekleme süresi doldu: iş fal'da sürmesin (ücretlenmeye devam etmesin). En iyi çaba.
@@ -116,7 +119,7 @@ export class FalAdapter implements ProviderAdapter {
         headers,
         signal: ctx.signal,
       }).catch((e: unknown) => {
-        if (isContentHttpError(e)) throw new ContentRejectedError(`fal içerik reddi: ${(e as HttpError).body.slice(0, 300)}`);
+        if (isContentHttpError(e)) throw new ContentRejectedError(msg("gw.fal.contentRejected", { body: (e as HttpError).body.slice(0, 300) }));
         throw e;
       });
       const files = await Promise.all(

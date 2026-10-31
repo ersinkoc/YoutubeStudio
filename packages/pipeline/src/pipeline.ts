@@ -38,18 +38,25 @@ import {
   stylePackOf,
   gatePasses,
   DRAFT_REVIEW,
+  errorText,
+  LocalizedError,
+  msg,
   QUALITY_GATE,
   resolveLayout,
   RIG,
   sanitizeSvg,
   stripBackdrop,
   svgSize,
+  trText,
   usd,
   VectorAssetMeta,
   type AssetCheck,
   type GateScores,
   type LineStyle,
+  type MessageId,
   type ModelSettings,
+  type Msg,
+  type Text,
   type Timeline,
   type VectorAsset,
 } from "@ys/core";
@@ -126,10 +133,31 @@ function metaOf(out: VectorAssetOut, kind: AssetBrief["kind"]): VectorAssetMeta 
 }
 
 /** Kalite kapısını geçemeyen SVG: kullanılmaz (nesne çekimden düşer, karakter/mekân konsepti durdurur). */
-export class AssetRejectedError extends Error {}
+export class AssetRejectedError extends LocalizedError {}
 
 /** Sağlayıcı kotası işi bitirmeye yetmiyor; para harcanmadan önce durulur. */
-export class QuotaError extends Error {}
+export class QuotaError extends LocalizedError {}
+
+/** Hatanın ilk satırı. Çevrilebilir hatada çok satırlı düz parametreler (ör. sarılmış model hatası) ilk satırına iner. */
+export const firstLine = (e: unknown): Text => {
+  const t = errorText(e);
+  if (typeof t === "string") return t.split("\n")[0]!;
+  const params = Object.entries(t.params ?? {}).map(([k, v]) => [k, typeof v === "string" ? v.split("\n")[0]! : v] as const);
+  return msg(t.key, Object.fromEntries(params));
+};
+
+/** Metinleri tek metinde birleştirir (her biri seçili dilde biçimlenir); `key` ayırıcıyı belirler. */
+export const joinTexts = (items: Text[], key: "log.join.line" | "log.join.indented"): Text =>
+  items.reduce((a, b) => msg(key, { a, b }));
+
+/** Kapı puanının okunur hali (tanınırlık, varsa gerçeğe sadakat). */
+const scoreText = (r: { scores: GateScores; guess: string }): Msg =>
+  r.scores.fidelity !== undefined
+    ? msg("log.gate.scoreFidelity", { recognizable: r.scores.recognizable, guess: r.guess, fidelity: r.scores.fidelity })
+    : msg("log.gate.score", { recognizable: r.scores.recognizable, guess: r.guess });
+
+/** Stil paketinin adı (katalogda paket başına TR + EN). */
+const packName = (id: string): Msg => msg(`style.pack.${id}` as MessageId);
 
 export interface PipelineDeps {
   gateway: MediaGateway;
@@ -167,7 +195,8 @@ const FRAME_NEGATIVE =
   "border, frame, panel, comic layout, collage, inset, split screen, diptych, page margin, text, letters, writing, watermark";
 
 export class EpisodePipeline {
-  private readonly log: (message: string) => void;
+  /** Günlük satırı: çevrilebilir mesaj (`msg(...)`) ya da düz metin; CLI'ye Türkçesi gider. */
+  private readonly log: (text: Text) => void;
   /** Henüz duruma yazılmamış günlük satırları; bir sonraki save() ile kalıcı olur. */
   private pending: ActivityEntry[] = [];
   private currentStage?: Stage;
@@ -181,9 +210,16 @@ export class EpisodePipeline {
   }
 
   constructor(private readonly deps: PipelineDeps) {
-    this.log = (message) => {
+    this.log = (text) => {
+      const message = trText(text);
       deps.log?.(message);
-      this.pending.push({ at: new Date().toISOString(), stage: this.currentStage, level: levelOf(message), msg: message.trim() });
+      this.pending.push({
+        at: new Date().toISOString(),
+        stage: this.currentStage,
+        level: levelOf(message),
+        msg: message.trim(),
+        ...(typeof text === "string" ? {} : { text }),
+      });
     };
   }
 
@@ -197,7 +233,7 @@ export class EpisodePipeline {
 
   async load(id: string): Promise<EpisodeState> {
     const state = await getJson<EpisodeState>(this.deps.store, this.stateKey(id));
-    if (!state) throw new Error(`Bölüm bulunamadı: ${id}`);
+    if (!state) throw new LocalizedError(msg("err.episode.notFound", { id }));
     return state;
   }
 
@@ -226,7 +262,7 @@ export class EpisodePipeline {
     const state = await this.load(id);
     this.models = await loadModelSettings(this.deps.store);
     const chosen = Object.entries(this.models);
-    if (chosen.length) this.log(`  model seçimi: ${chosen.map(([role, model]) => `${role} → ${model}`).join(", ")}`);
+    if (chosen.length) this.log(msg("log.run.models", { list: chosen.map(([role, model]) => `${role} → ${model}`).join(", ") }));
     if (opts.only) {
       this.currentStage = opts.only;
       this.log(`▶ ${opts.only} (sadece)`);
@@ -271,8 +307,9 @@ export class EpisodePipeline {
       await this.stages[stage](state, opts);
     } catch (e) {
       finish();
-      state.lastError = { stage, message: e instanceof Error ? e.message : String(e), at: new Date().toISOString() };
-      this.pending.push({ at: state.lastError.at, stage, level: "error", msg: state.lastError.message });
+      const text = errorText(e);
+      state.lastError = { stage, message: trText(text), ...(typeof text === "string" ? {} : { text }), at: new Date().toISOString() };
+      this.pending.push({ at: state.lastError.at, stage, level: "error", msg: state.lastError.message, ...(state.lastError.text ? { text: state.lastError.text } : {}) });
       await this.save(state);
       throw e;
     }
@@ -298,7 +335,7 @@ export class EpisodePipeline {
       // Başarısız çağrı da ödendi (tur sınırı, şemaya uymayan çıktı): maliyeti görünmezse Claude harcaması eksik kalır.
       if (e instanceof AgentError && e.costUsd > 0) {
         state.agentCostUsd += e.costUsd;
-        this.log(`  ajan ${e.agent ?? "?"} başarısız · $${e.costUsd.toFixed(3)}`);
+        this.log(msg("log.agent.failed", { agent: e.agent ?? "?", cost: e.costUsd.toFixed(3) }));
         await this.deps.ledger.record({
           at: new Date().toISOString(),
           episodeId: state.id,
@@ -316,7 +353,9 @@ export class EpisodePipeline {
       throw e;
     }
     state.agentCostUsd += res.costUsd;
-    this.log(`  ajan ${res.name} · ${res.model.replace(/^claude-/, "")} · $${res.costUsd.toFixed(3)} · ${(res.durationMs / 1000).toFixed(0)} sn`);
+    this.log(
+      msg("log.agent.done", { name: res.name, model: res.model.replace(/^claude-/, ""), cost: res.costUsd.toFixed(3), sec: (res.durationMs / 1000).toFixed(0) }),
+    );
     // Uzun aşamalarda (senaryo, sahne planı) her ajan çağrısı Stüdyo'da anında görünsün.
     await this.save(state);
     await this.deps.ledger.record({
@@ -352,7 +391,7 @@ export class EpisodePipeline {
 
   private async bytes(key: string): Promise<Uint8Array> {
     const b = await this.deps.store.get(key);
-    if (!b) throw new Error(`Depoda yok: ${key}`);
+    if (!b) throw new LocalizedError(msg("err.store.missing", { key }));
     return b;
   }
 
@@ -421,7 +460,7 @@ export class EpisodePipeline {
       );
       return judgeFrame(out, attempt);
     } catch (e) {
-      this.log(`  ${shot.id}: kare kontrolü yapılamadı (${e instanceof Error ? e.message : String(e)})`);
+      this.log(msg("log.frame.checkFailed", { shot: shot.id, error: errorText(e) }));
       return { score: 0, issues: [], attempts: attempt, passed: true, skipped: "denetim hatası" };
     }
   }
@@ -536,8 +575,8 @@ export class EpisodePipeline {
         refs = await findReferences(query, { store: this.deps.store, log: this.log });
         this.log(
           refs.images.length
-            ? `  ${brief.name}: referans "${query}" → ${refs.sources.map((s) => s.title).join(" | ")}`
-            : `  ${brief.name}: referans "${query}" için görsel bulunamadı, tarifle çiziliyor`,
+            ? msg("log.ref.found", { name: brief.name, query, sources: refs.sources.map((s) => s.title).join(" | ") })
+            : msg("log.ref.none", { name: brief.name, query }),
         );
       }
       return refs?.images.length ? refs.images : undefined;
@@ -551,10 +590,14 @@ export class EpisodePipeline {
         const out = await this.agent(state, stage, assetPlanner({ ...brief, references }, state.style!, this.agentDeps));
         plan = AssetPlan.parse(out);
         await putJson(this.deps.store, planKey, plan);
-        this.log(`  ${brief.name}: çizim planı → ${plan.subject}${plan.moved.length ? ` (bu çizime girmeyen: ${plan.moved.join("; ")})` : ""}`);
+        this.log(
+          plan.moved.length
+            ? msg("log.asset.planMoved", { name: brief.name, subject: plan.subject, moved: plan.moved.join("; ") })
+            : msg("log.asset.plan", { name: brief.name, subject: plan.subject }),
+        );
       } catch (e) {
         // Plan yardımcıdır: hazırlanamazsa tarifle çizilir.
-        this.log(`  ${brief.name}: çizim planı hazırlanamadı, tarifle çiziliyor (${e instanceof Error ? e.message : String(e)})`);
+        this.log(msg("log.asset.planFailed", { name: brief.name, error: errorText(e) }));
       }
       return plan;
     };
@@ -575,9 +618,6 @@ export class EpisodePipeline {
       fidelitySkipped: refs?.images.length && state.input.realism === false ? true : undefined,
       entityId: brief.id,
     });
-    const scoreText = (r: { scores: GateScores; guess: string }) =>
-      `tanınırlık ${r.scores.recognizable}/10 ("${r.guess}")${r.scores.fidelity !== undefined ? `, gerçeğe sadakat ${r.scores.fidelity}/10` : ""}`;
-
     // Kütüphanedeki çizim de denetlenmeden kullanılmaz (kapıdan önce çizilmiş eski varlıklar ilk kullanımda denetlenir).
     const cached = await this.deps.store.get(key);
     const meta = cached ? VectorAssetMeta.parse((await getJson(this.deps.store, `${key}.json`)) ?? {}) : undefined;
@@ -590,7 +630,7 @@ export class EpisodePipeline {
         if (identity && !meta.identity) await putJson(this.deps.store, `${key}.json`, { ...meta, identity });
         // Başka bölümün kaydı: sahibi bu bölümün varlığıdır (insan kararı yanlış varlığa uygulanmasın).
         record({ ...meta.check!, entityId: brief.id });
-        this.log(`  ${brief.name}: kütüphaneden (kapı ✓)`);
+        this.log(msg("log.asset.fromLibrary", { name: brief.name }));
         return ref;
       }
       const res = await this.gateCheck(state, stage, brief, new TextDecoder().decode(cached), await loadRefs(), plan);
@@ -598,10 +638,10 @@ export class EpisodePipeline {
       if (check.passed) {
         await putJson(this.deps.store, `${key}.json`, { ...meta, check, identity: meta.identity ?? identity });
         record(check);
-        this.log(`  ${brief.name}: kütüphaneden, kapı ✓ (${scoreText(res)})`);
+        this.log(msg("log.asset.fromLibraryChecked", { name: brief.name, score: scoreText(res) }));
         return ref;
       }
-      this.log(`  ${brief.name}: kütüphanedeki çizim kapıdan geçemedi (${scoreText(res)}), yeniden çiziliyor`);
+      this.log(msg("log.asset.libraryFailed", { name: brief.name, score: scoreText(res) }));
     }
 
     // Daha önce reddedilen en iyi deneme, bugünkü kurala göre geçiyorsa (ör. gerçeklik denetimi kapatıldı) para
@@ -616,21 +656,21 @@ export class EpisodePipeline {
         await this.deps.store.put(key, svg, ref.mimeType);
         await putJson(this.deps.store, `${key}.json`, { ...rejectedMeta, check });
         record(check);
-        this.log(`  ${brief.name}: önceki deneme bugünkü kurala göre geçiyor (gerçeklik denetimi kapalı), yeniden çizilmeden kullanılıyor`);
+        this.log(msg("log.asset.previousPasses", { name: brief.name }));
         return ref;
       }
       // Bu bölümde zaten reddedildi: her devamda, çökme sonrası yeniden başlatmada ve taslak düzeltmede yeniden çizmek
       // hiç yakınsamıyordu (31 Eki üretim verisi: tekrar çizimlerin %16'sı geçti, büyük bölümlerde Claude harcamasının
       // ~%40'ı). Yeni çizim insan kararıyla gelir: Stüdyo'da reddetmek (notlu ya da notsuz) yeni anahtara taze çizim açar.
-      this.log(`  ${brief.name}: bu bölümde kalite kapısından reddedilmişti (${scoreText({ scores, guess: previous.guess })}), yeniden çizilmiyor`);
-      throw new AssetRejectedError(`${brief.name}: kalite kapısı geçilemedi (önceki deneme); Stüdyo'da kabul et ya da yeniden çizdir`);
+      this.log(msg("log.asset.previouslyRejected", { name: brief.name, score: scoreText({ scores, guess: previous.guess }) }));
+      throw new AssetRejectedError(msg("err.asset.rejectedBefore", { name: brief.name }));
     }
 
     const references = await loadRefs();
     // Nesneler için önce Commons'ta hazır, serbest lisanslı vektör çizim denenir; kapıdan geçen ilk aday kullanılır.
     // İnsan bu varlığın bir çizimini reddettiyse (not var) hazır çizim aranmaz: insan belli bir şey istiyor.
     if (brief.kind === "prop" && query && !humanFix) {
-      const found = await this.readyMadeProp(state, stage, brief, query, references, key, checkOf, scoreText);
+      const found = await this.readyMadeProp(state, stage, brief, query, references, key, checkOf);
       if (found) return found;
     }
     await makePlan(references);
@@ -653,7 +693,7 @@ export class EpisodePipeline {
         // kapı çağrıları boşa gitmesin diye varlık hemen düşürülmez. Diğer hatalar (iptal vb.) yukarı çıkar.
         if (!(e instanceof AgentError)) throw e;
         lastError = e;
-        this.log(`  ${brief.name}: deneme ${attempt} tasarımcı hatası (${e.message.split("\n")[0]})`);
+        this.log(msg("log.asset.designerError", { name: brief.name, attempt, error: firstLine(e) }));
         continue;
       }
       let svg: string;
@@ -662,22 +702,22 @@ export class EpisodePipeline {
         svg = brief.kind === "background" ? clean : stripBackdrop(clean, svgSize(clean));
         if (brief.kind === "character") {
           const missing = RIG.required.filter((id) => !svg.includes(`id="${id}"`));
-          if (missing.length) throw new Error(`iskelet parçası eksik: ${missing.join(", ")}`);
+          if (missing.length) throw new LocalizedError(msg("err.asset.rigMissing", { parts: missing.join(", ") }));
         }
       } catch (e) {
         lastError = e;
         fix = [humanFix, `- The SVG was invalid: ${e instanceof Error ? e.message : String(e)}`].filter(Boolean).join("\n");
-        this.log(`  ${brief.name}: deneme ${attempt} geçersiz SVG (${e instanceof Error ? e.message : String(e)})`);
+        this.log(msg("log.asset.invalidSvg", { name: brief.name, attempt, error: errorText(e) }));
         continue;
       }
       const res = await this.gateCheck(state, stage, brief, svg, references, plan);
       const passed = gatePasses(brief.kind, res.scores);
       if (betterGate(brief.kind, res.scores, best?.res.scores)) best = { svg, out, res };
-      this.log(`  ${brief.name}: deneme ${attempt}, ${scoreText(res)} ${passed ? "✓" : "✗"}`);
+      this.log(msg("log.asset.attempt", { name: brief.name, attempt, score: scoreText(res), mark: passed ? "✓" : "✗" }));
       if (passed) break;
       recognized.push(res.scores.recognizable);
       if (attempt < QUALITY_GATE.maxDraws && recognized.length >= 2 && recognized.slice(0, 2).every((s) => s <= QUALITY_GATE.hopelessAtMost)) {
-        this.log(`  ${brief.name}: iki çizim de tanınmadı (≤${QUALITY_GATE.hopelessAtMost}/10), yeniden çizilmiyor; karar insanın`);
+        this.log(msg("log.asset.hopeless", { name: brief.name, max: QUALITY_GATE.hopelessAtMost }));
         break;
       }
       seen.push(res.guess);
@@ -697,15 +737,15 @@ export class EpisodePipeline {
       await this.deps.store.put(rejectedKey, new TextEncoder().encode(best.svg), ref.mimeType);
       await putJson(this.deps.store, `${rejectedKey}.json`, { ...metaOf(best.out, brief.kind), identity });
       record({ ...check, rejectedKey });
-      this.log(`  ✗ REDDEDİLDİ ${brief.name}: ${draws} denemede kalite kapısı geçilemedi (${scoreText(best.res)}): ${best.res.defects.join("; ")}`);
-      throw new AssetRejectedError(`${brief.name}: kalite kapısı geçilemedi (${scoreText(best.res)})`);
+      this.log(msg("log.asset.rejected", { name: brief.name, draws, score: scoreText(best.res), defects: best.res.defects.join("; ") }));
+      throw new AssetRejectedError(msg("err.asset.rejected", { name: brief.name, score: scoreText(best.res) }));
     }
 
     await this.deps.store.put(key, new TextEncoder().encode(best.svg), ref.mimeType);
     // Fiziksel bilgi SVG'nin yanında: yerleşim çözücüsü boy, yüzey ve zemin çizgisini buradan alır.
     await putJson(this.deps.store, `${key}.json`, { ...metaOf(best.out, brief.kind), check, identity });
     record(check);
-    this.log(`  ${brief.name}: çizildi (${(best.svg.length / 1024).toFixed(1)} KB, ${draws} deneme)`);
+    this.log(msg("log.asset.drawn", { name: brief.name, kb: (best.svg.length / 1024).toFixed(1), draws }));
     return ref;
   }
 
@@ -721,13 +761,12 @@ export class EpisodePipeline {
     references: AgentImage[] | undefined,
     key: string,
     checkOf: (r: GateResult, attempts: number) => AssetCheck,
-    scoreText: (r: { scores: GateScores; guess: string }) => string,
   ): Promise<AssetRef | undefined> {
     let sources: Awaited<ReturnType<typeof findVectorSources>> = [];
     try {
       sources = await findVectorSources(query, { store: this.deps.store, log: this.log });
     } catch (e) {
-      this.log(`  ${brief.name}: hazır SVG aranamadı (${e instanceof Error ? e.message : String(e)})`);
+      this.log(msg("log.asset.readyMadeFailed", { name: brief.name, error: errorText(e) }));
     }
     for (const candidate of sources) {
       let svg: string;
@@ -738,7 +777,15 @@ export class EpisodePipeline {
       }
       const res = await this.gateCheck(state, stage, brief, svg, references);
       const passed = gatePasses(brief.kind, res.scores);
-      this.log(`  ${brief.name}: hazır SVG "${candidate.source.title}" (${candidate.source.license}) → ${scoreText(res)} ${passed ? "✓" : "✗"}`);
+      this.log(
+        msg("log.asset.readyMade", {
+          name: brief.name,
+          title: candidate.source.title,
+          license: String(candidate.source.license),
+          score: scoreText(res),
+          mark: passed ? "✓" : "✗",
+        }),
+      );
       if (!passed) continue;
       const physics = await this.agent(state, stage, propPhysics(brief.name, brief.description, this.agentDeps));
       const base = checkOf(res, 0);
@@ -788,13 +835,13 @@ export class EpisodePipeline {
       concept.selected[c.id] ??= { key: hit.key, mimeType: "image/svg+xml" };
       const check = VectorAssetMeta.parse(/* v8 ignore next -- kütüphane listesi yalnız metası olan karakterleri verir */ (await getJson(this.deps.store, `${hit.key}.json`)) ?? {}).check;
       if (check) (state.assetChecks ??= {})[hit.key] = { ...check, entityId: c.id };
-      this.log(`  ♻ ${c.name}: kütüphaneden (${hit.episodes.length} bölümde kullanıldı), çizilmedi`);
+      this.log(msg("log.concept.reused", { name: c.name, count: hit.episodes.length }));
     }
     const reusedIds = new Set(cast.characters.filter((c) => c.reuse && library.has(c.reuse)).map((c) => c.id));
     const pending = jobs.filter((j) => !(reusedIds.has(j.id) && !regenerate));
     // Devam: seçimi olmayan varlıklar çizilir (hiç çizilmemiş ya da insanın reddettiği seçili çizim).
     const todo = resume ? pending.filter((j) => !concept.selected[j.id]) : pending;
-    if (resume) this.log(`  devam: ${todo.length} eksik varlık çizilecek, ${jobs.length - todo.length} hazır`);
+    if (resume) this.log(msg("log.concept.resume", { todo: todo.length, ready: jobs.length - todo.length }));
     await mapLimit(todo, this.deps.concurrency ?? 3, async (job) => {
       try {
         const ref = await this.designAsset(state, "concept", job.brief);
@@ -811,11 +858,9 @@ export class EpisodePipeline {
     // Kapıyı geçemeyen karakter/mekânla üretim sürmez: Stüdyo'da reddedilen çizim ve kusurları görünür, karar insanın.
     // Stüdyo bölümünde konsept zaten insan onayı bekler; seçimi eksik varlık onayı engeller (kabul et ya da yeniden çiz).
     if (rejected.length && !state.input.autoApprove) {
-      this.log(`  ⏸ kalite kapısı: ${rejected.join(", ")} reddedildi; Stüdyo'da kabul et ya da notla yeniden çizdir`);
+      this.log(msg("log.concept.gateWait", { names: rejected.join(", ") }));
     } else if (rejected.length) {
-      throw new AssetRejectedError(
-        `Kalite kapısı: ${rejected.join(", ")} kabul edilebilir çizilemedi. Konsept sekmesinde kusurları gör; "Yeni adaylar üret" ile yeniden çizdir.`,
-      );
+      throw new AssetRejectedError(msg("err.concept.rejected", { names: rejected.join(", ") }));
     }
     // Tek aday üretildiği için seçim beklenmez: önceki seçim korunur, yoksa en yeni çeşitleme seçilir.
     for (const [id, list] of Object.entries(concept.candidates)) {
@@ -898,7 +943,14 @@ export class EpisodePipeline {
       };
     });
     this.log(
-      `  ${scene.id}${feedback ? " (düzeltme)" : ""}: ${out.shots.length} çekim, ${out.newProps.length} yeni nesne, ${out.newBackgrounds.length} yeni mekân${dropped ? `, ${dropped} bilinmeyen katman atıldı` : ""}`,
+      msg("log.scene.planned", {
+        scene: scene.id,
+        revision: feedback ? msg("log.scene.revision") : "",
+        shots: out.shots.length,
+        props: out.newProps.length,
+        backgrounds: out.newBackgrounds.length,
+        dropped: dropped ? msg("log.scene.dropped", { n: dropped }) : "",
+      }),
     );
     return shots;
   }
@@ -906,7 +958,7 @@ export class EpisodePipeline {
   /** Çekim planı: sahne başına bir yönetmen çağrısı; çıktı kısa JSON, çizim, fizik ve hareket kodda. */
   private async vectorShots(state: EpisodeState, durations: Record<string, number>): Promise<void> {
     const { script, style, cast, voice } = state;
-    if (!script || !style || !cast || !voice) throw new Error("script/style/cast/voice yok");
+    if (!script || !style || !cast || !voice) throw new LocalizedError(msg("err.missing", { what: "script/style/cast/voice" }));
     const lessons = topLessons(await loadLessons(this.deps.store), "director");
     const planned = new Map<string, ShotPlanOut["scenes"][number]["shots"]>();
     // Sahne planının girdileri: değişirse eski taslak kullanılmaz.
@@ -923,7 +975,7 @@ export class EpisodePipeline {
       const saved = draft[scene.id];
       if (saved?.sig === sig) {
         planned.set(scene.id, saved.shots);
-        this.log(`  ${scene.id}: önceki çalıştırmanın planı kullanıldı`);
+        this.log(msg("log.scene.planReused", { scene: scene.id }));
         return;
       }
       const shots = await this.planVectorScene(state, scene, duration, lessons);
@@ -937,7 +989,7 @@ export class EpisodePipeline {
     state.keyframes = {};
     state.qa = {};
     state.clips = {};
-    this.log(`  ${state.shots.length} vektör çekim, ${Object.keys(state.vectorProps ?? {}).length} nesne/mekân`);
+    this.log(msg("log.shots.vector", { shots: state.shots.length, props: Object.keys(state.vectorProps ?? {}).length }));
   }
 
   /**
@@ -981,7 +1033,7 @@ export class EpisodePipeline {
         review.lessons.push(...out.lessons);
       } catch (e) {
         // İnceleme videoyu bozmaz; başarısız grup atlanır.
-        this.log(`  inceleme grubu atlandı: ${e instanceof Error ? e.message : String(e)}`);
+        this.log(msg("log.review.batchSkipped", { error: errorText(e) }));
       }
     });
     return { files, review };
@@ -1000,7 +1052,7 @@ export class EpisodePipeline {
       publicDir: join(dir, "public"),
       frames,
       outDir,
-      onWait: (pid) => this.log(`  başka bir render sürüyor (süreç ${pid}); kareler için sıra bekleniyor`),
+      onWait: (pid) => this.log(msg("log.stills.wait", { pid })),
     });
   }
 
@@ -1036,10 +1088,12 @@ export class EpisodePipeline {
       const dir = await this.draftDir(state);
       const timeline = buildTimeline(state, (key) => key, await this.vectorAssets(state));
       await this.storeStills(state, await this.renderShotStills(timeline, dir, only));
-      this.log(`  önizleme: ${/* v8 ignore next -- çekim yoksa buildTimeline daha önce fırlatır */ only?.size ?? state.shots?.length ?? 0} çekim karesi`);
+      /* v8 ignore next -- çekim yoksa buildTimeline daha önce fırlatır */
+      const n = only?.size ?? state.shots?.length ?? 0;
+      this.log(msg("log.preview.done", { n }));
     } catch (e) {
       // Önizleme yardımcıdır; çıkarılamazsa üretim sürer.
-      this.log(`  önizleme kareleri çıkarılamadı (${e instanceof Error ? e.message : String(e)})`);
+      this.log(msg("log.preview.failed", { error: errorText(e) }));
     }
   }
 
@@ -1059,8 +1113,7 @@ export class EpisodePipeline {
     try {
       critique = await this.critiqueShots(state, "keyframes", timeline, dir, book.lessons.map((l) => l.rule));
     } catch (e) {
-      const reason = e instanceof Error ? e.message.split("\n")[0] : String(e);
-      this.log(`  ⚠ taslak kareler çıkarılamadı, taslak denetimi atlandı: ${reason}`);
+      this.log(msg("log.draft.failed", { reason: firstLine(e) }));
       return;
     }
     const { files, review } = critique;
@@ -1093,7 +1146,7 @@ export class EpisodePipeline {
       .filter((sc) => state.shots!.some((s) => s.sceneId === sc.id && bad(s.id)))
       .sort((a, b) => worst(a.id) - worst(b.id))
       .slice(0, limit);
-    this.log(`  taslak: ${scores.length} kare, ortalama ${avg.toFixed(1)}/10; yeniden planlanacak sahne: ${scenesToFix.length}`);
+    this.log(msg("log.draft.summary", { frames: scores.length, avg: avg.toFixed(1), scenes: scenesToFix.length }));
     state.draftReview = { ...review, avg, revisedScenes: scenesToFix.map((s) => s.id) };
     if (!scenesToFix.length) return;
 
@@ -1133,11 +1186,11 @@ export class EpisodePipeline {
         deps: this.agentDeps,
         onCall: async (target, res, before) => {
           await this.agent(state, "review", Promise.resolve(res));
-          this.log(`  dersler (${target}): ${before} → ${res.data.rules.length} kural`);
+          this.log(msg("log.lessons.curated", { target, before, after: res.data.rules.length }));
         },
       });
     } catch (e) {
-      this.log(`  ders küratörü atlandı: ${e instanceof Error ? e.message : String(e)}`);
+      this.log(msg("log.lessons.curatorSkipped", { error: errorText(e) }));
     }
   }
 
@@ -1164,7 +1217,7 @@ export class EpisodePipeline {
       shots.flatMap((s) => (s.vector ? [s.vector.background, ...s.vector.layers.map((l) => l.asset)].filter(Boolean) : [])),
     );
     const todo = Object.entries(props).filter(([id, p]) => !p.key && (!state.shots || used.has(id)));
-    const failed: string[] = [];
+    const failed: Text[] = [];
     await mapLimit(todo, this.deps.concurrency ?? 3, async ([id, p]) => {
       try {
         p.key =
@@ -1177,12 +1230,12 @@ export class EpisodePipeline {
         // durdurur ki devam edince yeniden denensin; yoksa nesne sessizce videodan kaybolurdu.
         if (!(e instanceof AssetRejectedError) && !p.map && !p.flag) throw e;
         if (e instanceof AssetRejectedError) p.rejected = true;
-        failed.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+        failed.push(msg("log.item", { id, error: errorText(e) }));
       }
     });
     state.keyframes = {};
     // Çizilemeyen nesne çekimden düşer; video yine de çıkar.
-    if (failed.length) this.log(`  ${failed.length} nesne çizilemedi, sahnelerden çıkarılacak:\n  ${failed.join("\n  ")}`);
+    if (failed.length) this.log(msg("log.props.failed", { n: failed.length, list: joinTexts(failed, "log.join.indented") }));
   }
 
   /**
@@ -1196,7 +1249,7 @@ export class EpisodePipeline {
     const hash = createHash("sha256").update(JSON.stringify({ v: GEO_VERSION, ...source })).digest("hex").slice(0, 32);
     const key = `library/vector/geo/${hash}.svg`;
     if ((await this.deps.store.get(key)) && (await this.deps.store.get(`${key}.json`))) {
-      this.log(`  ${id}: kütüphaneden (gerçek veri)`);
+      this.log(msg("log.geo.fromLibrary", { id }));
       return key;
     }
     const out = p.map ? await generateMap(p.map, state.input.lang, palette) : await generateFlag(p.flag!);
@@ -1204,7 +1257,7 @@ export class EpisodePipeline {
     // Önce meta: SVG var ama meta yoksa "exact" bilgisi kaybolur (deniz dikdörtgeni silinir, çizgi stili uygulanır).
     await putJson(this.deps.store, `${key}.json`, out.meta);
     await this.deps.store.put(key, new TextEncoder().encode(svg), "image/svg+xml");
-    this.log(`  ${id}: ${p.map ? "harita" : "bayrak"} gerçek veriden üretildi (${(svg.length / 1024).toFixed(0)} KB)`);
+    this.log(msg(p.map ? "log.geo.map" : "log.geo.flag", { id, kb: (svg.length / 1024).toFixed(0) }));
     return key;
   }
 
@@ -1234,7 +1287,7 @@ export class EpisodePipeline {
     refId?: string,
   ) {
     const style = state.style;
-    if (!style) throw new Error("style yok");
+    if (!style) throw new LocalizedError(msg("err.missing", { what: "style" }));
     const { refs, text } = await this.references(state, characterIds, locationId);
     return this.deps.gateway.generate(
       {
@@ -1258,10 +1311,10 @@ export class EpisodePipeline {
   async previewConcept(id: string, count = 3, signal?: AbortSignal): Promise<EpisodeState> {
     const state = await this.load(id);
     const { script, cast, concept } = state;
-    if (!script || !cast || !concept) throw new Error("Önce casting ve konsept aşamaları çalışmalı");
-    if (motionModeOf(state.input) === "vector") throw new Error("Vektör modunda deneme karesi yok; varlıklar zaten önizleniyor");
+    if (!script || !cast || !concept) throw new LocalizedError(msg("err.preview.needConcept"));
+    if (motionModeOf(state.input) === "vector") throw new LocalizedError(msg("err.preview.vector"));
     const missing = missingSelections(state);
-    if (missing.length) throw new Error(`Seçim yapılmamış: ${missing.join(", ")}`);
+    if (missing.length) throw new LocalizedError(msg("err.selection.missing", { ids: missing.join(", ") }));
 
     const scenes = script.scenes.slice(0, count);
     const previews = await mapLimit(scenes, this.deps.concurrency ?? 3, async (scene) => {
@@ -1271,7 +1324,7 @@ export class EpisodePipeline {
       // (29 Eki stüdyo denemesi). Deneme karesi tek bir anı göstermeli.
       const moment = `One single moment only — the opening moment of this scene, one camera angle, no collage, no insets: ${scene.visualIntent}`;
       const res = await this.keyframe(state, "concept", moment, characterIds, locationId, signal, scene.id);
-      this.log(`  deneme ${scene.id} ✓ (${res.providerId})`);
+      this.log(msg("log.preview.trial", { scene: scene.id, provider: res.providerId }));
       return { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType, caption: scene.narration.slice(0, 120) };
     });
     concept.previews = previews;
@@ -1286,32 +1339,32 @@ export class EpisodePipeline {
       const choice = state.input.stylePack;
       if (choice === STYLE_CUSTOM) {
         state.style = await this.agent(state, "style", artDirector(this.brief(state), this.agentDeps));
-        this.log(`  özel stil: ${state.style.artStyle}`);
+        this.log(msg("log.style.custom", { style: state.style.artStyle }));
         return;
       }
       let pack = stylePackOf(choice);
       // Serinin bölümleri aynı paketle çizilir: "auto" serinin önceki paketini kullanır, yeniden seçmez.
       const inherited = pack ? undefined : stylePackOf(seriesStylePack(await new EpisodeRepo(this.deps.store).list(), state));
-      if (pack) this.log(`  stil paketi: ${pack.name.tr}`);
+      if (pack) this.log(msg("log.style.pack", { pack: packName(pack.id) }));
       else if (inherited) {
         pack = inherited;
-        this.log(`  stil paketi (seri "${seriesOf(state)}"): ${pack.name.tr}`);
+        this.log(msg("log.style.series", { series: String(seriesOf(state)), pack: packName(pack.id) }));
       } else {
         // "auto" (varsayılan): hazır paketlerden konuya uyanı ucuz bir ajan seçer.
         const pick = await this.agent(state, "style", stylePicker(this.brief(state), STYLE_PACKS, this.agentDeps));
         pack = stylePackOf(pick.packId) ?? STYLE_PACKS[0]!;
-        this.log(`  stil paketi (otomatik): ${pack.name.tr}: ${pick.reason}`);
+        this.log(msg("log.style.auto", { pack: packName(pack.id), reason: pick.reason }));
       }
       state.style = styleFromPack(pack);
     },
 
     story: async (state) => {
       state.story = await this.agent(state, "story", storyArchitect(this.brief(state), this.agentDeps));
-      this.log(`  "${state.story.title}" — ${state.story.beats.length} beat`);
+      this.log(msg("log.story.done", { title: state.story.title, beats: state.story.beats.length }));
     },
 
     script: async (state) => {
-      if (!state.story) throw new Error("story yok");
+      if (!state.story) throw new LocalizedError(msg("err.missing", { what: "story" }));
       const book = await loadLessons(this.deps.store);
       const brief = { ...this.brief(state), lessons: topLessons(book, "script") };
       // Doktor düşerse (pahalı) senarist devamda yeniden çağrılmasın: taslak aynı girdilerle kaydedilir.
@@ -1319,14 +1372,14 @@ export class EpisodePipeline {
       let draft: ScriptOut;
       if (state.scriptDraft?.sig === sig) {
         draft = state.scriptDraft.script;
-        this.log("  taslak: önceki çalıştırmanın taslağı kullanıldı");
+        this.log(msg("log.script.draftReused"));
       } else {
         draft = await this.agent(state, "script", screenwriter(brief, state.story, this.agentDeps));
         state.scriptDraft = { sig, script: draft };
         await this.save(state);
       }
       const count = (s: typeof draft) => s.scenes.reduce((n, sc) => n + sc.narration.split(/\s+/).length, 0);
-      this.log(`  taslak: ${draft.scenes.length} sahne, ${count(draft)} kelime`);
+      this.log(msg("log.script.draft", { scenes: draft.scenes.length, words: count(draft) }));
       // İkinci geçiş: senaryo doktoru açılışı, temposu ve doğruluğu düzeltir. Sahne kimlikleri değişmez.
       const doctored = await this.agent(state, "script", scriptDoctor(brief, state.story, draft, this.agentDeps));
       const ids = (s: typeof draft) => s.scenes.map((sc) => sc.id).join(",");
@@ -1336,11 +1389,17 @@ export class EpisodePipeline {
       mergeLessons(book, doctored.notes.map((rule) => ({ target: "script" as const, rule })), state.id);
       await this.curate(state, book);
       await saveLessons(this.deps.store, book);
-      this.log(`  doktor: ${count(state.script)} kelime; ${doctored.notes.length} düzeltme${state.script === draft ? " (sahne yapısı değişti, taslak kullanıldı)" : ""}`);
+      this.log(
+        msg("log.script.doctor", {
+          words: count(state.script),
+          notes: doctored.notes.length,
+          kept: state.script === draft ? msg("log.script.keptDraft") : "",
+        }),
+      );
     },
 
     cast: async (state) => {
-      if (!state.script || !state.style) throw new Error("script/style yok");
+      if (!state.script || !state.style) throw new LocalizedError(msg("err.missing", { what: "script/style" }));
       const vector = motionModeOf(state.input) === "vector";
       const oldCast = state.cast;
       // Aynı stil ve çizgi stilinde daha önce çizilmiş karakterler: aynı kişi geçiyorsa yeniden çizilmez.
@@ -1376,7 +1435,7 @@ export class EpisodePipeline {
         }
       }
       const reused = state.cast.characters.filter((c) => c.reuse && library.some((l) => l.id === c.reuse));
-      if (reused.length) this.log(`  ♻ kütüphaneden tekrar kullanılacak: ${reused.map((c) => c.name).join(", ")}`);
+      if (reused.length) this.log(msg("log.cast.reuse", { names: reused.map((c) => c.name).join(", ") }));
       if (vector) {
         // Vektör karakteri insan iskeletli kukladır: at, köpek ya da çanta ona çizilirse iki ayaklı garip bir şey çıkar
         // (30 Eki Pony Express denemesi). İnsan olmayanlar iskeletsiz nesne olarak çizilir ve kalite kapısından geçer.
@@ -1384,14 +1443,14 @@ export class EpisodePipeline {
         const others = state.cast.characters.filter((c) => c.kind !== "person");
         for (const c of others) props[c.id] ??= { description: c.visualDescription, kind: "prop", reference: c.reference };
         state.cast.characters = state.cast.characters.filter((c) => c.kind === "person");
-        if (others.length) this.log(`  insan olmayan ${others.length} oyuncu nesne olarak çizilecek: ${others.map((c) => c.name).join(", ")}`);
+        if (others.length) this.log(msg("log.cast.nonHuman", { n: others.length, names: others.map((c) => c.name).join(", ") }));
       }
-      this.log(`  ${state.cast.characters.length} karakter, ${state.cast.locations.length} mekân`);
+      this.log(msg("log.cast.done", { characters: state.cast.characters.length, locations: state.cast.locations.length }));
     },
 
     concept: async (state, opts) => {
       const { cast } = state;
-      if (!cast) throw new Error("cast yok");
+      if (!cast) throw new LocalizedError(msg("err.missing", { what: "cast" }));
       if (motionModeOf(state.input) === "vector") return this.vectorConcept(state, opts.only === "concept");
       const previous = state.concept;
       // "Yeni adaylar üret" yeni tur açar: farklı seed → önbellek aynı görselleri döndürmez. Hata sonrası devam ise aynı
@@ -1439,7 +1498,7 @@ export class EpisodePipeline {
         );
         const list = (concept.candidates[job.id] ??= []);
         if (!list.some((r) => r.key === res.files[0]!.key)) list.push({ key: res.files[0]!.key, mimeType: res.files[0]!.mimeType });
-        this.log(`  ${job.id} aday ✓ (${res.providerId}${res.cacheHit ? ", önbellek" : ""})`);
+        this.log(msg("log.concept.candidate", { id: job.id, provider: res.providerId, cached: res.cacheHit ? msg("log.cached") : "" }));
         await this.save(state);
       });
 
@@ -1452,7 +1511,7 @@ export class EpisodePipeline {
     },
 
     voice: async (state, opts) => {
-      if (!state.script) throw new Error("script yok");
+      if (!state.script) throw new LocalizedError(msg("err.missing", { what: "script" }));
       state.voice ??= {};
       const voice = state.voice;
       const { gateway } = this.deps;
@@ -1478,15 +1537,21 @@ export class EpisodePipeline {
       const sample = requestFor(todo[0]!.narration);
       const provider =
         state.voiceProviderId ?? gateway.plan(sample, this.runOptions(state, "voice").policy)[0]?.adapter.id;
-      if (!provider) throw new Error("Seslendirme için uygun sağlayıcı yok");
+      if (!provider) throw new LocalizedError(msg("err.voice.noProvider"));
 
       // Kota ön kontrolü: para harcamadan, yarıda kalmadan önce.
       const chars = todo.reduce((n, s) => n + s.narration.length, 0);
       const quota = await gateway.quota(provider);
       if (quota && quota.unit === "chars" && quota.limit - quota.used < chars) {
-        const reset = quota.resetsAt ? `, yenilenme ${new Date(quota.resetsAt).toLocaleDateString("tr-TR")}` : "";
+        const reset = quota.resetsAt ? msg("err.voice.quotaReset", { date: new Date(quota.resetsAt).toLocaleDateString("tr-TR") }) : "";
         throw new QuotaError(
-          `${provider} kotası yetmiyor: ${chars.toLocaleString("tr-TR")} karakter gerekli, ${(quota.limit - quota.used).toLocaleString("tr-TR")} kaldı (${quota.plan ?? "plan"}${reset}). Sesi değiştir veya planı yükselt.`,
+          msg("err.voice.quota", {
+            provider,
+            chars: chars.toLocaleString("tr-TR"),
+            left: (quota.limit - quota.used).toLocaleString("tr-TR"),
+            plan: quota.plan ?? "plan",
+            reset,
+          }),
         );
       }
 
@@ -1508,13 +1573,13 @@ export class EpisodePipeline {
         };
         voice[scene.id] = sceneVoice;
         await this.save(state);
-        this.log(`  ${scene.id}: ${(durationMs / 1000).toFixed(1)} sn (${res.providerId})`);
+        this.log(msg("log.voice.scene", { scene: scene.id, sec: (durationMs / 1000).toFixed(1), provider: res.providerId }));
       }
     },
 
     shots: async (state) => {
       const { script, voice, style } = state;
-      if (!script || !voice || !style) throw new Error("script/voice/style yok");
+      if (!script || !voice || !style) throw new LocalizedError(msg("err.missing", { what: "script/voice/style" }));
       const durations = Object.fromEntries(script.scenes.map((s) => [s.id, (voice[s.id]?.durationMs ?? 0) / 1000]));
       const motionMode = motionModeOf(state.input);
       if (motionMode === "vector") return this.vectorShots(state, durations);
@@ -1541,12 +1606,12 @@ export class EpisodePipeline {
       state.keyframes = {};
       state.qa = {};
       state.clips = {};
-      this.log(`  ${state.shots.length} çekim (${state.shots.filter((s) => s.kind === "ai_clip").length} AI klip)`);
+      this.log(msg("log.shots.done", { shots: state.shots.length, clips: state.shots.filter((s) => s.kind === "ai_clip").length }));
     },
 
     keyframes: async (state, opts) => {
       const { shots, style } = state;
-      if (!shots || !style) throw new Error("shots/style yok");
+      if (!shots || !style) throw new LocalizedError(msg("err.missing", { what: "shots/style" }));
       if (motionModeOf(state.input) === "vector") return this.vectorProps(state);
       state.keyframes ??= {};
       const keyframes = state.keyframes;
@@ -1557,7 +1622,7 @@ export class EpisodePipeline {
       state.qa ??= {};
       const qa = state.qa;
 
-      const failed: string[] = [];
+      const failed: Text[] = [];
       await mapLimit(todo, this.deps.concurrency ?? 3, async (shot) => {
         let prompt = shot.imagePrompt;
         let best: { ref: AssetRef; qa?: FrameQa } | undefined;
@@ -1568,10 +1633,10 @@ export class EpisodePipeline {
             res = await this.keyframe(state, "keyframes", prompt, shot.characterIds, shot.locationId, opts.signal, shot.id);
           } catch (e) {
             if (opts.signal?.aborted) throw e;
-            const message = e instanceof Error ? e.message : String(e);
+            const error = errorText(e);
             // Yeniden çizim başarısızsa eldeki kare kullanılır; ilk çizim başarısızsa diğer çekimler sürer.
-            this.log(`  ${shot.id} ${best ? "yeniden çizilemedi, ilk kare kullanılıyor" : "çizilemedi"}: ${message}`);
-            if (!best) failed.push(`${shot.id}: ${message}`);
+            this.log(msg(best ? "log.keyframe.redrawFailed" : "log.keyframe.failed", { shot: shot.id, error }));
+            if (!best) failed.push(msg("log.item", { id: shot.id, error }));
             break;
           }
           attempts = attempt;
@@ -1579,7 +1644,14 @@ export class EpisodePipeline {
           const review = qaOn ? await this.inspect(state, shot, ref, attempt) : undefined;
           if (!best || frameRank(review) > frameRank(best.qa)) best = { ref, qa: review };
           this.log(
-            `  ${shot.id} ${review ? (review.passed ? "✓" : "✗") : "✓"} (${res.providerId}${res.cacheHit ? ", önbellek" : ""}${review && !review.skipped ? `, kontrol ${review.score}/10` : ""}${review?.issues.length ? `: ${review.issues.map((i) => i.type).join(", ")}` : ""})`,
+            msg("log.keyframe.done", {
+              shot: shot.id,
+              mark: review ? (review.passed ? "✓" : "✗") : "✓",
+              provider: res.providerId,
+              cached: res.cacheHit ? msg("log.cached") : "",
+              check: review && !review.skipped ? msg("log.keyframe.check", { score: review.score }) : "",
+              issues: review?.issues.length ? `: ${review.issues.map((i) => i.type).join(", ")}` : "",
+            }),
           );
           if (!review || review.passed) break;
           prompt = redrawPrompt(shot.imagePrompt, review);
@@ -1590,13 +1662,13 @@ export class EpisodePipeline {
         await this.save(state);
       });
       if (failed.length) {
-        throw new Error(`${failed.length} kare çizilemedi (diğerleri kaydedildi, devam edince yalnız bunlar denenir):\n${failed.join("\n")}`);
+        throw new LocalizedError(msg("err.keyframes.failed", { n: failed.length, list: joinTexts(failed, "log.join.line") }));
       }
     },
 
     clips: async (state, opts) => {
       const { shots, keyframes } = state;
-      if (!shots || !keyframes) throw new Error("shots/keyframes yok");
+      if (!shots || !keyframes) throw new LocalizedError(msg("err.missing", { what: "shots/keyframes" }));
       state.clips ??= {};
       const clips = state.clips;
       const todo = shots.filter((s) => s.kind === "ai_clip" && !clips[s.id] && keyframes[s.id]);
@@ -1621,10 +1693,10 @@ export class EpisodePipeline {
           );
           clips[shot.id] = { key: res.files[0]!.key, mimeType: res.files[0]!.mimeType, durationSec: clipSec };
           await this.save(state);
-          this.log(`  ${shot.id} klip ✓ (${res.providerId})`);
+          this.log(msg("log.clip.done", { shot: shot.id, provider: res.providerId }));
         } catch (e) {
           // Klip üretilemezse çekim hareketlendirilmiş resim olarak kalır; bölüm durmaz.
-          this.log(`  ${shot.id} klip atlandı: ${e instanceof Error ? e.message : String(e)}`);
+          this.log(msg("log.clip.skipped", { shot: shot.id, error: errorText(e) }));
         }
       });
     },
@@ -1633,12 +1705,12 @@ export class EpisodePipeline {
       const vector = motionModeOf(state.input) === "vector" ? await this.vectorAssets(state) : {};
       state.timeline = buildTimeline(state, (key) => key, vector);
       const sec = state.timeline.durationInFrames / state.timeline.fps;
-      this.log(`  ${(sec / 60).toFixed(1)} dk, ${state.timeline.visuals.length} görsel`);
+      this.log(msg("log.timeline.done", { min: (sec / 60).toFixed(1), visuals: state.timeline.visuals.length }));
     },
 
     render: async (state) => {
       const timeline = state.timeline;
-      if (!timeline) throw new Error("timeline yok");
+      if (!timeline) throw new LocalizedError(msg("err.missing", { what: "timeline" }));
       const dir = resolve(this.deps.workDir, state.id);
       const publicDir = join(dir, "public");
 
@@ -1668,24 +1740,24 @@ export class EpisodePipeline {
         onProgress: (p) => {
           const pct = Math.floor(p * 10) * 10;
           if (pct === lastPct) return;
-          this.log(`  render %${(lastPct = pct)}`);
+          this.log(msg("log.render.progress", { pct: (lastPct = pct) }));
           state.renderPct = pct;
           // İlerleme Stüdyo'da görünsün; kayıt hatası render'ı durdurmaz.
           void this.save(state).catch(() => {});
         },
-        onWait: (pid) => this.log(`  başka bir render sürüyor (süreç ${pid}); sıra bekleniyor`),
+        onWait: (pid) => this.log(msg("log.render.wait", { pid })),
         onRetry: (reason) => {
           lastPct = -1;
-          this.log(`⚠ render geçici bir hatayla düştü (${reason}); baştan bir kez daha deneniyor`);
+          this.log(msg("log.render.retry", { reason }));
         },
       });
       state.render = { path: outputPath, at: new Date().toISOString() };
-      this.log(`  ✓ ${outputPath}`);
+      this.log(msg("log.render.done", { path: outputPath }));
     },
 
     review: async (state) => {
       const { timeline, shots } = state;
-      if (!timeline || !shots) throw new Error("timeline/shots yok");
+      if (!timeline || !shots) throw new LocalizedError(msg("err.missing", { what: "timeline/shots" }));
       const dir = resolve(this.deps.workDir, state.id);
       const book = await loadLessons(this.deps.store);
       // Render klasörünün public/ dizini hazır; kareler yereldir.
@@ -1701,8 +1773,9 @@ export class EpisodePipeline {
       const byType = new Map<string, number>();
       for (const s of Object.values(review.shots)) for (const i of s.issues) byType.set(i.type, (byType.get(i.type) ?? 0) + 1);
       const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-      this.log(`  ${scores.length} kare, ortalama ${avg.toFixed(1)}/10; sorunlar: ${[...byType].map(([k, n]) => `${k}×${n}`).join(", ") || "yok"}`);
-      for (const l of review.lessons) this.log(`  ders (${l.target}): ${l.rule}`);
+      const issues = [...byType].map(([k, n]) => `${k}×${n}`).join(", ");
+      this.log(msg("log.review.summary", { frames: scores.length, avg: avg.toFixed(1), issues: issues || msg("log.review.noIssues") }));
+      for (const l of review.lessons) this.log(msg("log.review.lesson", { target: l.target, rule: l.rule }));
     },
   };
 }

@@ -2,14 +2,22 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { usd } from "@ys/core";
+import { formatText, msg, trText, usd } from "@ys/core";
 import {
   HealthTracker,
   InMemoryLedger,
   JsonlLedger,
   billing,
   charAlignmentToWords,
+  AllProvidersFailedError,
+  ContentRejectedError,
+  HttpError,
+  PollTimeoutError,
+  RequestTimeoutError,
+  SubmittedJobError,
+  afterSubmit,
   describePrice,
+  unitText,
   estimateCost,
   groupCosts,
   isWav,
@@ -104,17 +112,23 @@ describe("billing / describePrice / estimateCost", () => {
   });
 
   it("her birimi insan okunur yazar", () => {
-    expect(describePrice({ unit: "free" })).toBe("ücretsiz (yerel)");
-    expect(describePrice({ unit: "per_output", usd: 0.134 })).toBe("$0.134/görsel");
-    expect(describePrice({ unit: "per_second", usd: 0.23 })).toBe("$0.23/sn");
-    expect(describePrice({ unit: "per_second", usd: 0.1, stepSec: 1 })).toBe("$0.1/sn");
-    expect(describePrice({ unit: "per_second", usd: 0.4, stepSec: 2 })).toBe("$0.4/sn (2 sn adımlarla)");
-    expect(describePrice({ unit: "per_second", usd: 0.23, minSec: 4 })).toBe("$0.23/sn, en az 4 sn");
-    expect(describePrice({ unit: "per_1k_chars", usd: 0.03 })).toBe("$0.03/1000 karakter");
-    expect(describePrice({ unit: "per_minute", usd: 0.8 })).toBe("$0.8/dk");
-    expect(describePrice({ unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 })).toBe(
+    expect(trText(describePrice({ unit: "free" }))).toBe("ücretsiz (yerel)");
+    expect(trText(describePrice({ unit: "per_output", usd: 0.134 }))).toBe("$0.134/görsel");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.23 }))).toBe("$0.23/sn");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.1, stepSec: 1 }))).toBe("$0.1/sn");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.4, stepSec: 2 }))).toBe("$0.4/sn (2 sn adımlarla)");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.23, minSec: 4 }))).toBe("$0.23/sn, en az 4 sn");
+    expect(trText(describePrice({ unit: "per_1k_chars", usd: 0.03 }))).toBe("$0.03/1000 karakter");
+    expect(trText(describePrice({ unit: "per_minute", usd: 0.8 }))).toBe("$0.8/dk");
+    expect(trText(describePrice({ unit: "per_second", usd: 0.084, minSec: 3, withAudioUsd: 0.126 }))).toBe(
       "$0.084/sn, en az 3 sn; sesli $0.126/sn",
     );
+    expect(formatText("en", describePrice({ unit: "per_second", usd: 0.4, stepSec: 2, minSec: 4, withAudioUsd: 0.6 }))).toBe(
+      "$0.4/s (in 2 s steps), at least 4 s; with audio $0.6/s",
+    );
+    expect(formatText("en", describePrice({ unit: "per_output", usd: 0.025 }))).toBe("$0.025/image");
+    // Defterdeki Türkçe birim etiketleri arayüzde çevrilir; tanınmayan etiket olduğu gibi kalır.
+    expect(["görsel", "sn", "karakter", "dk", "—", "x"].map((l) => formatText("en", unitText(l)))).toEqual(["images", "s", "characters", "min", "—", "x"]);
   });
 
   it("sesli istek sesli fiyatla; SFX süresizse varsayılan süreyle (30 sn) faturalanır", () => {
@@ -246,5 +260,27 @@ describe("audio kenar durumları", () => {
       { text: "c", startMs: 0, endMs: 0 },
     ]);
     expect(charAlignmentToWords([], [], [])).toEqual([]);
+  });
+});
+
+describe("çevrilebilir hatalar", () => {
+  it("Türkçe message aynı kalır, text seçili dilde biçimlenir; alanlar korunur", async () => {
+    const http = new HttpError(503, "https://x", "meşgul");
+    expect(http.message).toBe("HTTP 503 https://x: meşgul");
+    expect(http.status).toBe(503);
+    expect(formatText("en", new RequestTimeoutError("https://x", 5).text)).toBe("Request timed out (5 ms): https://x");
+    expect(formatText("en", new PollTimeoutError(9).text)).toBe("Timed out (9 ms)");
+    const all = new AllProvidersFailedError([
+      { providerId: "a", error: new PollTimeoutError(1) },
+      { providerId: "b", error: "düz" },
+    ]);
+    expect(all.message).toBe("Tüm sağlayıcılar başarısız: a: Zaman aşımı (1 ms) | b: düz");
+    expect(formatText("en", all.text)).toBe("All providers failed: a: Timed out (1 ms) | b: düz");
+    expect(new AllProvidersFailedError([]).message).toBe("Tüm sağlayıcılar başarısız: ");
+    const rejected = new ContentRejectedError(msg("gw.fal.nsfw", { n: 2 }), { billed: true });
+    expect([rejected.billed, formatText("en", rejected.text)]).toEqual([true, "fal safety filter flagged 2 image(s) (black image)"]);
+    const sub = await afterSubmit("j1", async () => Promise.reject(new PollTimeoutError(3))).catch((e: SubmittedJobError) => e);
+    expect(sub.message).toBe("gönderilmiş iş başarısız (j1): Zaman aşımı (3 ms)");
+    expect(formatText("en", sub.text)).toBe("submitted job failed (j1): Timed out (3 ms)");
   });
 });

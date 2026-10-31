@@ -14,6 +14,8 @@ import {
   setMotion,
   type MotionMode,
 } from "@ys/pipeline/light";
+import { LocalizedError, msg } from "@ys/core/messages";
+import { apiError, errorResponse } from "../../../../../lib/api";
 import { cancelJob, episodeBusy, getJob, repo, startJob, store } from "../../../../../lib/server";
 
 const EPISODE_ID = /^[a-z0-9][a-z0-9-]{0,120}$/;
@@ -42,7 +44,7 @@ export type StudioAction =
 /** Stüdyodaki her insan kararı ve iş başlatma buradan geçer. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  if (!EPISODE_ID.test(id)) return Response.json({ error: "Geçersiz bölüm" }, { status: 400 });
+  if (!EPISODE_ID.test(id)) return apiError(req, msg("api.badEpisode"));
   const action = (await req.json()) as StudioAction;
   const episodes = repo();
 
@@ -51,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // değişiklik kaybolur ya da işin ilerlemesini siler. İptal dışında hiçbir eylem iş sürerken yapılmaz.
     if (action.type !== "cancel") {
       const state = await episodes.load(id);
-      if (await episodeBusy(id, state, runStatusOf(state).status)) throw new Error("Önce çalışan iş bitmeli");
+      if (await episodeBusy(id, state, runStatusOf(state).status)) throw new LocalizedError(msg("api.busy"));
     }
     switch (action.type) {
       case "generate-script":
@@ -77,7 +79,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         startJob(id, "job.preview", ["episode", "preview", id]);
         break;
       case "set-motion":
-        if (!MOTION_MODES.includes(action.motionMode)) throw new Error("Geçersiz hareket modu");
+        if (!MOTION_MODES.includes(action.motionMode)) throw new LocalizedError(msg("api.badMotion"));
         await episodes.update(id, (s) => setMotion(s, action.motionMode, action.aiClipRatio));
         break;
       case "approve-concept":
@@ -118,10 +120,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         cancelJob(id);
         break;
       default:
-        throw new Error(`Bilinmeyen eylem: ${(action as { type?: unknown }).type}`);
+        throw new LocalizedError(msg("api.badAction", { type: String((action as { type?: unknown }).type) }));
     }
     return Response.json({ ok: true });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return errorResponse(req, e);
   }
 }

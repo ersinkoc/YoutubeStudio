@@ -1,4 +1,4 @@
-import { usd, type Micros } from "@ys/core";
+import { msg, usd, type Micros, type Msg } from "@ys/core";
 import type { GenerationRequest, PriceRule, ProviderAdapter } from "./types.ts";
 
 const DEFAULT_VIDEO_SECONDS = 5;
@@ -35,24 +35,41 @@ export function billing(price: PriceRule, req: GenerationRequest): Billing {
   }
 }
 
+/** Defterdeki birim etiketleri (Türkçe saklanır, eski kayıtlarla uyumlu) ve arayüzdeki çevrilebilir karşılıkları. */
+const UNIT_TEXT: Record<string, Msg> = {
+  görsel: msg("unit.image"),
+  sn: msg("unit.sec"),
+  karakter: msg("unit.chars"),
+  dk: msg("unit.min"),
+  "—": msg("unit.none"),
+};
+
+/** Defter birim etiketini seçili dilde gösterilecek metne çevirir; tanınmayan etiket olduğu gibi kalır. */
+export const unitText = (label: string): Msg | string => UNIT_TEXT[label] ?? label;
+
 /** Bir isteğin bu sağlayıcıdaki tahmini maliyeti (faturalama yuvarlaması dahil). */
 export function estimateCost(price: PriceRule, req: GenerationRequest): Micros {
   return billing(price, req).micros;
 }
 
-/** Fiyat kuralını insan okunur hâle getirir: "$0.05/sn (5 sn adımlarla)". */
-export function describePrice(price: PriceRule): string {
+/** Fiyat kuralını insan okunur hâle getirir: "$0.05/sn (5 sn adımlarla)" (seçili dilde biçimlenir). */
+export function describePrice(price: PriceRule): Msg {
   switch (price.unit) {
     case "free":
-      return "ücretsiz (yerel)";
+      return msg("price.free");
     case "per_output":
-      return `$${price.usd}/görsel`;
+      return msg("price.perOutput", { usd: price.usd });
     case "per_second":
-      return `$${price.usd}/sn${price.stepSec && price.stepSec > 1 ? ` (${price.stepSec} sn adımlarla)` : ""}${price.minSec ? `, en az ${price.minSec} sn` : ""}${price.withAudioUsd !== undefined ? `; sesli $${price.withAudioUsd}/sn` : ""}`;
+      return msg("price.perSecond", {
+        usd: price.usd,
+        step: price.stepSec && price.stepSec > 1 ? msg("price.step", { n: price.stepSec }) : "",
+        min: price.minSec ? msg("price.minSec", { n: price.minSec }) : "",
+        audio: price.withAudioUsd !== undefined ? msg("price.withAudio", { usd: price.withAudioUsd }) : "",
+      });
     case "per_1k_chars":
-      return `$${price.usd}/1000 karakter`;
+      return msg("price.per1k", { usd: price.usd });
     case "per_minute":
-      return `$${price.usd}/dk`;
+      return msg("price.perMinute", { usd: price.usd });
   }
 }
 
