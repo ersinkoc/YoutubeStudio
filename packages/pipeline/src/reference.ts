@@ -25,7 +25,7 @@ export interface References {
 }
 
 // Wikimedia iletişim bilgisi olmayan istemcileri daha sıkı sınırlar; kişisel e-posta yerine herkese açık proje adresi.
-const UA = "YoutubeStudio/0.1 (https://github.com/ersinkoc/YoutubeStudio; vector illustration reference lookup)";
+const UA = "YoutubeStudio/0.1 (https://github.com/ersinkoc/AI-Video-Factory; vector illustration reference lookup)";
 
 /**
  * Wikimedia istekleri sıraya girer (aralarında en az MIN_GAP_MS) ve 429'da Retry-After kadar (en çok 10 sn) bekleyip bir

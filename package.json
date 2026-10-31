@@ -2,6 +2,8 @@
   "name": "youtube-studio",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
+  "repository": "github:ersinkoc/AI-Video-Factory",
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "engines": {

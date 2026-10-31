@@ -153,6 +153,12 @@ Release betiği yalnız `main` dalında, commit edilmemiş değişiklik yokken, 
 | `pnpm db:generate` / `db:migrate` | Drizzle migration'ları |
 | `pnpm infra:up` / `infra:down` | Docker altyapısı |
 
+## Lisans
+
+[MIT](LICENSE) © 2026 Ersin KOÇ.
+
+Üçüncü taraf parçalar kendi şartlarına tabidir. Özellikle render motoru [Remotion](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md) bireyler, kâr amacı gütmeyen kuruluşlar ve en çok 3 çalışanlı şirketler için ücretsizdir; daha büyük şirketlerin Remotion şirket lisansı alması gerekir. Üretilen medya her sağlayıcının (fal, Google, ElevenLabs) şartlarına, referans görseller kendi Wikimedia lisanslarına tabidir.
+
 ## Depo yapısı
 
 | Yol | İçerik |

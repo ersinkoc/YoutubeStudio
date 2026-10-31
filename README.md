@@ -153,6 +153,12 @@ The release script only runs on `main` with a clean working tree, after typechec
 | `pnpm db:generate` / `db:migrate` | Drizzle migrations |
 | `pnpm infra:up` / `infra:down` | Docker infrastructure |
 
+## License
+
+[MIT](LICENSE) © 2026 Ersin KOÇ.
+
+Third-party parts keep their own terms. In particular, [Remotion](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md) (the renderer) is free for individuals, non-profits and for-profit companies with up to 3 employees; larger companies need a Remotion company license. Generated media is subject to each provider's terms (fal, Google, ElevenLabs), and reference images keep their Wikimedia licenses.
+
 ## Repository layout
 
 | Path | Contents |

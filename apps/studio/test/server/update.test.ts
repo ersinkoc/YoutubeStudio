@@ -62,7 +62,7 @@ describe("updateInfo", () => {
     const [a, b] = await Promise.all([updateInfo(), updateInfo()]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.github.com/repos/ersinkoc/YoutubeStudio/releases/latest");
+    expect(url).toBe("https://api.github.com/repos/ersinkoc/AI-Video-Factory/releases/latest");
     expect(init?.headers).toMatchObject({ accept: "application/vnd.github+json" });
     expect(a).toEqual({
       current: "1.2.3",

@@ -5,7 +5,7 @@ import { compareVersions } from "@ys/core";
 import { ROOT } from "./server";
 
 /** Güncelleme uyarısının baktığı depo (herkese açık; istek kimlik bilgisi taşımaz). */
-const REPO = "ersinkoc/YoutubeStudio";
+const REPO = "ersinkoc/AI-Video-Factory";
 const TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_MS = 30 * 60 * 1000;
 
