@@ -309,6 +309,7 @@ describe("vektör ajanları", () => {
         "## s1 (9.9 s, location: station, emotion: tense)\nVisual intent: rider arrives\nNarration: [0]Bir [1]gün [2]atlı [3]geldi",
     );
     expect(a.system).toContain("Never stage an event in a room where it did not happen.");
+    expect(a.system).toContain("that shot is a close-up on it");
     // Başka sahnenin mekânı işaretlenmez.
     const other = await capture((d) => vectorDirector({ ...input, scene: { ...input.scene, id: "s2" } }, style, d));
     expect(other.prompt).toContain("- l1 (background room shell): Station\n");
