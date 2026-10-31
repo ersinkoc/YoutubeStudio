@@ -250,6 +250,16 @@ describe("EpisodeView: durum panelleri", () => {
     expect(screen.queryByRole("button", { name: tr("ep.err.toGemini") })).toBeNull();
   });
 
+  it("hata kaydı yoksa (çöken Stüdyo işi): sürecin son satırı, o da yoksa genel mesaj; sayfa çökmez", async () => {
+    const job = (log: string[]) => ({ job: { label: "x", status: "error" as const, log, startedAt: "t" }, status: { status: "error" as const, stage: "keyframes" as const } });
+    await show(makeData(makeState(), job(["başladı", "Süreç çıkış kodu: 3221226505 (0xC0000409)"])));
+    expect(screen.getByText("Süreç çıkış kodu: 3221226505 (0xC0000409)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: tr("ep.err.toGemini") })).toBeNull();
+    cleanup();
+    await show(makeData(makeState(), { status: { status: "error", stage: "keyframes" } }));
+    expect(screen.getByText(tr("ep.err.crashed"))).toBeTruthy();
+  });
+
   it("onay bekliyor: senaryo ya da konsept sekmesi açılır, düğme oraya götürür", async () => {
     await show(makeData(makeState(), { status: { status: "waiting", stage: "cast" } }));
     expect(screen.getByRole("tab", { name: tr("tab.script") }).getAttribute("aria-selected")).toBe("true");

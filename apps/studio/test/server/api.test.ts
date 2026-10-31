@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -414,6 +414,18 @@ describe("GET /api/episodes/[id]/video", () => {
       expect(res.headers.get("content-length")).toBe(String(end - start + 1));
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes.slice(start, end + 1));
     }
+  });
+
+  it("istemci akışı yarıda keserse (ileri sarma) dosya kapanır, sonra yazılmaya çalışılmaz", async () => {
+    const big = join(root, "buyuk.mp4");
+    writeFileSync(big, new Uint8Array(1 << 20));
+    await saveEpisode("v-buyuk", { render: { path: big } as EpisodeState["render"] });
+    const reader = (await get("v-buyuk")).body!.getReader();
+    expect((await reader.read()).done).toBe(false);
+    await reader.cancel();
+    // Kapanan dosya silinebilir (Windows açık dosyayı silmez) ve süreçte yakalanmamış hata kalmaz.
+    await new Promise((r) => setTimeout(r, 50));
+    rmSync(big);
   });
 
   it("boyut dışı ya da ters aralık 416", async () => {

@@ -368,11 +368,12 @@ function LivePanel({ data, busy, act, onTab }: { data: EpisodeResponse; busy: bo
       );
       break;
     case "error": {
-      const err = state.lastError!;
+      // Çöken Stüdyo işi hata kaydı yazamamış olabilir: o zaman sürecin son satırı (çıkış kodu) gösterilir.
+      const err = state.lastError;
       // Ses sağlayıcısını değiştirmek yalnız ses aşamasındaki kota hatasında anlamlı: başka aşamada tüm sesi ve sonrasını siler.
-      const quota = err.stage === "voice" && /kota|quota/i.test(err.message);
+      const quota = err?.stage === "voice" && /kota|quota/i.test(err.message);
       headline = t("ep.err.stopped", { stage: stageName });
-      body = <p className="text-sm break-words text-muted">{err.message}</p>;
+      body = <p className="text-sm break-words text-muted">{err?.message ?? job?.log.at(-1) ?? t("ep.err.crashed")}</p>;
       actions = (
         <>
           {quota && (

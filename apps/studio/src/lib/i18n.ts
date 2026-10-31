@@ -104,6 +104,7 @@ const tr = {
   "ep.err.stopped": "\"{stage}\" aşaması durdu",
   "ep.err.toGemini": "Sesi Gemini TTS'e çevir (kota yok, ~$0.03/1000 karakter)",
   "ep.err.resume": "Kaldığı yerden devam",
+  "ep.err.crashed": "Süreç beklenmedik şekilde kapandı; ayrıntı için etkinlik kaydına bak",
 
   "ct.remaining": "Kalan",
   "ct.col.stage": "Aşama",
@@ -568,6 +569,7 @@ const en: Record<MessageKey, string> = {
   "ep.err.stopped": "Stage \"{stage}\" stopped",
   "ep.err.toGemini": "Switch voice to Gemini TTS (no quota, ~$0.03/1000 chars)",
   "ep.err.resume": "Resume",
+  "ep.err.crashed": "The process exited unexpectedly; see the activity log",
 
   "ct.remaining": "Remaining",
   "ct.col.stage": "Stage",

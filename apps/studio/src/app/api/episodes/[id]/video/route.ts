@@ -1,7 +1,25 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { Readable } from "node:stream";
 import { repo } from "../../../../../lib/server";
+
+/**
+ * Dosyayı çekme (pull) tabanlı web akışına çevirir. `Readable.toWeb` istemci bağlantıyı kesince (oynatıcıda ileri sarma)
+ * kapanmış akışa yazmaya çalışıp yakalanmamış istisna atıyordu; burada iptal dosya akışını kapatır, sonrası yazılmaz.
+ */
+function fileStream(path: string, range?: { start: number; end: number }): ReadableStream<Uint8Array> {
+  const file = createReadStream(path, range);
+  const chunks = file[Symbol.asyncIterator]() as AsyncIterator<Buffer>;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { value, done } = await chunks.next();
+      if (done) controller.close();
+      else controller.enqueue(new Uint8Array(value));
+    },
+    cancel() {
+      file.destroy();
+    },
+  });
+}
 
 /** Render edilmiş videoyu Range desteğiyle sunar (oynatıcıda ileri sarma için). */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -22,8 +40,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get("range") ?? "");
   if (!range) {
-    const body = Readable.toWeb(createReadStream(path)) as ReadableStream;
-    return new Response(body, { headers: { ...headers, "content-length": String(size) } });
+    return new Response(fileStream(path), { headers: { ...headers, "content-length": String(size) } });
   }
   // "bytes=-500" son 500 bayt demektir; boyut dışı aralık 416.
   const suffix = !range[1] && range[2];
@@ -32,8 +49,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (start >= size || start > end) {
     return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
   }
-  const body = Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream;
-  return new Response(body, {
+  return new Response(fileStream(path, { start, end }), {
     status: 206,
     headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(end - start + 1) },
   });
