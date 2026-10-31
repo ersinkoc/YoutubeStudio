@@ -206,6 +206,12 @@ function rigPose(
   part("arm-r").rotate = -4 - Math.sin(t * 1.0 + r("ar") * 6) * 2;
   part("forearm-l").rotate = -10 - Math.sin(t * 1.3 + r("fl") * 6) * 3;
   part("forearm-r").rotate = 10 + Math.sin(t * 1.2 + r("fr") * 6) * 3;
+  if (attention.holding && !side) {
+    // Elde nesne: ön kol kalkar, nesne göğüs hizasında yana doğru gösterilir (sarkan elde kalça hizasında küçük kalıyor,
+    // izleyici fark etmiyordu; Apple bölümü incelemesi, 1 Kas). Jestler bu duruşun üstüne karışır.
+    part("arm-r").rotate = -HOLD_POSE.arm - Math.sin(t * 1.0 + r("ar") * 6) * 1.5;
+    part("forearm-r").rotate = -HOLD_POSE.forearm - Math.sin(t * 1.2 + r("fr") * 6) * 3;
+  }
   // İfade taban pozdur; jestler bunun üstüne karışır.
   part("brows").ty = face.brows;
   part("eyes").sy = face.eyes;
@@ -228,7 +234,8 @@ function rigPose(
     const phase = (t + r("gp") * every) % every;
     if (phase < 1.4) {
       const k = Math.sin((phase / 1.4) * Math.PI);
-      const right = random(`${seed}-gs-${Math.floor((t + r("gp") * every) / every)}`) < 0.6;
+      // Sağ el nesne tutuyorsa kendiliğinden jest sol elle yapılır.
+      const right = !attention.holding && random(`${seed}-gs-${Math.floor((t + r("gp") * every) / every)}`) < 0.6;
       // El dışa, avuç yukarı açılır. (Eski işaretler ters: el karna gidiyordu.) Dönüş ekranda saat yönü artıdır; sarkan
       // kol artıda ekranın soluna döner, yani sağdaki kol (arm-r) eksiyle, soldaki artıyla dışa açılır.
       if (right) {
@@ -383,6 +390,9 @@ function rigPose(
   }
   return pose;
 }
+
+/** Nesne tutan sağ kolun duruşu (derece, dışa): üst kol hafif açık, ön kol yataya yakın. */
+export const HOLD_POSE = { arm: 12, forearm: 72 };
 
 /** Oturan karakter: uyluk kameraya doğru kısalır (ön görünüş), baldır dik kalır. */
 const SIT_THIGH = 0.35;

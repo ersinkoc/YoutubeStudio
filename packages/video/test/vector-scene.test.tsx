@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, cameraTransform } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, HOLD_POSE } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -580,9 +580,26 @@ describe("vektör sahne: elde tutulan nesne", () => {
   it("nesne tutan karakter sol eliyle düşünür: nesne yüze kalkmaz", () => {
     const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, anims: [{ type: "think" }] }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame: 150 });
     expect(pose(c, "forearm-l").rotate).toBeCloseTo(-162, 0);
-    expect(Math.abs(pose(c, "forearm-r").rotate)).toBeLessThan(40);
+    expect(pose(c, "forearm-r").rotate).toBeCloseTo(-HOLD_POSE.forearm, -1);
     cleanup();
     expect(held({ anims: [{ type: "think" }] }).top).toBeCloseTo(held({}).top, -1);
+  });
+
+  it("nesne tutan karakter nesneyi gösterir: ön kol kalkar, kendiliğinden jest sol elle yapılır", () => {
+    for (let frame = 0; frame < 300; frame += 7) {
+      const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0 }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame });
+      expect(pose(c, "arm-r").rotate).toBeCloseTo(-HOLD_POSE.arm, -1);
+      expect(pose(c, "forearm-r").rotate).toBeCloseTo(-HOLD_POSE.forearm, -1);
+      cleanup();
+    }
+    // Nesne gövdenin üst yarısında, kalçada sarkmaz.
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0 }, { asset: "cup", x: 0, heldBy: 0 }] }, { frame: 150 });
+    const hero = layerBox(c, "body");
+    const cup = layerBox(c, "cup");
+    const heroTop = parseFloat(hero.style.top);
+    const cupMid = parseFloat(cup.style.top) + parseFloat(cup.style.height) / 2;
+    expect(cupMid).toBeLessThan(heroTop + parseFloat(hero.style.height) * 0.6);
+    cleanup();
   });
 
   it("nesne tutanın elini izler: el kalkınca nesne de yükselir", () => {
