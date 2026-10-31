@@ -28,6 +28,14 @@ export const PIPELINE_MESSAGES = {
 
   // ---- varlık tasarımı ve kalite kapısı ----
   "log.ref.found": { tr: '  {name}: referans "{query}" → {sources}', en: '  {name}: reference "{query}" → {sources}' },
+  "log.ref.mismatch": {
+    tr: '  {name}: referanslar özneyi göstermiyor, yeniden aranıyor: "{query}"',
+    en: '  {name}: the references do not show the subject, searching again: "{query}"',
+  },
+  "log.ref.dropped": {
+    tr: "  {name}: referanslar özneyi göstermiyor, kullanılmıyor",
+    en: "  {name}: the references do not show the subject, not using them",
+  },
   "log.ref.none": {
     tr: '  {name}: referans "{query}" için görsel bulunamadı, tarifle çiziliyor',
     en: '  {name}: no image found for reference "{query}", drawing from the description',

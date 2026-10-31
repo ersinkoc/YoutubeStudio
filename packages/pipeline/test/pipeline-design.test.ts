@@ -107,6 +107,43 @@ describe("designAsset: çizim ve kapı", () => {
     expect(h.store.json(`${ref.key}.json`)).toMatchObject({ realHeight: 1.6, grounded: true, surface: 0.5 });
   });
 
+  it("planlayıcı referansların özneyi göstermediğini söylerse önerdiği sorguyla yeniden aranır", async () => {
+    const h = harness();
+    agents({ fidelity: 8, plan: { subject: "Photo 51", moved: [], cues: ["X of spots"], referencesMatch: false, betterQuery: "Photo 51" } });
+    const GOOD = { data: new Uint8Array([7]), mimeType: "image/jpeg" };
+    refs.find
+      .mockResolvedValueOnce({ images: [IMG], sources: [{ title: "JWST galaxy", url: "https://x" }], keys: ["library/ref/galaxy.jpg"] })
+      .mockResolvedValueOnce({ images: [GOOD], sources: [{ title: "Photo 51", url: "https://y" }], keys: ["library/ref/p51.jpg"] });
+    const state = vstate();
+    const ref = await design(h, state, { kind: "prop", id: "p-xray", name: "p-xray", description: "Black square X-ray diffraction photograph" });
+    expect(refs.find).toHaveBeenNthCalledWith(2, "Photo 51", expect.anything());
+    // Planlayıcı ilk (alakasız) görsellerle çalıştı; tasarımcı ve kapı yenileri görür.
+    expect((callsOf("assetPlanner")[0]!.args[0] as { references: unknown[] }).references).toEqual([IMG]);
+    expect((callsOf("vectorDesigner")[0]!.args[0] as { references: unknown[] }).references).toEqual([GOOD]);
+    expect((callsOf("assetGate")[0]!.args[0] as { references: unknown[] }).references).toEqual([GOOD]);
+    expect(state.assetChecks![ref.key]).toMatchObject({ query: "Photo 51", refs: ["library/ref/p51.jpg"] });
+    expect(h.logs).toContain('  p-xray: referanslar özneyi göstermiyor, yeniden aranıyor: "Photo 51"');
+    expect(h.logs).toContain('  p-xray: referans "Photo 51" → Photo 51');
+  });
+
+  it("referanslar özneyi göstermiyor ve daha iyi sorgu yoksa (ya da aynıysa) görseller kullanılmaz", async () => {
+    for (const betterQuery of ["", " mustang HORSE "]) {
+      resetFakes();
+      refs.vectors.mockResolvedValue([]);
+      const h = harness();
+      agents({ fidelity: 8, plan: { subject: "a mustang", moved: [], cues: [], referencesMatch: false, betterQuery } });
+      refs.find.mockResolvedValue({ images: [IMG], sources: [{ title: "Wrong", url: "https://x" }], keys: ["k"] });
+      const state = vstate();
+      const ref = await design(h, state, HORSE);
+      expect(refs.find).toHaveBeenCalledTimes(1);
+      expect((callsOf("vectorDesigner")[0]!.args[0] as { references?: unknown }).references).toBeUndefined();
+      expect((callsOf("assetGate")[0]!.args[0] as { references?: unknown }).references).toBeUndefined();
+      expect(state.assetChecks![ref.key]).toMatchObject({ passed: true, sources: [], refs: [] });
+      expect(state.assetChecks![ref.key]!.query).toBeUndefined();
+      expect(h.logs).toContain("  p-horse: referanslar özneyi göstermiyor, kullanılmıyor");
+    }
+  });
+
   it("gerçeklik kapalı: sadakat yok sayılır ve kayıt işaretlenir; referans konuyu göstermiyorsa (null) yalnız tanınırlık", async () => {
     const h = harness();
     agents({ fidelity: 2 });

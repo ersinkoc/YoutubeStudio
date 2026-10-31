@@ -35,7 +35,7 @@ function fakeClaude(score: () => number, calls: Calls): QueryFn {
       out = background ? { svg: ROOM_SVG, realHeight: 3, grounded: true, floorY: 700 } : { svg: CHARACTER_SVG, realHeight: 1.7, grounded: true };
     } else if (props.includes("cues")) {
       calls.planner++;
-      out = { subject: "a young rider standing", moved: [], pose: "front", silhouette: "", parts: [], cues: ["hat", "bag"], avoid: [] };
+      out = { subject: "a young rider standing", moved: [], pose: "front", silhouette: "", parts: [], cues: ["hat", "bag"], avoid: [], referencesMatch: null, betterQuery: "" };
     } else if (props.includes("confidence")) {
       out = { guess: "a person", confidence: 8 };
     } else if (props.includes("recognizable")) {

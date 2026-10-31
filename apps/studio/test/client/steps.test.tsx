@@ -257,8 +257,8 @@ describe("QualityGate (ConceptTab içinde)", () => {
   it("reddedilenler önce; puanlar, referanslar, plan, kaynaklar ve insan kararı", async () => {
     const act = okAct();
     const assetChecks: Record<string, AssetCheck> = {
-      "a/ok.svg": check({ name: "Sultan", fidelity: 8, guess: "taçlı adam", query: "Suleiman portrait", refs: ["r1.jpg", "r2.jpg"], sources: [{ title: "Portre", url: "https://commons.example/1", license: "CC0" }, { title: "Minyatür", url: "https://commons.example/2" }], plan: { subject: "Sultan", moved: [], pose: "", silhouette: "", parts: [], cues: ["sarık"], avoid: [] } }),
-      "a/bad.svg": check({ name: "Fincan", kind: "prop", recognizable: 3, fidelity: 4, passed: false, attempts: 3, defects: ["kulp yok", "renk yanlış"], rejectedKey: "a/bad-best.svg", plan: { subject: "Fincan", moved: ["tepsi"], pose: "", silhouette: "", parts: [], cues: [], avoid: [] } }),
+      "a/ok.svg": check({ name: "Sultan", fidelity: 8, guess: "taçlı adam", query: "Suleiman portrait", refs: ["r1.jpg", "r2.jpg"], sources: [{ title: "Portre", url: "https://commons.example/1", license: "CC0" }, { title: "Minyatür", url: "https://commons.example/2" }], plan: { subject: "Sultan", moved: [], pose: "", silhouette: "", parts: [], cues: ["sarık"], avoid: [], referencesMatch: null, betterQuery: "" } }),
+      "a/bad.svg": check({ name: "Fincan", kind: "prop", recognizable: 3, fidelity: 4, passed: false, attempts: 3, defects: ["kulp yok", "renk yanlış"], rejectedKey: "a/bad-best.svg", plan: { subject: "Fincan", moved: ["tepsi"], pose: "", silhouette: "", parts: [], cues: [], avoid: [], referencesMatch: null, betterQuery: "" } }),
       "a/human.svg": check({ name: "Kapı", kind: "background", passed: false, recognizable: 4, override: { decision: "accepted", note: "yeterli", at: "t" } }),
       "a/no.svg": check({ name: "Masa", kind: "prop", override: { decision: "rejected", at: "t" } }),
       "a/more.svg": check({ name: "Halı", kind: "prop" }),

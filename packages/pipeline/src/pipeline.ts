@@ -613,7 +613,7 @@ export class EpisodePipeline {
     }
     const humanFix = humanNotes.length ? humanNotes.join("\n") : undefined;
     const ref = { key, mimeType: "image/svg+xml" };
-    const query = brief.reference ?? (brief.kind === "prop" ? searchQuery(brief.description) : undefined);
+    let query = brief.reference ?? (brief.kind === "prop" ? searchQuery(brief.description) : undefined);
     let refs: References | undefined;
     const loadRefs = async () => {
       if (!refs && query) {
@@ -711,7 +711,7 @@ export class EpisodePipeline {
       throw new AssetRejectedError(msg("err.asset.rejectedBefore", { name: brief.name }));
     }
 
-    const references = await loadRefs();
+    let references = await loadRefs();
     // Nesneler için önce Commons'ta hazır, serbest lisanslı vektör çizim denenir; kapıdan geçen ilk aday kullanılır.
     // İnsan bu varlığın bir çizimini reddettiyse (not var) hazır çizim aranmaz: insan belli bir şey istiyor.
     if (brief.kind === "prop" && query && !humanFix) {
@@ -719,6 +719,21 @@ export class EpisodePipeline {
       if (found) return found;
     }
     await makePlan(references);
+    // Planlayıcı referansların özneyi göstermediğini söylerse alakasız görsel tasarımcıya ve kapıya gitmez; önerdiği
+    // sorguyla yeniden aranır (31 Eki: "x-ray diffraction photograph" araması James Webb galaksi görseli getirdi,
+    // tasarımcı ona bakıp "enerji portalı" çizdi, üç deneme de reddedildi).
+    if (references && plan?.referencesMatch === false) {
+      const retry = plan.betterQuery.trim();
+      refs = undefined;
+      if (retry && retry.toLowerCase() !== query!.toLowerCase()) {
+        this.log(msg("log.ref.mismatch", { name: brief.name, query: retry }));
+        query = retry;
+      } else {
+        this.log(msg("log.ref.dropped", { name: brief.name }));
+        query = undefined;
+      }
+      references = await loadRefs();
+    }
     let best: { svg: string; out: VectorAssetOut; res: GateResult } | undefined;
     let lastError: unknown;
     let draws = 0;

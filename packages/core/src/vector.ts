@@ -89,6 +89,10 @@ export const AssetPlan = z.object({
   cues: z.array(z.string()).default([]),
   /** Bu tür öznede sık yapılan hatalar ("at iki ayak üstünde"). */
   avoid: z.array(z.string()).default([]),
+  /** Planlayıcıya göre referanslardan biri özneyi gösteriyor mu (referans yoksa null). */
+  referencesMatch: z.boolean().nullable().default(null),
+  /** Referanslar özneyi göstermiyorsa planlayıcının önerdiği yeni arama sorgusu. */
+  betterQuery: z.string().default(""),
 });
 export type AssetPlan = z.infer<typeof AssetPlan>;
 

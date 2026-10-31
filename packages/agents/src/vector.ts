@@ -110,6 +110,10 @@ export const AssetPlanOut = z.object({
     .describe("The main parts, biggest first"),
   cues: z.array(z.string()).min(2).max(4).describe("The 2–4 features that MUST be visible for a viewer to recognise the subject at a glance"),
   avoid: z.array(z.string()).max(4).describe("Typical mistakes when drawing this subject simply (e.g. 'horse upright on two legs', 'telegraph pole without crossarm and insulators')"),
+  referencesMatch: z.boolean().nullable().describe("true if at least one attached reference shows this subject, false if none does, null when no references are attached"),
+  betterQuery: z
+    .string()
+    .describe("Only when referencesMatch is false: 2–5 English words to find a real photo of the subject on Wikipedia/Commons (its proper name when it has one, e.g. 'Photo 51'); otherwise empty"),
 });
 export type AssetPlanOut = z.infer<typeof AssetPlanOut>;
 
@@ -135,7 +139,7 @@ Art style: ${style.artStyle}. Palette: ${style.palette.join(", ")}.
 This asset is ${KIND_LIMITS[brief.kind]}
 Anything in the description that does not fit these limits goes to "moved", and the subject is rewritten without it (e.g. "rider galloping on a horse" as a character → subject "a young 1860s rider standing, mail pouch strap across the chest", moved ["the horse: separate prop"]).
 Be concrete and countable: real proportions, number of legs/wheels/windows, which colours where. Prefer the few big features a viewer recognises over small detail.${refs.length ? `
-The ${refs.length} attached image(s) are real references found online; take shapes, proportions and colours from those that show the subject and ignore any that do not.` : ""}`,
+The ${refs.length} attached image(s) are real references found online; take shapes, proportions and colours from those that show the subject and ignore any that do not. If none of them shows the subject, say so (referencesMatch false) and give a better search query.` : ""}`,
       prompt: `${brief.kind === "character" ? "Character" : brief.kind === "background" ? "Location" : "Object"}: ${brief.name}
 ${brief.description}`,
       images: refs.length ? refs : undefined,
