@@ -105,9 +105,13 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
 
     const holder = layer.heldBy !== undefined && layer.heldBy !== i ? resolve(layer.heldBy) : undefined;
     const holderAsset = holder ? assets[spec.layers[holder.index]!.asset] : undefined;
-    const base = layer.on !== undefined && layer.on !== i ? resolve(layer.on) : undefined;
+    const onto = layer.on !== undefined && layer.on !== i ? resolve(layer.on) : undefined;
+    // Karakter başka bir karakterin üstüne oturmaz (iskelet ata binemez): binici havada asılı kalıyordu.
+    const base = onto && asset.kind === "character" && assets[spec.layers[onto.index]!.asset]!.kind === "character" ? undefined : onto;
 
-    if (holder && holderAsset?.kind === "character") {
+    // Karakter elde tutulmaz (iskelet bir insanı taşıyamaz): tutulan karakter kendi yerinde durur; yoksa 1,8 m'lik
+    // "çanta karakteri" elde asılı kalıyordu (30 Eki, Pony Express).
+    if (holder && holderAsset?.kind === "character" && asset.kind !== "character") {
       // Elde: boy tutanın ölçeğiyle; konum render'da elden gelir, burada el hizası yaklaşık.
       const real = readableHeight(asset.meta.realHeight ?? HELD_REAL_HEIGHT, aspect, READABLE_SIDE.held, fixes);
       const h = real * STAGE.pxPerMeter * holder.scale;
