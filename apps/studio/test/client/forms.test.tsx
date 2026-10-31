@@ -199,6 +199,7 @@ describe("NewEpisodeForm", () => {
         qa: true,
         realism: true,
         sideViews: false,
+        captions: false,
         stylePack: "auto",
       },
     ]);
@@ -213,10 +214,11 @@ describe("NewEpisodeForm", () => {
     await tick(400);
     fireEvent.change(field<HTMLSelectElement>("lineStyle"), { target: { value: "ink" } });
     fireEvent.click(document.querySelector('input[name="qa"]')!);
+    fireEvent.click(document.querySelector('input[name="captions"]')!);
     await submit();
     const button = screen.getByRole("button", { name: tr("form.submitting") }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(api.creates[0]).toMatchObject({ motionMode: "vector", lineStyle: "ink", qa: false });
+    expect(api.creates[0]).toMatchObject({ motionMode: "vector", lineStyle: "ink", qa: false, captions: true });
     await act(async () => finish(json({ id: "v1" })));
     expect(router.push).toHaveBeenCalledWith("/episodes/v1");
   });

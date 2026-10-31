@@ -150,6 +150,7 @@ describe("/api/episodes", () => {
       budgetUsd: 20,
       qa: true,
       realism: true,
+      captions: true,
       stylePack: "auto",
       width: 1920,
       height: 1080,
@@ -177,13 +178,14 @@ describe("/api/episodes", () => {
         vertical: true,
         qa: false,
         realism: false,
+        captions: false,
         lineStyle: "ink",
         stylePack: STYLE_PACK_IDS[0],
         series: "  Osmanlı   Tarihi ",
       }),
     );
     const s = await load(((await res.json()) as { id: string }).id);
-    expect(s.input).toMatchObject({ lang: "en-US", targetSec: 90, budgetUsd: 7, tier: "premium", motionMode: "vector", voiceId: "v1", qa: false, realism: false, lineStyle: "ink", stylePack: STYLE_PACK_IDS[0], width: 1080, height: 1920 });
+    expect(s.input).toMatchObject({ lang: "en-US", targetSec: 90, budgetUsd: 7, tier: "premium", motionMode: "vector", voiceId: "v1", qa: false, realism: false, captions: false, lineStyle: "ink", stylePack: STYLE_PACK_IDS[0], width: 1080, height: 1920 });
     expect(s.input.styleHint).toHaveLength(300);
     expect(s.input.series).toBe("Osmanlı Tarihi");
 
@@ -464,6 +466,16 @@ describe("GET /api/episodes/[id]/video", () => {
     await dl.arrayBuffer();
   });
 
+  it("?srt videonun yanındaki altyazı dosyasını indirtir; yoksa 404", async () => {
+    expect((await get("v-var", TR, "?srt")).status).toBe(404);
+    expect(await (await get("v-var", TR, "?srt")).text()).toBe("Altyazı dosyası yok (bölümü yeniden render et)");
+    writeFileSync(join(root, "video.srt"), "1\n00:00:00,000 --> 00:00:01,000\nMerhaba\n");
+    const res = await get("v-var", TR, "?srt");
+    expect(res.headers.get("content-type")).toBe("application/x-subrip; charset=utf-8");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="v-var.srt"');
+    expect(await res.text()).toContain("Merhaba");
+  });
+
   it("Range: baştan, açık uçlu, sondan ve boyutu aşan son", async () => {
     const cases: [string, number, number][] = [
       ["bytes=0-99", 0, 99],
@@ -616,6 +628,12 @@ describe("POST /api/episodes/[id]/action", () => {
     expect((await load("a5")).input.series).toBeUndefined();
     await ok("a5", { type: "set-realism", enabled: false });
     expect((await load("a5")).input.realism).toBe(false);
+    await ok("a5", { type: "set-captions", enabled: false });
+    expect((await load("a5")).input.captions).toBe(false);
+    await ok("a5", { type: "set-captions", enabled: "evet" });
+    expect((await load("a5")).input.captions).toBe(false);
+    await ok("a5", { type: "set-captions", enabled: true });
+    expect((await load("a5")).input.captions).toBe(true);
   });
 
   it("kalite kapısında insan kararı: kabul ve ret durum dosyasına ve varlık kaydına yazılır", async () => {

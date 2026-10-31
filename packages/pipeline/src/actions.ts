@@ -283,3 +283,13 @@ export function setSeries(state: EpisodeState, name: string | undefined): void {
 export function setRealism(state: EpisodeState, enabled: boolean): void {
   state.input.realism = enabled;
 }
+
+/**
+ * Altyazının videoya gömülmesini açar/kapatır. Video zaten render edildiyse render aşaması yeniden açılır: devam
+ * yalnız render'ı tekrarlar (Claude çağrısı yok, para harcamaz); eski video yenisi çıkana dek kalır.
+ */
+export function setCaptions(state: EpisodeState, enabled: boolean): void {
+  if ((state.input.captions !== false) === enabled) return;
+  state.input.captions = enabled;
+  delete state.done.render;
+}

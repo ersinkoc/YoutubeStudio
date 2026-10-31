@@ -14,6 +14,7 @@ export const STUDIO_MESSAGES = {
   "api.jobRunning": { tr: "Zaten çalışan bir iş var: {label}", en: "A job is already running: {label}" },
   "api.noVideo": { tr: "Video yok", en: "No video" },
   "api.noVideoFile": { tr: "Video dosyası yok", en: "Video file missing" },
+  "api.noSubtitles": { tr: "Altyazı dosyası yok (bölümü yeniden render et)", en: "No subtitle file (render the episode again)" },
   "api.forbidden": { tr: "Yasak", en: "Forbidden" },
   "api.notFound": { tr: "Yok", en: "Not found" },
 } as const;

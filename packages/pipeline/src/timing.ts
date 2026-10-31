@@ -95,6 +95,30 @@ const CAMERA_MOTION: Record<PlannedShotState["camera"], { zoomFrom: number; zoom
 };
 
 /** Remotion'ın göreceği timeline. Varlık yolları render klasörünün public/ dizinine göreli. */
+/** "00:01:02,345" (SRT zaman damgası). */
+function srtTime(ms: number): string {
+  const t = Math.max(0, Math.round(ms));
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${pad(Math.floor(t / 3_600_000))}:${pad(Math.floor(t / 60_000) % 60)}:${pad(Math.floor(t / 1000) % 60)},${pad(t % 1000, 3)}`;
+}
+
+/**
+ * Kelime zamanlamalarından SRT altyazı: kelimeler satıra toplanır (en çok 8 kelime ya da 3,5 sn; araya 0,7 sn'den uzun
+ * sessizlik girerse ya da cümle bitince yeni satır). Boş liste boş metin verir.
+ */
+export function toSrt(words: WordTiming[]): string {
+  const cues: WordTiming[][] = [];
+  for (const w of words) {
+    const cue = cues.at(-1);
+    const prev = cue?.at(-1);
+    if (cue && prev && cue.length < 8 && w.endMs - cue[0]!.startMs <= 3500 && w.startMs - prev.endMs <= 700 && !/[.!?…]$/.test(prev.text)) cue.push(w);
+    else cues.push([w]);
+  }
+  return cues
+    .map((c, i) => `${i + 1}\n${srtTime(c[0]!.startMs)} --> ${srtTime(c.at(-1)!.endMs)}\n${c.map((w) => w.text).join(" ")}\n`)
+    .join("\n");
+}
+
 export function buildTimeline(
   state: EpisodeState,
   assetPath: (key: string) => string,

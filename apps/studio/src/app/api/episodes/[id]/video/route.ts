@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { msg } from "@ys/core/messages";
 import { textResponse } from "../../../../../lib/api";
 import { repo } from "../../../../../lib/server";
@@ -29,6 +29,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!/^[a-z0-9][a-z0-9-]{0,120}$/.test(id)) return textResponse(req, msg("api.badEpisode"), 400);
   const state = await repo().load(id);
   if (!state.render) return textResponse(req, msg("api.noVideo"), 404);
+  // "?srt": videonun yanına yazılan altyazı dosyası (indirme).
+  if (new URL(req.url).searchParams.has("srt")) {
+    const srt = await readFile(state.render.path.replace(/\.mp4$/, ".srt"), "utf8").catch(() => undefined);
+    if (srt === undefined) return textResponse(req, msg("api.noSubtitles"), 404);
+    return new Response(srt, {
+      headers: { "content-type": "application/x-subrip; charset=utf-8", "content-disposition": `attachment; filename="${id}.srt"` },
+    });
+  }
   const path = state.render.path;
   const info = await stat(path).catch(() => undefined);
   if (!info) return textResponse(req, msg("api.noVideoFile"), 404);

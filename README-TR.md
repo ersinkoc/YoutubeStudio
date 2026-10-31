@@ -61,11 +61,13 @@ pnpm studio                   # geliştirme: http://localhost:3100
 pnpm studio:build && pnpm studio:start   # production derlemesi, aynı port
 ```
 
-1. **Yeni bölüm.** Üst menünün başındaki **Yeni bölüm** düğmesine tıkla; form tam genişlikte kendi sayfasında açılır. Konuyu gir; dili, süreyi, hareket modunu, çizgi stilini, sesi, bütçeyi ve gerçeklik denetiminin açık olup olmayacağını seç. Her hareket modu kartı kendi tahmini maliyetini gösterir; sağdaki panel seçilen modu aşama aşama döker.
+1. **Yeni bölüm.** Üst menünün başındaki **Yeni bölüm** düğmesine tıkla; form tam genişlikte kendi sayfasında açılır. Konuyu gir; dili, süreyi, hareket modunu, çizgi stilini, sesi, bütçeyi, gerçeklik denetiminin açık olup olmayacağını ve altyazının videoya gömülüp gömülmeyeceğini seç. Her hareket modu kartı kendi tahmini maliyetini gösterir; sağdaki panel seçilen modu aşama aşama döker.
 2. **Senaryo.** Sahneleri düzenle ve onayla.
 3. **Konsept.** Karakterler ve mekânlar seçilip çizilir. Kalite kapısı paneli her çizimi referanslarıyla, puanlarıyla, kusurlarıyla ve çizim planıyla gösterir. Kabul et, reddet ya da notla yeniden çizdir.
 4. **Üretim.** Pipeline şeridi, canlı panel ve etkinlik günlüğü her ajan çağrısını modeli, maliyeti ve süresiyle gösterir. Çekimler sekmesi render'dan önce her çekimin önizleme karesini gösterir.
-5. **İzle ve indir:** videoyu ve incelemesini gör.
+5. **İzle ve indir:** videoyu, `.srt` altyazı dosyasını ve incelemesini gör. Altyazı her zaman videonun yanına `.srt` olarak yazılır; videoya gömülmesi bölüm başına bir anahtardır (değiştirmek yalnız render'ı tekrarlar, ücretsizdir).
+
+Ekran yazıları tek düzende: mekân, tarih ve olay satırları sol üstte sabit bir bilgi kartında, kişi etiketleri kişinin yanında; hepsi aynı yazı tipi ve plaka stiliyle.
 
 Diğer sayfalar:
 

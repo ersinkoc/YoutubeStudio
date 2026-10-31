@@ -5,6 +5,7 @@ import {
   estimateWordTimings,
   resolveShotTimes,
   SCENE_GAP_MS,
+  toSrt,
   type EpisodeState,
   type SceneVoice,
 } from "../src/index.ts";
@@ -101,5 +102,34 @@ describe("buildTimeline", () => {
     ]);
     expect(tl.audio).toEqual([{ role: "voice", assetUrl: "assets/voice/s1.mp3", fromFrame: 0, durationInFrames: 90, volume: 1 }]);
     expect(tl.captions.map((c) => c.text)).toEqual(["merhaba", "dünya"]);
+  });
+});
+
+describe("toSrt", () => {
+  const w = (text: string, startMs: number, endMs: number) => ({ text, startMs, endMs });
+
+  it("kelimeleri satıra toplar: cümle sonu, uzun sessizlik, 8 kelime ve 3,5 sn yeni satır açar", () => {
+    const words = [
+      w("Merhaba", 0, 400),
+      w("dünya.", 450, 900),
+      w("Sonra", 1000, 1300),
+      w("sessizlik", 2500, 2900),
+      ...Array.from({ length: 9 }, (_, i) => w(`k${i}`, 3000 + i * 300, 3250 + i * 300)),
+      w("uzun", 5800, 6000),
+      w("süre", 9000, 9600),
+    ];
+    const cues = toSrt(words).trimEnd().split("\n\n");
+    expect(cues[0]).toBe("1\n00:00:00,000 --> 00:00:00,900\nMerhaba dünya.");
+    // Uzun sessizlik yeni satır açar.
+    expect(cues[1]).toBe("2\n00:00:01,000 --> 00:00:01,300\nSonra");
+    // En çok 8 kelime.
+    expect(cues[2]!.split("\n")[2]).toBe("sessizlik k0 k1 k2 k3 k4 k5 k6");
+    // 3,5 sn'yi aşan satır bölünür.
+    expect(cues.at(-1)).toBe(`${cues.length}\n00:00:09,000 --> 00:00:09,600\nsüre`);
+  });
+
+  it("saat basamağı ve boş liste", () => {
+    expect(toSrt([w("geç", 3_725_004, 3_726_000)])).toBe("1\n01:02:05,004 --> 01:02:06,000\ngeç\n");
+    expect(toSrt([])).toBe("");
   });
 });

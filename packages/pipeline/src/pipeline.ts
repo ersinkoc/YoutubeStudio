@@ -103,7 +103,7 @@ import {
   type SceneVoice,
   type Stage,
 } from "./state.ts";
-import { buildTimeline, clipSeconds, estimateWordTimings, resolveShotTimes } from "./timing.ts";
+import { buildTimeline, clipSeconds, estimateWordTimings, resolveShotTimes, toSrt } from "./timing.ts";
 import type { EpisodeReview } from "./state.ts";
 
 /** Günlük satırının önemi: aşama başlangıcı, uyarı (atlanan/başarısız alt adım) ya da bilgi. */
@@ -1998,9 +1998,15 @@ export class EpisodePipeline {
       }
 
       const outputPath = join(dir, `${state.id}.mp4`);
+      // Altyazı her durumda ayrı dosya olarak yazılır; videoya gömülmesi bölüm ayarına bağlı (eski bölümlerde açık).
+      const srt = toSrt(timeline.captions);
+      if (srt) {
+        await writeFile(join(dir, `${state.id}.srt`), srt, "utf8");
+        this.log(msg("log.render.srt", { path: join(dir, `${state.id}.srt`) }));
+      }
       let lastPct = -1;
       await renderEpisode({
-        timeline,
+        timeline: state.input.captions === false ? { ...timeline, captions: [] } : timeline,
         publicDir,
         outputPath,
         onProgress: (p) => {

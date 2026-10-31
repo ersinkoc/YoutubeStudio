@@ -59,6 +59,11 @@ const tr = {
   "home.stages": "{done}/{total} aşama",
 
   "form.title": "Yeni bölüm",
+  "video.srt": "Altyazı (.srt)",
+  "video.captions": "Altyazı videoda",
+  "video.rerender": "Yeniden render et",
+  "form.captions": "Altyazıyı videoya göm",
+  "form.captions.hint": "Kapalıyken video altyazısız çıkar; altyazı yine de .srt dosyası olarak videonun yanına yazılır (YouTube'a ayrıca yüklenebilir).",
   "form.subtitle": "Konuyu yaz, görünümü seç; maliyet tahmini sen seçtikçe güncellenir.",
   "form.back": "Bölümlere dön",
   "form.section.topic": "Konu ve seri",
@@ -569,6 +574,11 @@ const en: Record<MessageKey, string> = {
   "home.stages": "{done}/{total} stages",
 
   "form.title": "New episode",
+  "video.srt": "Subtitles (.srt)",
+  "video.captions": "Subtitles in the video",
+  "video.rerender": "Render again",
+  "form.captions": "Burn subtitles into the video",
+  "form.captions.hint": "When off the video has no subtitles; they are still written next to it as an .srt file (can be uploaded to YouTube separately).",
   "form.subtitle": "Write the topic and pick the look; the cost estimate updates as you choose.",
   "form.back": "Back to episodes",
   "form.section.topic": "Topic and series",

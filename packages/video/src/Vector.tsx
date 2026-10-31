@@ -416,7 +416,8 @@ export function focusOf(spec: VectorShot, placed: PlacedLayer[], index: number, 
   const target = spec.layers[index]!.anims.find((a) => a.type === "point" && a.target !== undefined)?.target;
   const explicit = others.find((pl) => pl.index === target);
   const beside = near(others.filter((pl) => Math.abs(pl.x - self.x) > self.width * 0.4));
-  const text = spec.texts[0];
+  // Bilgi kartının yeri sabit (sol üst); işaret yalnız yerinde duran kişi etiketine gider.
+  const text = spec.texts.find((tx) => tx.style === "label");
   const aim = explicit ? center(explicit) : beside ? center(beside) : text ? ([text.x, text.y] as const) : undefined;
   return { aim, lookX: near(people)?.x, holding: placed.some((pl) => pl.heldBy === index) };
 }
@@ -610,51 +611,72 @@ function Layer({
     </div>
   );
 }
-const TEXT_SIZE: Record<VectorText["style"], number> = { title: 104, subtitle: 62, label: 46, number: 140, quote: 56 };
-
-const TEXT_STYLES: Record<VectorText["style"], CSSProperties> = {
-  title: { fontWeight: 900, letterSpacing: -1 },
-  subtitle: { fontWeight: 700 },
-  label: { fontWeight: 700 },
-  number: { fontWeight: 900, fontVariantNumeric: "tabular-nums" },
-  quote: { fontWeight: 600, fontStyle: "italic" },
-};
+/**
+ * Ekran yazısı düzeni (31 Eki: yazılar her çekimde başka boyda, başka yerde ve eğik/kalın karışık duruyordu).
+ * - Bilgi kartı: mekân, tarih, olay, sayı, alıntı (label dışındaki her stil) her çekimde aynı yerde, sol üstte alt alta;
+ *   yönetmenin x/y'si yok sayılır. Birincil satır (başlık, sayı) büyük, ikincil satır (alt başlık, alıntı) küçük.
+ * - Kişi etiketi (label): yönetmenin verdiği yerde (kişinin yanında), tek boyda.
+ * Hepsi aynı yazı tipi, aynı plaka; kartın solunda paletin vurgu rengiyle çizgi.
+ */
+const TEXT_SIZE: Record<VectorText["style"], number> = { title: 64, number: 72, subtitle: 44, quote: 44, label: 40 };
+const FONT = "Inter, 'Noto Sans', 'Segoe UI', sans-serif";
+const CARD = { x: 72, verticalX: 300, top: 64, width: 960, gap: 12 };
 
 /** Ekranda aynı anda en fazla bu kadar yazı; üst ve alt sınır (alttaki ~%25 altyazının). Stüdyo kurallarından. */
 const { maxTexts: MAX_TEXTS, top: TEXT_TOP, bottom: TEXT_BOTTOM } = TEXT_RULES;
-const TEXT_WIDTH = 1500;
+const TAG_WIDTH = 900;
 const TEXT_GAP = 24;
 
 interface PlacedText {
   text: VectorText;
-  /** Bloğun merkez y'si (yerleşimden sonra). */
+  /** Kartta satırın sol kenarı, etikette merkez x. */
+  x: number;
+  /** Kartta satırın üst kenarı, etikette merkez y. */
   y: number;
   size: number;
+  card: boolean;
+}
+
+/** Satır sayısının kaba tahmini (ortalama harf genişliği ~0,55 em); en fazla iki satıra sığana dek küçülür. */
+function fit(text: string, size: number, width: number): { size: number; lines: number } {
+  const lines = (s: number) => Math.max(1, Math.ceil((text.length * s * 0.55) / width));
+  while (lines(size) > 2 && size > 30) size -= 4;
+  return { size, lines: lines(size) };
 }
 
 /**
- * Yazıları güvenli alana yerleştirir: en fazla iki yazı, birbirine binmez, altyazı bölgesine inmez.
- * Boyut, satır sayısının kaba tahmininden gelir (ortalama harf genişliği ~0,55 em).
+ * Yazıları yerleştirir: bilgi kartı satırları sol üstte alt alta, kişi etiketleri kendi yerinde (kartın altına ve
+ * altyazı bölgesinin üstüne sıkıştırılır, birbirine binmez). En fazla iki yazı. vertical: 9:16'da kart kırpılan
+ * kenardan içeri alınır.
  */
-export function layoutTexts(texts: VectorText[]): PlacedText[] {
-  const placed = texts.slice(0, MAX_TEXTS).map((text) => {
-    let size = TEXT_SIZE[text.style];
-    // Uzun metin küçülür: en fazla iki satıra sığsın.
-    const lines = () => Math.max(1, Math.ceil((text.text.length * size * 0.55) / TEXT_WIDTH));
-    while (lines() > 2 && size > 36) size -= 6;
-    const height = lines() * size * 1.12;
-    return { text, size, height, y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, text.y)) };
-  });
-  placed.sort((a, b) => a.y - b.y);
-  let bottom = TEXT_TOP;
-  for (const t of placed) {
+export function layoutTexts(texts: VectorText[], vertical = false): PlacedText[] {
+  const shown = texts.slice(0, MAX_TEXTS);
+  let cardBottom = CARD.top;
+  const card = shown
+    .filter((text) => text.style !== "label")
+    .map((text) => {
+      const { size, lines } = fit(text.text, TEXT_SIZE[text.style], CARD.width);
+      const y = cardBottom;
+      cardBottom += lines * size * 1.15 + size * 0.3 + CARD.gap;
+      return { text, x: vertical ? CARD.verticalX : CARD.x, y, size, card: true };
+    });
+  const tags = shown
+    .filter((text) => text.style === "label")
+    .map((text) => {
+      const { size, lines } = fit(text.text, TEXT_SIZE.label, TAG_WIDTH);
+      const height = lines * size * 1.15;
+      return { text, x: Math.min(W - TAG_WIDTH / 2 - 40, Math.max(TAG_WIDTH / 2 + 40, text.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, text.y)), size, height, card: false };
+    })
+    .sort((a, b) => a.y - b.y);
+  // Etiketler kartın altında başlar, birbirine binmez; alt sınırı aşarsa birlikte yukarı kayar.
+  let bottom = card.length ? cardBottom : TEXT_TOP;
+  for (const t of tags) {
     t.y = Math.max(t.y, bottom + t.height / 2);
     bottom = t.y + t.height / 2 + TEXT_GAP;
   }
-  // Taşarsa tümünü yukarı kaydır.
   const overflow = bottom - TEXT_GAP - TEXT_BOTTOM;
-  if (overflow > 0) for (const t of placed) t.y -= overflow;
-  return placed.map(({ text, y, size }) => ({ text, y, size }));
+  if (overflow > 0) for (const t of tags) t.y -= overflow;
+  return [...card, ...tags.map(({ text, x, y, size }) => ({ text, x, y, size, card: false }))];
 }
 
 /** #rgb/#rrggbb rengin bağıl parlaklığı (0–1); çözülemezse undefined. */
@@ -699,44 +721,47 @@ function countUp(text: string, k: number): string {
 }
 
 function Text({ placed, p, t, seed, accent }: { placed: PlacedText; p: number; t: number; seed: string; accent: string }) {
-  const { text, y, size } = placed;
-  const tr = layerTransform(text.anims, p, t, seed, { x: text.x, y });
+  const { text, x, y, size, card } = placed;
+  const tr = layerTransform(text.anims, p, t, seed, { x, y });
   let shown = text.text;
   for (const a of text.anims) {
     if (a.type === "typewriter") shown = shown.slice(0, Math.round(shown.length * local(p, a)));
     if (a.type === "count_up") shown = countUp(shown, Easing.out(Easing.cubic)(local(p, a)));
   }
-  const x = Math.min(W - TEXT_WIDTH / 2 - 40, Math.max(TEXT_WIDTH / 2 + 40, text.x));
+  const bar = readable(accent) ?? "#ffd84d";
+  const primary = text.style === "title" || text.style === "number";
   return (
     <div
+      data-text={card ? "card" : "tag"}
       style={{
         position: "absolute",
-        left: x - TEXT_WIDTH / 2,
+        left: card ? x : x - TAG_WIDTH / 2,
         top: y,
-        width: TEXT_WIDTH,
-        textAlign: "center",
-        transform: `translate(${tr.x}px, calc(-50% + ${tr.y}px)) rotate(${tr.rotate}deg) scale(${tr.scale})`,
+        width: card ? CARD.width : TAG_WIDTH,
+        textAlign: card ? "left" : "center",
+        transform: `translate(${tr.x}px, ${card ? "" : "calc(-50% + "}${tr.y}px${card ? "" : ")"}) rotate(${tr.rotate}deg) scale(${tr.scale})`,
+        transformOrigin: card ? "0 0" : "50% 50%",
         opacity: tr.opacity,
-        color: readable(text.color) ?? (text.style === "number" ? (readable(accent) ?? "#ffd84d") : "white"),
-        fontFamily: "Inter, 'Noto Sans', 'Segoe UI', sans-serif",
+        color: readable(text.color) ?? (text.style === "number" ? bar : "white"),
+        fontFamily: FONT,
         fontSize: size,
-        lineHeight: 1.1,
-        // Koyu kontur: yazı hangi zeminde olursa olsun okunsun (30 Eki: turuncu duvarda turuncu başlık).
-        textShadow: "0 4px 18px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.9)",
-        WebkitTextStroke: "2px rgba(15,15,20,0.55)",
-        paintOrder: "stroke fill",
-        ...TEXT_STYLES[text.style],
+        fontWeight: primary ? 800 : 600,
+        fontVariantNumeric: "tabular-nums",
+        lineHeight: 1.15,
+        letterSpacing: primary ? -0.5 : 0,
+        textShadow: "0 2px 10px rgba(0,0,0,0.45)",
       }}
     >
       {shown && (
-        // Yarı saydam plaka: başlık raf, pencere gibi dolu bir duvarın üstüne düşse de okunur (30 Eki denemesi: 8 karede yazı çakışması).
+        // Yarı saydam plaka: yazı dolu bir duvarın üstüne düşse de okunur. Kartta solda vurgu çizgisi.
         <span
           style={{
             display: "inline-block",
-            padding: "0.1em 0.45em 0.16em",
-            borderRadius: Math.round(size * 0.22),
-            background: "rgba(14,16,22,0.58)",
+            padding: "0.14em 0.5em 0.16em",
+            borderRadius: 10,
+            background: "rgba(14,16,22,0.66)",
             boxShadow: "0 6px 24px rgba(0,0,0,0.22)",
+            ...(card ? { borderLeft: `6px solid ${bar}`, borderTopLeftRadius: 2, borderBottomLeftRadius: 2 } : {}),
           }}
         >
           {shown}
@@ -841,7 +866,7 @@ export function VectorScene({
     [assets, lineStyle],
   );
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
-  const texts = useMemo(() => layoutTexts(spec.texts), [spec.texts]);
+  const texts = useMemo(() => layoutTexts(spec.texts, height > width), [spec.texts, width, height]);
   const bg = spec.background ? safe[spec.background] : undefined;
   const { cam, centre } = useMemo(() => closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact)), [spec.camera, placed, bg]);
   const k = interpolate(p, [0, 1], [0, 1], { easing: ease });

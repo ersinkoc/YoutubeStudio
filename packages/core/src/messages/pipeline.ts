@@ -186,6 +186,7 @@ export const PIPELINE_MESSAGES = {
     en: "⚠ render failed with a transient error ({reason}); retrying once from the start",
   },
   "log.render.done": { tr: "  ✓ {path}", en: "  ✓ {path}" },
+  "log.render.srt": { tr: "  altyazı dosyası: {path}", en: "  subtitle file: {path}" },
   "log.review.summary": {
     tr: "  {frames} kare, ortalama {avg}/10; sorunlar: {issues}",
     en: "  {frames} frames, average {avg}/10; issues: {issues}",

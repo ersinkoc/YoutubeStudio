@@ -2,7 +2,7 @@
 import { msg } from "@ys/core/messages";
 import type { CostGroup } from "@ys/media-gateway";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CostsTab } from "../../src/app/episodes/[id]/costs-panel.tsx";
 import { OverviewTab } from "../../src/app/episodes/[id]/overview.tsx";
 import { Bar, costOf, modeOf, Stat, StatusIcon } from "../../src/app/episodes/[id]/parts.tsx";
@@ -172,6 +172,9 @@ describe("OverviewTab", () => {
     expect(video.getAttribute("src")).toBe(`/api/episodes/${state.id}/video?v=${encodeURIComponent("2026-10-31T12:00:00Z")}`);
     expect(video.getAttribute("poster")).toBe("/api/assets/episodes/x/kf/sh1.png");
     expect(screen.getByText(tr("video.download")).closest("a")!.getAttribute("href")).toContain("&download");
+    expect(screen.getByText(tr("video.srt")).closest("a")!.getAttribute("href")).toContain("&srt");
+    // act verilmezse altyazı anahtarı yok.
+    expect(screen.queryByText(tr("video.captions"))).toBeNull();
     // Video 2 dk, toplam $4 → dakika başına $2.
     expect(screen.getByText(fmtTr.duration(120))).toBeTruthy();
     expect(screen.getByText(fmtTr.usd(2))).toBeTruthy();
@@ -190,6 +193,25 @@ describe("OverviewTab", () => {
     // Bilgiler: paket adı, ses, palet.
     expect(screen.getByText(tr("voice.gemini"))).toBeTruthy();
     expect(container.querySelectorAll('[title="#112233"]')).toHaveLength(1);
+  });
+
+  it("altyazı anahtarı ayarı değiştirir; render yeniden açıldıysa yeniden render düğmesi çıkar", () => {
+    const act = vi.fn(async (_action: Record<string, unknown>) => true);
+    const done = makeState({ render: { path: "/x/v.mp4", at: "t" }, done: { render: "t" } });
+    const { rerender } = renderIn(<OverviewTab data={makeData(done)} act={act} />);
+    const box = screen.getByLabelText(tr("video.captions")) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(screen.queryByText(tr("video.rerender"))).toBeNull();
+    fireEvent.click(box);
+    expect(act).toHaveBeenLastCalledWith({ type: "set-captions", enabled: false });
+    const off = makeState({ render: { path: "/x/v.mp4", at: "t" }, done: {} }, { captions: false });
+    rerender(<OverviewTab data={makeData(off)} act={act} busy />);
+    expect((screen.getByLabelText(tr("video.captions")) as HTMLInputElement).checked).toBe(false);
+    const again = screen.getByText(tr("video.rerender")).closest("button")!;
+    expect(again.disabled).toBe(true);
+    rerender(<OverviewTab data={makeData(off)} act={act} />);
+    fireEvent.click(screen.getByText(tr("video.rerender")));
+    expect(act).toHaveBeenLastCalledWith({ type: "resume" });
   });
 
   it("video yoksa yer tutucu; inceleme yoksa bilgi; zayıf ve orta puan renkleri", () => {

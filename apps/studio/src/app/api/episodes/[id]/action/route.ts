@@ -5,6 +5,7 @@ import {
   acceptAsset,
   approve,
   rejectAsset,
+  setCaptions,
   setRealism,
   changeVoice,
   editNarration,
@@ -37,6 +38,7 @@ export type StudioAction =
   | { type: "accept-asset"; key: string }
   | { type: "reject-asset"; key: string; note?: string }
   | { type: "set-realism"; enabled: boolean }
+  | { type: "set-captions"; enabled: boolean }
   | { type: "reuse-character"; castId: string; key: string }
   | { type: "set-series"; series?: string }
   | { type: "cancel" };
@@ -112,6 +114,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         break;
       case "set-realism":
         await episodes.update(id, (s) => setRealism(s, action.enabled));
+        break;
+      case "set-captions":
+        await episodes.update(id, (s) => setCaptions(s, action.enabled === true));
         break;
       case "resume":
         startJob(id, "job.resume", ["episode", "run", id]);

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentError } from "@ys/agents";
 import { formatText, STYLE_PACKS } from "@ys/core";
@@ -815,6 +816,31 @@ describe("timeline, render ve inceleme", () => {
     expect(h.logs.filter((l) => l.startsWith("  render %"))).toEqual(["  render %0", "  render %50", "  render %0"]);
     expect(h.logs).toContain("  başka bir render sürüyor (süreç 99); sıra bekleniyor");
     expect(h.logs).toContain("⚠ render geçici bir hatayla düştü (ENOENT); baştan bir kez daha deneniyor");
+    // Altyazı her zaman .srt olarak videonun yanında; varsayılan (eski bölüm) gömülü.
+    const srtPath = state.render!.path.replace(/\.mp4$/, ".srt");
+    expect(readFileSync(srtPath, "utf8")).toMatch(/^1\n00:00:00,000 --> /);
+    expect(h.logs).toContain(`  altyazı dosyası: ${srtPath}`);
+    expect(render.episode.mock.calls.at(-1)![0].timeline.captions.length).toBeGreaterThan(0);
+  });
+
+  it("render: altyazı kapalıysa videoya gömülmez ama .srt yine yazılır; kelime yoksa .srt yok", async () => {
+    const h = harness();
+    const id = await ready(h);
+    await h.pipeline.run(id, { only: "timeline" });
+    const s = await h.pipeline.load(id);
+    s.input.captions = false;
+    await h.pipeline.save(s);
+    const state = await h.pipeline.run(id, { only: "render" });
+    expect(render.episode.mock.calls.at(-1)![0].timeline.captions).toEqual([]);
+    expect(state.timeline!.captions.length).toBeGreaterThan(0);
+    expect(existsSync(state.render!.path.replace(/\.mp4$/, ".srt"))).toBe(true);
+
+    const quiet = await h.pipeline.load(id);
+    quiet.timeline!.captions = [];
+    await h.pipeline.save(quiet);
+    rmSync(state.render!.path.replace(/\.mp4$/, ".srt"));
+    await h.pipeline.run(id, { only: "render" });
+    expect(existsSync(state.render!.path.replace(/\.mp4$/, ".srt"))).toBe(false);
   });
 
   it("inceleme: kareler 6'lık gruplarla denetlenir, dersler deftere yazılır", async () => {

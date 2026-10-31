@@ -131,7 +131,7 @@ export function EpisodeView({ id }: { id: string }) {
           ))}
         </nav>
         <div className="p-5">
-          {active === "overview" && <OverviewTab data={data} />}
+          {active === "overview" && <OverviewTab data={data} busy={busy} act={act} />}
           {active === "script" && <ScriptTab data={data} busy={busy} act={act} />}
           {active === "concept" && <ConceptTab data={data} busy={busy} act={act} />}
           {active === "shots" && <ShotsTab data={data} busy={busy} act={act} />}

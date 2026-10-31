@@ -676,10 +676,9 @@ describe("vektör sahne: yerçekimi", () => {
 });
 
 describe("vektör sahne: yazılar", () => {
-  const textAt = (text: object, frame = 150, palette: string[] = []) => {
-    const c = scene({ texts: [{ x: 960, y: 300, ...text }] }, { frame, palette });
-    const divs = [...c.querySelectorAll("div")].filter((d) => d.style.width === "1500px");
-    const el = divs[0] as HTMLElement;
+  const textAt = (text: object, frame = 150, palette: string[] = [], o: Opts = {}) => {
+    const c = scene({ texts: [{ x: 960, y: 300, ...text }] }, { frame, palette, ...o });
+    const el = c.querySelector("[data-text]") as HTMLElement;
     const r = { el, shown: el.querySelector("span")?.textContent ?? null, color: el.style.color };
     cleanup();
     return r;
@@ -715,20 +714,41 @@ describe("vektör sahne: yazılar", () => {
     expect(up("60.000 $", 300)).toBe("60.000 $");
   });
 
-  it("yazı yatayda kadraj içine alınır", () => {
-    expect(textAt({ text: "kenar", x: 100 }).el.style.left).toBe("40px");
-    expect(textAt({ text: "kenar", x: 1900 }).el.style.left).toBe(`${1920 - 1500 - 40}px`);
+  it("kişi etiketi kendi yerinde, kadraj içine alınır; bilgi kartı her zaman sol üstte (dikeyde içeride)", () => {
+    const tag = textAt({ text: "kenar", x: 100 }).el;
+    expect(tag.dataset.text).toBe("tag");
+    expect(tag.style.left).toBe("40px");
+    expect(tag.style.fontSize).toBe("40px");
+    expect(textAt({ text: "kenar", x: 1900 }).el.style.left).toBe(`${1920 - 900 - 40}px`);
+    const card = textAt({ text: "1923, Ankara", style: "title", x: 1500, y: 700 }).el;
+    expect(card.dataset.text).toBe("card");
+    expect(card).toMatchObject({ style: expect.objectContaining({ left: "72px", top: "64px", textAlign: "left" }) });
+    expect(card.querySelector("span")!.style.borderLeft).toContain("6px solid");
+    expect(textAt({ text: "1923", style: "number" }, 150, [], { width: 1080, height: 1920 }).el.style.left).toBe("300px");
   });
 
   it("yazı animasyonu uygulanır (fade_in)", () => {
     expect(textAt({ text: "x", anims: [{ type: "fade_in", start: 0.6, end: 1 }] }).el.style.opacity).toBe("0");
   });
 
-  it("alt sınırı aşan yazılar birlikte yukarı kaydırılır", () => {
-    const t = (y: number) => VectorShot.shape.texts.parse([{ text: "Uzun başlık", x: 960, y, style: "title" }])[0]!;
-    const [a, b] = layoutTexts([t(800), t(800)]);
-    expect(b!.y + 104 * 1.12 / 2).toBeCloseTo(800);
-    expect(b!.y - a!.y).toBeCloseTo(104 * 1.12 + 24);
+  it("kart satırları alt alta; etiketler kartın altında, birbirine binmez, alt sınırı aşınca birlikte yukarı kayar", () => {
+    const t = (o: object) => VectorShot.shape.texts.parse([{ text: "Ad", x: 960, y: 300, ...o }])[0]!;
+    // İki kart satırı: birincil (başlık) üstte, ikincil (alt başlık) hemen altında.
+    const [title, sub] = layoutTexts([t({ text: "1923", style: "title" }), t({ text: "Ankara", style: "subtitle" })]);
+    expect(title).toMatchObject({ card: true, x: 72, y: 64, size: 64 });
+    expect(sub).toMatchObject({ card: true, size: 44 });
+    expect(sub!.y).toBeCloseTo(64 + 64 * 1.15 + 64 * 0.3 + 12);
+    // Kartın altına itilen etiket.
+    const [card, tag] = layoutTexts([t({ text: "Ali", y: 70 }), t({ text: "1923", style: "title" })]);
+    expect(card!.card).toBe(true);
+    expect(tag!.y).toBeGreaterThan(64 + 64 * 1.15);
+    // Alt sınırı aşan iki etiket birlikte yukarı kayar.
+    const [a, b] = layoutTexts([t({ y: 800 }), t({ y: 800 })]);
+    expect(b!.y + (40 * 1.15) / 2).toBeCloseTo(800);
+    expect(b!.y - a!.y).toBeCloseTo(40 * 1.15 + 24);
+    // Uzun yazı iki satıra sığana dek küçülür.
+    const [long] = layoutTexts([t({ text: "x".repeat(200), style: "title" })]);
+    expect(long!.size).toBeLessThan(64);
   });
 });
 

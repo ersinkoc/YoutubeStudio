@@ -339,7 +339,7 @@ ${
           ? `- ${input.presenter} is the on-screen presenter and the narration is their voice: put them in most shots (cut away to the subject now and then, never two shots in a row without them), with "talk" for the whole shot while on screen plus explain/point at what is shown. Other characters use "talk" only when they speak.`
           : `- Use "talk" only when that character speaks; the narrator is off-screen.`
       }
-- On-screen texts: at most 2 per shot, ≤ 5 words each, in language "${input.lang}". Only dates, numbers, names or one key term; never repeat the narration sentence (subtitles already show it). Place them in the top half (y 100–500), not over faces. style: title | subtitle | label | number | quote. Many shots need no text at all.
+- On-screen texts: at most 2 per shot, ≤ 5 words each, in language "${input.lang}". Only dates, numbers, names or one key term; never repeat the narration sentence. style: title (place/date/event), subtitle (second line under it), number, quote — code shows these in one fixed info card at the top-left, so their x/y are ignored; label = a person's name tag: give x/y just above that person's head. Many shots need no text at all.
 - Show what the narration says: every concrete object, document, device or action named in a shot must be visible in that shot. Reuse listed assets; if one is missing, use a new id starting with "p-" and describe it in newProps (front view, no text on it). Up to 6 new props per scene.
 - Avoid repetition: consecutive shots must differ in background, framing or layout. Mix wide shots (whole room), medium shots (zoom ~1.3 on people) and close-ups (zoom 1.6–2.2 with focusX/focusY on a face or object). New places: id "b-…" in newBackgrounds (up to 2 per scene).
 ${

@@ -1,15 +1,15 @@
 "use client";
 
-import { Download, Film, GraduationCap, Stethoscope } from "lucide-react";
+import { Captions, Download, Film, GraduationCap, RefreshCw, Stethoscope } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { stylePackOf } from "@ys/core/styles";
 import type { MessageKey } from "../../../lib/i18n";
 import type { EpisodeResponse } from "../../../lib/types";
 import { VOICES } from "../../../lib/voices";
 import { useI18n } from "../../locale-provider";
-import { asset, Bar, Stat, modeOf } from "./parts";
+import { asset, Bar, Stat, modeOf, type Act } from "./parts";
 
-export function OverviewTab({ data }: { data: EpisodeResponse }) {
+export function OverviewTab({ data, busy = false, act }: { data: EpisodeResponse; busy?: boolean; act?: Act }) {
   const { t, fmt } = useI18n();
   const { usd, duration } = fmt;
   const { state } = data;
@@ -45,10 +45,30 @@ export function OverviewTab({ data }: { data: EpisodeResponse }) {
           <Stat label={t("video.prodTime")} value={prodSec ? duration(prodSec) : "—"} />
         </div>
         {src && (
-          <div>
+          <div className="flex flex-wrap items-center gap-3">
             <a className="btn-ghost" href={`${src}&download`}>
               <Download size={16} /> {t("video.download")}
             </a>
+            <a className="btn-ghost" href={`${src}&srt`}>
+              <Captions size={16} /> {t("video.srt")}
+            </a>
+            {act && (
+              <label className="flex items-center gap-2 text-sm" title={t("form.captions.hint")}>
+                <input
+                  type="checkbox"
+                  checked={state.input.captions !== false}
+                  disabled={busy}
+                  onChange={(e) => act({ type: "set-captions", enabled: e.target.checked })}
+                />
+                {t("video.captions")}
+              </label>
+            )}
+            {act && !state.done.render && (
+              // Altyazı ayarı değişti: yalnız render yeniden çalışır (ücretsiz).
+              <button className="btn-primary" disabled={busy} onClick={() => act({ type: "resume" })}>
+                <RefreshCw size={16} /> {t("video.rerender")}
+              </button>
+            )}
           </div>
         )}
         <Review data={data} />

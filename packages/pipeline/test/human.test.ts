@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AssetCheck } from "@ys/core";
 import { FsAssetStore, getJson, putJson, type AssetStore } from "@ys/storage";
-import { acceptAsset, newEpisodeState, rejectAsset, setRealism, type EpisodeInput, type EpisodeState } from "../src/light.ts";
+import { acceptAsset, newEpisodeState, rejectAsset, setCaptions, setRealism, type EpisodeInput, type EpisodeState } from "../src/light.ts";
 
 const input: EpisodeInput = { topic: "t", lang: "tr", targetSec: 60, tier: "economy", aiClipRatio: 0, budgetUsd: 3, width: 1920, height: 1080, fps: 30 };
 const KEY = "library/vector/character/abc.svg";
@@ -89,5 +89,20 @@ describe("kalite kapısında insan kararı", () => {
     const { state } = setup();
     setRealism(state, false);
     expect(state.input.realism).toBe(false);
+  });
+
+  it("altyazı ayarı değişince yalnız render yeniden açılır; aynı ayar hiçbir şeyi bozmaz", () => {
+    const { state } = setup();
+    state.done.render = "x";
+    state.done.review = "x";
+    setCaptions(state, true);
+    expect(state.done.render).toBe("x");
+    setCaptions(state, false);
+    expect(state.input.captions).toBe(false);
+    expect(state.done.render).toBeUndefined();
+    expect(state.done.review).toBe("x");
+    state.done.render = "y";
+    setCaptions(state, false);
+    expect(state.done.render).toBe("y");
   });
 });

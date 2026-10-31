@@ -134,6 +134,7 @@ export function NewEpisodeForm({
           qa: form.get("qa") === "on",
           realism: form.get("realism") === "on",
           sideViews: form.get("sideViews") === "on",
+          captions: form.get("captions") === "on",
           lineStyle: form.get("lineStyle") || undefined,
           stylePack: form.get("stylePack"),
           ...(mode === "vector" && presenter ? { presenter } : {}),
@@ -291,7 +292,8 @@ export function NewEpisodeForm({
               <input type="checkbox" name="vertical" /> {t("form.vertical")}
             </label>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Toggle name="captions" label={t("form.captions")} hint={t("form.captions.hint")} />
             <Toggle name="qa" defaultChecked label={t("form.qa")} hint={t("form.qa.hint")} />
             <Toggle name="realism" defaultChecked label={t("form.realism")} hint={t("form.realism.hint")} />
             <Toggle name="sideViews" label={t("form.sideViews")} hint={t("form.sideViews.hint")} />

@@ -61,11 +61,13 @@ pnpm studio                   # development: http://localhost:3100
 pnpm studio:build && pnpm studio:start   # production build, same port
 ```
 
-1. **New episode.** Click **New episode** at the start of the top menu; the form has its own full-width page. Enter a topic, then choose the language, length, motion mode, line style, voice, budget and whether the reality check is on. Each motion-mode card shows its estimated cost; the panel on the right breaks the chosen mode down by stage.
+1. **New episode.** Click **New episode** at the start of the top menu; the form has its own full-width page. Enter a topic, then choose the language, length, motion mode, line style, voice, budget, whether the reality check is on and whether subtitles are burned into the video. Each motion-mode card shows its estimated cost; the panel on the right breaks the chosen mode down by stage.
 2. **Script.** Edit the scenes and approve them.
 3. **Concept.** Characters and places are cast and drawn. The quality-gate panel shows each drawing with its references, scores, defects and drawing plan. Accept, reject or redraw with a note.
 4. **Production.** The pipeline rail, live panel and activity log show every agent call with its model, cost and duration. The Shots tab shows a preview frame of every shot before the render.
-5. **Watch and download** the video, and read its review.
+5. **Watch and download** the video and its `.srt` subtitle file, and read its review. Subtitles are always written as an `.srt` next to the video; burning them in is a per-episode switch (changing it re-renders only, at no cost).
+
+On-screen text follows one layout: place, date and event lines sit in a fixed info card at the top-left, and name tags stay next to their person, all in one typeface and one plate style.
 
 Other pages:
 

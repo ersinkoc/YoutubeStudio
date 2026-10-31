@@ -64,6 +64,11 @@ export interface EpisodeInput {
    */
   sideViews?: boolean;
   /**
+   * Altyazı videoya gömülsün mü. Verilmezse (eski bölümler, CLI) gömülür; Stüdyo formu açıkça seçtirir. Her durumda
+   * videonun yanına .srt yazılır (YouTube'a ayrı altyazı olarak yüklenebilir).
+   */
+  captions?: boolean;
+  /**
    * Karakter bankasından ekrandaki sunucu (kütüphane kimliği): kadroya yeniden çizilmeden girer, anlatımı o konuşur;
    * yönetmen onu çekimlerin çoğuna koyar. Yalnız vektör modunda.
    */
