@@ -58,7 +58,9 @@ function numericOf(code: string): string | undefined {
 const upper = (text: string, lang: string) => text.toLocaleUpperCase(lang);
 
 function countryName(code: string, lang: string): string {
-  return countries.getName(code.toUpperCase(), lang === "tr" ? "tr" : "en", { select: "official" }) ?? code;
+  // Kod numericOf ile bulunduysa kütüphanede tr/en adı da var; "?? code" yalnız savunma.
+  /* v8 ignore next */
+  return countries.getName(code.trim().toUpperCase(), lang === "tr" ? "tr" : "en", { select: "official" }) ?? code;
 }
 
 /** Çok parçalı ülkede (Fransa + Guyana gibi) etiketi en büyük kara parçasının ortasına koyar. */
@@ -92,13 +94,12 @@ function lightness(hex: string): number {
   return (Math.max(r!, g!, b!) + Math.min(r!, g!, b!)) / 2;
 }
 
+/** Yalnız süzülmüş "#rrggbb" ve açıklığı 0,3'ün üstündeki renklerle çağrılır: en parlak kanal sıfır olamaz. */
 function saturation(hex: string): number {
-  const m = /^#([\da-f]{6})$/i.exec(hex);
-  if (!m) return 0;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1]!.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const max = Math.max(r!, g!, b!);
   const min = Math.min(r!, g!, b!);
-  return max === 0 ? 0 : (max - min) / max;
+  return (max - min) / max;
 }
 
 export async function generateMap(spec: MapSpec, lang: string, palette: string[]): Promise<GeneratedAsset> {

@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { STYLE_AUTO, STYLE_CUSTOM, STYLE_PACKS, stylePackOf } from "@ys/core/styles";
 import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import type { MessageKey } from "../lib/i18n";
 import { VOICES } from "../lib/voices";
 import { errorKey } from "../lib/errors";
@@ -72,6 +73,8 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
   function scheduleEstimate() {
     clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
+      // Savunma: form kaldırılınca zamanlayıcı temizlendiği için burada form hep bağlıdır.
+      /* v8 ignore next */
       if (!formRef.current) return;
       const input = estimateInput(formRef.current);
       setMode(input.motionMode as MotionMode);
@@ -294,9 +297,22 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
       )}
 
       {error && <p className="text-sm text-bad">{error}</p>}
-      <button className="btn-primary justify-center" disabled={busy}>
-        <Sparkles size={16} /> {busy ? t("form.submitting") : t("form.submit")}
-      </button>
+      <SubmitButton busy={busy} />
     </form>
+  );
+}
+
+/**
+ * Gönder düğmesi. Form eylemi bir geçiş (transition) içinde çalışır: eylemin içindeki setBusy(true) eylem bitene dek
+ * ekrana yansımaz. Gönderim sürerken düğmeyi kilitlemek için formun kendi durumu (useFormStatus) da okunur.
+ */
+function SubmitButton({ busy }: { busy: boolean }) {
+  const { t } = useI18n();
+  const { pending } = useFormStatus();
+  const locked = busy || pending;
+  return (
+    <button className="btn-primary justify-center" disabled={locked}>
+      <Sparkles size={16} /> {locked ? t("form.submitting") : t("form.submit")}
+    </button>
   );
 }

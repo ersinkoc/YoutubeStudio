@@ -115,6 +115,24 @@ function stableStringify(value: unknown): string {
 export class MediaGateway {
   /** Bölüm başına süren (henüz deftere yazılmamış) üretimlerin tahmini. */
   private readonly reserved = new Map<string, number>();
+  /** Bölüm başına bütçe sırası (bkz. budgetTurn). */
+  private readonly budgetQueue = new Map<string, Promise<unknown>>();
+
+  /**
+   * Bütçe kontrolü + rezervasyon ile defter kaydı + rezervasyonu bırakma birbirinin arasına girmesin: yoksa kontrol
+   * defteri okurken biten bir çağrı hem deftere yazıp hem rezervasyonunu bırakabilir ve o tutar hiç sayılmaz.
+   */
+  private async budgetTurn<T>(episode: string | undefined, fn: () => Promise<T>): Promise<T> {
+    if (!episode) return fn();
+    const turn = (this.budgetQueue.get(episode) ?? Promise.resolve()).then(fn);
+    const tail = turn.catch(() => {});
+    this.budgetQueue.set(episode, tail);
+    try {
+      return await turn;
+    } finally {
+      if (this.budgetQueue.get(episode) === tail) this.budgetQueue.delete(episode);
+    }
+  }
 
   private readonly fetchFn: typeof fetch;
   private readonly health: HealthTracker;
@@ -192,17 +210,25 @@ export class MediaGateway {
       const bill = billing(adapter.price, req);
       // Paralel çağrılar aynı anda "tavanın altında" görmesin: süren çağrıların tahmini de sayılır (rezervasyon).
       const episode = run.episodeId;
-      if (run.budgetCapMicros !== undefined && episode) {
-        const spent = (await ledger.spent(episode)) + (this.reserved.get(episode) ?? 0);
-        if (spent + estimateMicros > run.budgetCapMicros) {
-          this.log(`bütçe: ${adapter.id} atlandı (${formatUsd(spent)} + ${formatUsd(estimateMicros)})`);
-          skippedForBudget++;
-          continue;
+      const fits = await this.budgetTurn(episode, async () => {
+        if (run.budgetCapMicros !== undefined && episode) {
+          const spent = (await ledger.spent(episode)) + (this.reserved.get(episode) ?? 0);
+          if (spent + estimateMicros > run.budgetCapMicros) {
+            this.log(`bütçe: ${adapter.id} atlandı (${formatUsd(spent)} + ${formatUsd(estimateMicros)})`);
+            return false;
+          }
         }
+        if (episode) this.reserved.set(episode, (this.reserved.get(episode) ?? 0) + estimateMicros);
+        return true;
+      });
+      if (!fits) {
+        skippedForBudget++;
+        continue;
       }
-      if (episode) this.reserved.set(episode, (this.reserved.get(episode) ?? 0) + estimateMicros);
+      let held = true;
       const release = () => {
-        if (!episode) return;
+        if (!episode || !held) return;
+        held = false;
         const left = (this.reserved.get(episode) ?? 0) - estimateMicros;
         if (left > 0) this.reserved.set(episode, left);
         else this.reserved.delete(episode);
@@ -220,28 +246,36 @@ export class MediaGateway {
         if (result.files.length === 0) throw new Error("Sağlayıcı dosya döndürmedi");
         this.health.recordSuccess(adapter.id);
       } catch (error) {
-        release();
         // İş kabul edildikten sonra düştü: sağlayıcı büyük olasılıkla ücretlendirdi. Tahmin deftere yazılır (tavan doğru
-        // kalsın) ve başka sağlayıcıya geçilmez (aynı varlık ikinci kez ödenmesin); hata yukarı çıkar.
+        // kalsın) ve başka sağlayıcıya geçilmez (aynı varlık ikinci kez ödenmesin); hata yukarı çıkar. Rezervasyon
+        // ancak defter kaydından sonra bırakılır.
         if (error instanceof SubmittedJobError) {
           this.health.recordFailure(adapter.id);
           const message = error.message;
           this.log(`hata (ücretlendirilmiş olabilir): ${adapter.id}: ${message}`);
-          await ledger.record({
-            at: new Date().toISOString(),
-            episodeId: run.episodeId,
-            stage: run.stage,
-            refId: run.refId,
-            providerId: adapter.id,
-            capability: req.capability,
-            estimateMicros,
-            cacheHit: false,
-            requestHash,
-            durationMs: Date.now() - startedAt,
-            error: message.slice(0, 300),
-          });
+          try {
+            await this.budgetTurn(episode, async () => {
+              await ledger.record({
+                at: new Date().toISOString(),
+                episodeId: run.episodeId,
+                stage: run.stage,
+                refId: run.refId,
+                providerId: adapter.id,
+                capability: req.capability,
+                estimateMicros,
+                cacheHit: false,
+                requestHash,
+                durationMs: Date.now() - startedAt,
+                error: message.slice(0, 300),
+              });
+              release();
+            });
+          } finally {
+            release();
+          }
           throw error;
         }
+        release();
         if (run.signal?.aborted) throw error;
         // İçerik reddi sağlayıcı arızası değildir; sayılırsa birkaç ret tüm sağlayıcıyı kapatır (30 Eki).
         if (!(error instanceof ContentRejectedError)) this.health.recordFailure(adapter.id);
@@ -268,20 +302,24 @@ export class MediaGateway {
       // Üretim ödendi: buradan sonraki depo/defter hataları sağlayıcı arızası sayılmaz ve başka sağlayıcıya
       // yeniden ödetilmez; hata yukarı çıkar (aynı istek tekrar çalışınca önbellek ya da yeni üretim karar verir).
       try {
-        // Önce defter: dosya yazımı başarısız olsa da ödenen üretim tavana sayılır.
-        await ledger.record({
-          at: new Date().toISOString(),
-          episodeId: run.episodeId,
-          stage: run.stage,
-          refId: run.refId,
-          providerId: adapter.id,
-          capability: req.capability,
-          estimateMicros,
-          cacheHit: false,
-          requestHash,
-          durationMs: Date.now() - startedAt,
-          units: bill.units,
-          unitLabel: bill.unitLabel,
+        // Önce defter: dosya yazımı başarısız olsa da ödenen üretim tavana sayılır. Kayıt ve rezervasyonun bırakılması
+        // aynı sırada: arada bir bütçe kontrolü tutarı iki yerde de göremez.
+        await this.budgetTurn(episode, async () => {
+          await ledger.record({
+            at: new Date().toISOString(),
+            episodeId: run.episodeId,
+            stage: run.stage,
+            refId: run.refId,
+            providerId: adapter.id,
+            capability: req.capability,
+            estimateMicros,
+            cacheHit: false,
+            requestHash,
+            durationMs: Date.now() - startedAt,
+            units: bill.units,
+            unitLabel: bill.unitLabel,
+          });
+          release();
         });
         // Her üretim kendi klasörüne yazılır: başka sağlayıcının veya önceki üretimin
         // (başka bir bölümün referans verdiği) dosyası asla ezilmez.

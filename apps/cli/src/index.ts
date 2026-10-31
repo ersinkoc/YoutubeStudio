@@ -125,10 +125,12 @@ async function main(): Promise<void> {
       backfill: { type: "boolean", default: false },
       vertical: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
+      // "--version" seçenek olarak tanımlı değilse parseArgs "Unknown option" ile düşüyordu.
+      version: { type: "boolean", default: false },
     },
   });
 
-  const command = positionals[0];
+  const command = values.version ? "version" : positionals[0];
   if (!command || values.help) {
     console.log(HELP);
     return;
@@ -137,7 +139,7 @@ async function main(): Promise<void> {
   const { providers, skipped } = createProvidersFromEnv(process.env);
   const ledger = createLedger();
 
-  if (command === "version" || command === "--version") {
+  if (command === "version") {
     const { version } = JSON.parse(await readFile("package.json", "utf8")) as { version?: string };
     console.log(`YoutubeStudio v${version ?? "0.0.0"}`);
     return;
