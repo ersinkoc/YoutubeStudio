@@ -1,10 +1,11 @@
+import { stylePackOf } from "@ys/core/styles";
 import Link from "next/link";
 import { statusLabel } from "../lib/status";
-import { motionModeOf, runStatusOf, sameSeries, seriesOf, STAGES, summarizeSeries, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
+import { listLibraryCharacters, motionModeOf, runStatusOf, sameSeries, seriesOf, STAGES, summarizeSeries, type EpisodeState, type RunStatus } from "@ys/pipeline/light";
 import { Film } from "lucide-react";
 import type { MessageKey } from "../lib/i18n";
 import { getI18n } from "../lib/locale";
-import { ledgerEntries, repo } from "../lib/server";
+import { ledgerEntries, repo, store } from "../lib/server";
 import { Badge } from "./episodes/[id]/parts";
 import { AutoRefresh } from "./auto-refresh";
 import { NewEpisodeForm } from "./new-episode-form";
@@ -32,7 +33,9 @@ const SEGMENT: Record<RunStatus | "pending", string> = {
 const NO_SERIES = "-";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ series?: string }> }) {
-  const [all, entries, { t, fmt }, params] = await Promise.all([repo().list(), ledgerEntries(), getI18n(), searchParams]);
+  const [all, entries, { t, fmt }, params, library] = await Promise.all([repo().list(), ledgerEntries(), getI18n(), searchParams, listLibraryCharacters(store())]);
+  // Karakter bankasından seçilebilenler: stili bir paketle yeniden kurulabilenler.
+  const bank = library.filter((c) => c.pack && stylePackOf(c.pack));
   const everything = all.filter((e) => e.input.topic !== "render demo");
   const series = summarizeSeries(everything);
   const filter = params.series;
@@ -132,7 +135,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
         </ul>
       </section>
       <aside>
-        <NewEpisodeForm key={filter ?? ""} series={series} initialSeries={filter && filter !== NO_SERIES ? filter : undefined} />
+        <NewEpisodeForm key={filter ?? ""} series={series} initialSeries={filter && filter !== NO_SERIES ? filter : undefined} bank={bank} />
       </aside>
     </div>
   );

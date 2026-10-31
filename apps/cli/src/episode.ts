@@ -36,6 +36,9 @@ export interface EpisodeArgs {
   noQa?: boolean;
   noRealism?: boolean;
   sideViews?: boolean;
+  /** Karakter bankasından sunucu ve kadroya eklenecekler (virgüllü). */
+  presenter?: string;
+  with?: string;
   stylePack?: string;
   series?: string;
   line?: string;
@@ -77,6 +80,8 @@ export async function episodeCommand(
         qa: !args.noQa,
         realism: !args.noRealism,
         sideViews: args.sideViews === true,
+        presenter: args.presenter?.trim() || undefined,
+        bankCast: args.with ? args.with.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         lineStyle: args.line ? LineStyle.parse(args.line) : undefined,
         stylePack: parseStylePack(args.stylePack),
         series: args.series?.trim() || undefined,

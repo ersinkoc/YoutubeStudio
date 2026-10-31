@@ -194,6 +194,9 @@ describe("yardım, sürüm ve listeler", () => {
     expect(r.out).toMatch(/^aaaaaaaa {2}Fatih\s+noir-pack\s+ink\s+2 bölüm$/m);
     expect(r.out).toMatch(/^bbbbbbbb {2}Özel\s+özel\s+flat\s+0 bölüm$/m);
     expect((await cli("library", "--backfill")).out).toContain("0 karaktere kimlik yazıldı");
+    // Karakter bankası komutu aynı kütüphaneyi listeler.
+    expect((await cli("bank")).out).toMatch(/^aaaaaaaa {2}Fatih\s+noir-pack\s+ink\s+2 bölüm$/m);
+    expect(fake.state.pipelines.length).toBeGreaterThan(0);
   });
 });
 

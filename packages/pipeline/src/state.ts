@@ -63,6 +63,13 @@ export interface EpisodeInput {
    * saklanır); yürürken o çizime döner. Varsayılan kapalı (ek Claude maliyeti).
    */
   sideViews?: boolean;
+  /**
+   * Karakter bankasından ekrandaki sunucu (kütüphane kimliği): kadroya yeniden çizilmeden girer, anlatımı o konuşur;
+   * yönetmen onu çekimlerin çoğuna koyar. Yalnız vektör modunda.
+   */
+  presenter?: string;
+  /** Karakter bankasından kadroya eklenen karakterler (kütüphane kimlikleri); yönetmen uygun sahnelerde kullanır. */
+  bankCast?: string[];
   width: number;
   height: number;
   fps: number;

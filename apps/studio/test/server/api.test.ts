@@ -31,6 +31,18 @@ const action = await import("../../src/app/api/episodes/[id]/action/route.ts");
 const video = await import("../../src/app/api/episodes/[id]/video/route.ts");
 const estimate = await import("../../src/app/api/estimate/route.ts");
 const models = await import("../../src/app/api/settings/models/route.ts");
+const characters = await import("../../src/app/api/characters/route.ts");
+const mascot = await import("../../src/app/api/characters/mascot/route.ts");
+
+/** Karakter bankasına onaylı karakter koyar (kütüphane kimliği = anahtarın hash'i). */
+async function bankCharacter(id: string, name: string, identity: object = {}) {
+  const key = `library/vector/character/${id}.svg`;
+  await server.store().put(key, new TextEncoder().encode("<svg/>"), "image/svg+xml");
+  await putJson(server.store(), `${key}.json`, {
+    check: { kind: "character", name, recognizable: 9, passed: true, defects: [], attempts: 1, sources: [], refs: [] },
+    identity: { name, description: "d", pack: "flat-explainer", artStyle: "a", lineStyle: "ink", episodes: [], ...identity },
+  });
+}
 
 const INPUT: EpisodeInput = { topic: "Fatih", lang: "tr", targetSec: 120, tier: "economy", aiClipRatio: 0.2, budgetUsd: 5, width: 1920, height: 1080, fps: 30 };
 
@@ -180,6 +192,57 @@ describe("/api/episodes", () => {
     expect(c.input.stylePack).toBe(STYLE_CUSTOM);
     expect(c.input.lineStyle).toBeUndefined();
     expect(c.input.voiceId).toBeUndefined();
+  });
+});
+
+describe("/api/characters", () => {
+  const HOST = "a".repeat(32);
+
+  it("GET bankadaki karakterleri ve banka işinin durumunu verir", async () => {
+    await bankCharacter(HOST, "Ada", { role: "sunucu" });
+    const body = (await (await characters.GET()).json()) as { characters: { id: string; role: string }[]; job: unknown };
+    expect(body.characters).toEqual([expect.objectContaining({ id: HOST, role: "sunucu", mascotOf: [] })]);
+    expect(body.job).toBeNull();
+  });
+
+  it("POST alanları doğrular, çizim işini CLI'ye verir; iş sürerken 409", async () => {
+    for (const [body, error] of [
+      [{ name: "A" }, "Ad ve tarif gerekli (çizgi stili geçerli olmalı)"],
+      [{ name: 5, description: "d" }, "Ad ve tarif gerekli (çizgi stili geçerli olmalı)"],
+      [{ name: "A", description: "d", pack: "yok" }, "Bilinmeyen stil paketi: yok"],
+      [{ name: "A", description: "d", pack: "flat-explainer", lineStyle: "kalın" }, "Ad ve tarif gerekli (çizgi stili geçerli olmalı)"],
+    ] as const) {
+      const res = await characters.POST(post(body));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error });
+    }
+    const ok = await characters.POST(post({ name: " Ada ", description: " host ", pack: "flat-explainer", lineStyle: "ink", role: "sunucu", reference: "" }));
+    expect(ok.status).toBe(200);
+    expect(lastChild().args.slice(2)).toEqual(["bank", "add", "--name", "Ada", "--desc", "host", "--pack", "flat-explainer", "--line", "ink", "--role", "sunucu"]);
+    expect(server.getJob("character-bank")?.label).toBe("job.bankAdd");
+    const busy = await characters.POST(post({ name: "B", description: "d", pack: "flat-explainer" }));
+    expect(busy.status).toBe(409);
+  });
+
+  it("maskot ekler ve çıkarır; bilinmeyen karakter 400", async () => {
+    await bankCharacter(HOST, "Ada");
+    expect((await mascot.POST(post({ id: HOST, series: "Bilim" }))).status).toBe(200);
+    expect(((await (await characters.GET()).json()) as { characters: { mascotOf: string[] }[] }).characters[0]!.mascotOf).toEqual(["Bilim"]);
+    expect((await mascot.POST(post({ id: HOST, series: "bilim", on: false }))).status).toBe(200);
+    expect(((await (await characters.GET()).json()) as { characters: { mascotOf: string[] }[] }).characters[0]!.mascotOf).toEqual([]);
+    const bad = await mascot.POST(post({}));
+    expect(bad.status).toBe(400);
+  });
+
+  it("bölüm açarken bankadan seçim: bölüm karakterin stiline geçer; geçersiz seçim 400", async () => {
+    await bankCharacter(HOST, "Ada");
+    const res = await episodes.POST(post({ topic: "Sunuculu", motionMode: "vector", presenter: HOST, bankCast: [HOST, 5, ""], stylePack: "auto" }));
+    const s = await load(((await res.json()) as { id: string }).id);
+    expect(s.input).toMatchObject({ presenter: HOST, stylePack: "flat-explainer", lineStyle: "ink" });
+    expect(s.input.bankCast).toBeUndefined();
+    const bad = await episodes.POST(post({ topic: "x", motionMode: "still", presenter: HOST }));
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: "Karakter bankası yalnız vektör modunda kullanılabilir" });
   });
 });
 

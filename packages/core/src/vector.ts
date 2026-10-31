@@ -157,6 +157,12 @@ export const VectorAssetMeta = z.object({
       artStyle: z.string(),
       lineStyle: z.string(),
       episodes: z.array(z.string()).default([]),
+      /** Genel rol (sunucu, bilim insanı, çocuk…): karakter bankasında konudan bağımsız çizilenler. */
+      role: z.string().optional(),
+      /** Karakter bankasında doğrudan çizildi (bir bölümün kadrosundan gelmedi). */
+      bank: z.boolean().optional(),
+      /** Maskotu olduğu seriler: serinin her bölümünün kadrosuna kendiliğinden girer. */
+      mascotOf: z.array(z.string()).default([]),
     })
     .optional(),
 });

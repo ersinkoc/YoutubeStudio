@@ -75,7 +75,7 @@ import { readFile } from "node:fs/promises";
 import { curateLessons } from "./curate.ts";
 import { loadModelSettings } from "./settings.ts";
 import { acquireLock } from "./lock.ts";
-import { listLibraryCharacters, noteCharacterUse, type LibraryCharacter } from "./library.ts";
+import { CHARACTER_BANK_ID, listLibraryCharacters, noteCharacterUse, seriesMascots, withBankChoice, type LibraryCharacter } from "./library.ts";
 import { lineStyleOf } from "./state.ts";
 import { seriesEpisodeIds, seriesOf, seriesStylePack } from "./series.ts";
 import { EpisodeRepo } from "./actions.ts";
@@ -229,8 +229,9 @@ export class EpisodePipeline {
 
   private stateKey = (id: string) => `episodes/${id}/state.json`;
 
+  /** Yeni bölüm; bankadan karakter seçildiyse bölüm onların stiline geçer. */
   async create(input: EpisodeInput): Promise<EpisodeState> {
-    const state = newEpisodeState(input);
+    const state = newEpisodeState(await withBankChoice(this.deps.store, input));
     await this.save(state);
     return state;
   }
@@ -242,6 +243,7 @@ export class EpisodePipeline {
   }
 
   async save(state: EpisodeState): Promise<void> {
+    if (state.id === CHARACTER_BANK_ID) return;
     if (this.pending.length) {
       state.activity = [...(state.activity ?? []), ...this.pending.splice(0)].slice(-ACTIVITY_LIMIT);
     }
@@ -251,6 +253,43 @@ export class EpisodePipeline {
     });
     this.saving = write.catch(() => {});
     await write;
+  }
+
+  /**
+   * Karakter bankasına konudan bağımsız karakter çizer (sunucu, bilim insanı, çocuk…): bölüm karakteri gibi plan →
+   * çizim → kalite kapısı → kütüphane, ama bir bölüme bağlı değil. Kapıdan geçemezse AssetRejectedError.
+   */
+  async createBankCharacter(o: {
+    name: string;
+    description: string;
+    role?: string;
+    pack: string;
+    lineStyle?: LineStyle;
+    reference?: string;
+  }): Promise<LibraryCharacter> {
+    const pack = stylePackOf(o.pack);
+    if (!pack) throw new LocalizedError(msg("err.bank.badPack", { pack: o.pack }));
+    const state: EpisodeState = {
+      ...newEpisodeState({
+        topic: o.name,
+        lang: "en",
+        targetSec: 60,
+        tier: "standard",
+        aiClipRatio: 0,
+        budgetUsd: 1,
+        motionMode: "vector",
+        lineStyle: o.lineStyle,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+      }),
+      id: CHARACTER_BANK_ID,
+      style: styleFromPack(pack),
+    };
+    const ref = await this.designAsset(state, "concept", { kind: "character", name: o.name, description: o.description, reference: o.reference });
+    const meta = VectorAssetMeta.parse(await getJson(this.deps.store, `${ref.key}.json`));
+    await putJson(this.deps.store, `${ref.key}.json`, { ...meta, identity: { ...meta.identity!, role: o.role?.trim() || undefined, bank: true } });
+    return (await listLibraryCharacters(this.deps.store)).find((c) => c.key === ref.key)!;
   }
 
   async run(id: string, opts: RunEpisodeOptions = {}): Promise<EpisodeState> {
@@ -877,6 +916,53 @@ export class EpisodePipeline {
     }
   }
 
+  /**
+   * Karakter bankası: bölüm açılırken seçilen sunucu ve karakterler ile serinin maskotları. Bölümün stilinde
+   * olmayanlar atlanır (yeniden çizmek para ister; bölüm açılırken stil zaten karaktere göre seçilir).
+   */
+  private async bankCastFor(state: EpisodeState): Promise<LibraryCharacter[]> {
+    const ids = [
+      ...new Set([state.input.presenter, ...(state.input.bankCast ?? []), ...(await seriesMascots(this.deps.store, seriesOf(state))).map((c) => c.id)]),
+    ].filter((id): id is string => Boolean(id));
+    if (!ids.length) return [];
+    const all = await listLibraryCharacters(this.deps.store);
+    const out: LibraryCharacter[] = [];
+    for (const id of ids) {
+      const c = all.find((l) => l.id === id);
+      if (!c) this.log(msg("err.bank.notFound", { id }));
+      else if (c.artStyle !== state.style!.artStyle || c.lineStyle !== lineStyleOf(state)) this.log(msg("log.bank.styleMismatch", { name: c.name }));
+      else out.push(c);
+    }
+    return out;
+  }
+
+  private bankRole(state: EpisodeState, c: LibraryCharacter): string {
+    return c.id === state.input.presenter ? "on-screen presenter who speaks the narration to the viewer" : (c.role ?? "recurring character");
+  }
+
+  /** Banka karakterlerini kadroya yeniden çizilmeden ekler (casting zaten seçtiyse dokunmaz); bütün sahnelerde kullanılabilir. */
+  private addBankCast(state: EpisodeState, bank: LibraryCharacter[]): void {
+    const cast = state.cast!;
+    const added: string[] = [];
+    for (const c of bank) {
+      if (cast.characters.some((x) => x.reuse === c.id)) continue;
+      let n = cast.characters.length + 1;
+      while (cast.characters.some((x) => x.id === `c${n}`)) n++;
+      cast.characters.push({
+        id: `c${n}`,
+        name: c.name,
+        kind: "person",
+        role: this.bankRole(state, c),
+        visualDescription: c.description,
+        reference: c.reference,
+        scenes: state.script!.scenes.map((s) => s.id),
+        reuse: c.id,
+      });
+      added.push(c.name);
+    }
+    if (added.length) this.log(msg("log.bank.added", { names: added.join(", ") }));
+  }
+
   /** Bu bölümün stilinde (stil + çizgi stili) kütüphanedeki karakterler. */
   private async libraryFor(state: EpisodeState): Promise<LibraryCharacter[]> {
     if (!state.style) return [];
@@ -914,7 +1000,17 @@ export class EpisodePipeline {
       state,
       "shots",
       vectorDirector(
-        { scene, durationSec, cast: cast!, props: known, lang: state.input.lang, lessons, feedback, vertical: state.input.height > state.input.width },
+        {
+          scene,
+          durationSec,
+          cast: cast!,
+          props: known,
+          lang: state.input.lang,
+          lessons,
+          feedback,
+          vertical: state.input.height > state.input.width,
+          presenter: state.input.presenter && cast!.characters.find((c) => c.reuse === state.input.presenter)?.id,
+        },
         style!,
         this.agentDeps,
       ),
@@ -1544,10 +1640,18 @@ export class EpisodePipeline {
       const oldCast = state.cast;
       // Aynı stil ve çizgi stilinde daha önce çizilmiş karakterler: aynı kişi geçiyorsa yeniden çizilmez.
       const library = vector ? (await this.libraryFor(state)).slice(0, 40) : [];
+      // Karakter bankasından seçilenler ve serinin maskotları: casting aynı rol için yeni karakter uydurmasın.
+      const bank = vector ? await this.bankCastFor(state) : [];
       state.cast = await this.agent(
         state,
         "cast",
-        castingDirector(state.script, state.style, this.agentDeps, library.map(({ id, name, description }) => ({ id, name, description }))),
+        castingDirector(
+          state.script,
+          state.style,
+          this.agentDeps,
+          library.map(({ id, name, description }) => ({ id, name, description })),
+          bank.map((c) => ({ name: c.name, role: this.bankRole(state, c) })),
+        ),
       );
       // Yeni kadro eski kimlikleri (c1, l2…) yeniden kullanır: adı ya da tarifi değişen varlığın eski konsepti ve
       // kadrodan türemiş nesnesi atılır (yoksa yeni c1'e eskisinin çizimi giderdi); değişmeyenler korunur (para gitmez).
@@ -1584,6 +1688,7 @@ export class EpisodePipeline {
         for (const c of others) props[c.id] ??= { description: c.visualDescription, kind: "prop", reference: c.reference };
         state.cast.characters = state.cast.characters.filter((c) => c.kind === "person");
         if (others.length) this.log(msg("log.cast.nonHuman", { n: others.length, names: others.map((c) => c.name).join(", ") }));
+        this.addBankCast(state, bank);
       }
       this.log(msg("log.cast.done", { characters: state.cast.characters.length, locations: state.cast.locations.length }));
     },

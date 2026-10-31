@@ -180,6 +180,8 @@ export function castingDirector(
   style: StyleBibleOut,
   deps?: AgentDeps,
   library: LibraryCharacterBrief[] = [],
+  /** Karakter bankasından zaten kadroda olanlar (sunucu, seçilen karakterler, seri maskotu): kod ekler. */
+  fixed: { name: string; role: string }[] = [],
 ): Promise<AgentResult<CastOut>> {
   return runStructured(
     {
@@ -203,6 +205,10 @@ Art style: ${style.artStyle}.${
           ? `\nCharacter library (already drawn in this art style; reusing one is free and keeps the channel consistent):
 ${library.map((c) => `- ${c.id}: ${c.name} — ${c.description}`).join("\n")}
 If a character of this script is EXACTLY the same person as a library character (the same real historical figure, or the channel's recurring host/narrator), set "reuse" to that id and copy its visualDescription. Never reuse a library character for a different person just because the role is similar.`
+          : ""
+      }${
+        fixed.length
+          ? `\nAlready cast from the channel's character bank (code adds them; do NOT list them and do not create another character for the same role):\n${fixed.map((c) => `- ${c.name}: ${c.role}`).join("\n")}`
           : ""
       }`,
       prompt: script.scenes

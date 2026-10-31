@@ -284,6 +284,8 @@ export interface VectorSceneInput {
   feedback?: string;
   /** Dikey (9:16) video: sahne ortadan kırpılır, kenarlar görünmez. */
   vertical?: boolean;
+  /** Ekrandaki sunucunun kadro kimliği (karakter bankasından): anlatımı o konuşur. */
+  presenter?: string;
 }
 
 export const STAGING_RULES = `Staging (code does the physics — do not give pixel y or height for things on the floor):
@@ -307,7 +309,7 @@ export function vectorDirector(
 ): Promise<AgentResult<VectorSceneOut>> {
   const { annotated } = indexWords(input.scene.narration);
   const assets = [
-    ...input.cast.characters.map((c) => `- ${c.id} (character, rigged): ${c.name}, ${c.role}`),
+    ...input.cast.characters.map((c) => `- ${c.id} (character, rigged${c.id === input.presenter ? ", ON-SCREEN PRESENTER" : ""}): ${c.name}, ${c.role}`),
     ...input.cast.locations.map((l) => `- ${l.id} (background room shell): ${l.name}`),
     ...Object.entries(input.props).map(([id, d]) => `- ${id} (${id.startsWith("b-") ? "background room shell" : "prop"}): ${d}`),
   ].join("\n");
@@ -327,7 +329,11 @@ ${STAGING_RULES}
 - Physics: things on the floor or on furniture (people, furniture, animals, vehicles) obey gravity: they move only sideways (toX) and never float; toY and float are only for wall/air items (a poster, a bird, a balloon, an arrow). A walk covers about 250 px per second in the front of the room: give it a window long enough for the distance (crossing 750 px takes ~3 s). Gestures and walking legs exist only on rigged characters: a prop never gestures, and a person who must act is a listed character, not a prop (a crowd or army prop only moves as a group).
 - Faces: set "expression" on every character layer to the emotion of the narration at that moment (happy, sad, angry, worried, surprised, thinking; neutral only when flat). Disappointment or failure is sad/worried, never a smile.
 - Characters must act: give every visible character at least one gesture that fits the narration (explain while a fact is told, think on a question, surprised on a twist, cheer on success, point at a prop or text, walk to enter). Idle breathing, blinking and small hand moves are added automatically.
-- Use "talk" only when that character speaks; the narrator is off-screen.
+${
+        input.presenter
+          ? `- ${input.presenter} is the on-screen presenter and the narration is their voice: put them in most shots (cut away to the subject now and then, never two shots in a row without them), with "talk" for the whole shot while on screen plus explain/point at what is shown. Other characters use "talk" only when they speak.`
+          : `- Use "talk" only when that character speaks; the narrator is off-screen.`
+      }
 - On-screen texts: at most 2 per shot, ≤ 5 words each, in language "${input.lang}". Only dates, numbers, names or one key term; never repeat the narration sentence (subtitles already show it). Place them in the top half (y 100–500), not over faces. style: title | subtitle | label | number | quote. Many shots need no text at all.
 - Show what the narration says: every concrete object, document, device or action named in a shot must be visible in that shot. Reuse listed assets; if one is missing, use a new id starting with "p-" and describe it in newProps (front view, no text on it). Up to 6 new props per scene.
 - Avoid repetition: consecutive shots must differ in background, framing or layout. Mix wide shots (whole room), medium shots (zoom ~1.3 on people) and close-ups (zoom 1.6–2.2 with focusX/focusY on a face or object). New places: id "b-…" in newBackgrounds (up to 2 per scene).

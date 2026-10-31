@@ -1,7 +1,7 @@
 "use client";
 
 import { formatText } from "@ys/core/messages";
-import type { EpisodeEstimate, MotionMode, SeriesSummary } from "@ys/pipeline/light";
+import type { EpisodeEstimate, LibraryCharacter, MotionMode, SeriesSummary } from "@ys/pipeline/light";
 import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { STYLE_AUTO, STYLE_CUSTOM, STYLE_PACKS, stylePackOf } from "@ys/core/styles";
@@ -36,7 +36,16 @@ function estimateInput(form: HTMLFormElement) {
   };
 }
 
-export function NewEpisodeForm({ series = [], initialSeries }: { series?: SeriesSummary[]; initialSeries?: string }) {
+export function NewEpisodeForm({
+  series = [],
+  initialSeries,
+  bank = [],
+}: {
+  series?: SeriesSummary[];
+  initialSeries?: string;
+  /** Karakter bankası: yalnız bugünkü bir stil paketiyle çizilmiş (stili kurulabilen, seçilebilir) karakterler. */
+  bank?: LibraryCharacter[];
+}) {
   const router = useRouter();
   const { t, fmt, locale } = useI18n();
   const [pack, setPack] = useState<string>(STYLE_AUTO);
@@ -45,6 +54,8 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
   const [error, setError] = useState<string>();
   const [estimates, setEstimates] = useState<Estimates>();
   const [mode, setMode] = useState<MotionMode>("animated");
+  const [presenter, setPresenter] = useState("");
+  const [bankCast, setBankCast] = useState<string[]>([]);
   const [budget, setBudget] = useState(20);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const findSeries = (name: string) => series.find((s) => s.name.trim().toLocaleLowerCase("tr") === name.trim().toLocaleLowerCase("tr"));
@@ -121,6 +132,8 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
           sideViews: form.get("sideViews") === "on",
           lineStyle: form.get("lineStyle") || undefined,
           stylePack: form.get("stylePack"),
+          ...(mode === "vector" && presenter ? { presenter } : {}),
+          ...(mode === "vector" && bankCast.length ? { bankCast } : {}),
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
@@ -232,6 +245,9 @@ export function NewEpisodeForm({ series = [], initialSeries }: { series?: Series
           </select>
         </div>
       )}
+      {mode === "vector" && bank.length > 0 && (
+        <BankPicker bank={bank} presenter={presenter} setPresenter={setPresenter} cast={bankCast} setCast={setBankCast} />
+      )}
       <div>
         <label className="label" htmlFor="voiceId">{t("form.voice")}</label>
         <select id="voiceId" name="voiceId" className="field" defaultValue={VOICES[0]?.id}>
@@ -327,5 +343,67 @@ function SubmitButton({ busy }: { busy: boolean }) {
     <button className="btn-primary justify-center" disabled={locked}>
       <Sparkles size={16} /> {locked ? t("form.submitting") : t("form.submit")}
     </button>
+  );
+}
+
+/** Karakter bankasından sunucu ve kadro seçimi; seçilenlerin stili bölüme uygulanır (sunucu tarafı da denetler). */
+function BankPicker({
+  bank,
+  presenter,
+  setPresenter,
+  cast,
+  setCast,
+}: {
+  bank: LibraryCharacter[];
+  presenter: string;
+  setPresenter: (id: string) => void;
+  cast: string[];
+  setCast: (ids: string[]) => void;
+}) {
+  const { t, locale } = useI18n();
+  const chosen = bank.filter((c) => c.id === presenter || cast.includes(c.id));
+  const styles = new Set(chosen.map((c) => `${c.pack}|${c.lineStyle}`));
+  const first = chosen[0];
+  return (
+    <fieldset className="grid gap-2 rounded-md border border-line p-3">
+      <legend className="px-1 text-sm font-medium">{t("form.bank.title")}</legend>
+      <p className="text-xs text-muted">{t("form.bank.hint")}</p>
+      <div>
+        <label className="label" htmlFor="presenter">{t("form.bank.presenter")}</label>
+        <select id="presenter" className="field max-w-sm" value={presenter} onChange={(e) => setPresenter(e.target.value)}>
+          <option value="">{t("form.bank.none")}</option>
+          {bank.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.role ? ` · ${c.role}` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="text-sm">{t("form.bank.cast")}</div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {bank
+          .filter((c) => c.id !== presenter)
+          .map((c) => (
+            <label key={c.id} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={cast.includes(c.id)}
+                onChange={(e) => setCast(e.target.checked ? [...cast, c.id] : cast.filter((id) => id !== c.id))}
+              />
+              {c.name}
+            </label>
+          ))}
+      </div>
+      {styles.size > 1 ? (
+        <p className="text-xs text-bad">{t("form.bank.mixed")}</p>
+      ) : (
+        first && (
+          <p className="text-xs text-accent">
+            {t("form.bank.style", { pack: stylePackOf(first.pack!)!.name[locale], line: t(`line.${first.lineStyle}` as MessageKey) })}
+          </p>
+        )
+      )}
+    </fieldset>
   );
 }

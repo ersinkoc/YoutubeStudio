@@ -231,6 +231,25 @@ export const PIPELINE_MESSAGES = {
   "err.action.rejectedMissing": { tr: "Reddedilen çizim depoda yok", en: "The rejected drawing is not in storage" },
   "err.action.notInCast": { tr: "Kadroda yok: {id}", en: "Not in the cast: {id}" },
   "err.action.notApproved": { tr: "Kütüphanede onaylı karakter değil", en: "Not an approved character in the library" },
+  "err.bank.notFound": { tr: "Karakter bankasında yok: {id}", en: "Not in the character bank: {id}" },
+  "err.bank.noPack": {
+    tr: "{name} bir stil paketiyle çizilmedi (özel stil); stili yeniden kurulamadığı için bankadan seçilemez",
+    en: "{name} was not drawn with a style pack (custom style); its style cannot be rebuilt, so it cannot be picked from the bank",
+  },
+  "err.bank.mixedStyles": {
+    tr: "Seçilen karakterler farklı stillerde çizilmiş: {names}. Bölüm tek stilde olur; aynı stildekileri seç",
+    en: "The chosen characters were drawn in different styles: {names}. An episode has one style; pick characters of the same style",
+  },
+  "err.bank.badPack": { tr: "Bilinmeyen stil paketi: {pack}", en: "Unknown style pack: {pack}" },
+  "err.bank.vectorOnly": {
+    tr: "Karakter bankası yalnız vektör modunda kullanılabilir",
+    en: "The character bank is only available in vector mode",
+  },
+  "log.bank.added": { tr: "Karakter bankasından kadroya: {names}", en: "From the character bank into the cast: {names}" },
+  "log.bank.styleMismatch": {
+    tr: "  {name}: bu bölümün stilinde değil, kadroya eklenmedi",
+    en: "  {name}: not in this episode's style, not added to the cast",
+  },
   "err.action.realismSkipped": {
     tr: "Bu karakter gerçeklik denetimi kapalıyken geçti; gerçeklik açık bölümde kullanılamaz",
     en: "This character passed with the realism check off; it cannot be used in an episode with realism on",

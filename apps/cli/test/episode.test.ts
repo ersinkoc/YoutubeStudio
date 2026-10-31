@@ -128,12 +128,14 @@ describe("episode new", () => {
       noQa: true,
       noRealism: true,
       sideViews: true,
+      presenter: " abcdef ",
+      with: "x1, ,x2",
       line: "ink",
       stylePack: STYLE_PACK_IDS[0],
       series: " Seri ",
       vertical: true,
     });
-    expect(calls.create[0]).toMatchObject({ lang: "en", targetSec: 90, budgetUsd: 4, tier: "premium", aiClipRatio: 0.5, motionMode: "vector", styleHint: "noir", voiceId: "v1", autoApprove: false, qa: false, realism: false, sideViews: true, lineStyle: "ink", stylePack: STYLE_PACK_IDS[0], series: "Seri", width: 1080, height: 1920 });
+    expect(calls.create[0]).toMatchObject({ lang: "en", targetSec: 90, budgetUsd: 4, tier: "premium", aiClipRatio: 0.5, motionMode: "vector", styleHint: "noir", voiceId: "v1", autoApprove: false, qa: false, realism: false, sideViews: true, presenter: "abcdef", bankCast: ["x1", "x2"], lineStyle: "ink", stylePack: STYLE_PACK_IDS[0], series: "Seri", width: 1080, height: 1920 });
     await episodeCommand(pipeline, "new", undefined, { topic: "T", stylePack: STYLE_CUSTOM, motion: "still" });
     expect(calls.create[1]).toMatchObject({ stylePack: STYLE_CUSTOM, motionMode: "still" });
     await episodeCommand(pipeline, "new", undefined, { topic: "T", stylePack: STYLE_AUTO, motion: "animated" });

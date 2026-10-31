@@ -16,6 +16,7 @@ import {
 } from "@ys/media-gateway";
 import { backfillLibraryIdentities, curateLessons, EpisodePipeline, listLibraryCharacters, loadLessons, saveLessons } from "@ys/pipeline";
 import { createStoreFromEnv } from "@ys/storage";
+import { bankCommand } from "./bank.ts";
 import { episodeCommand, positive, renderDemo } from "./episode.ts";
 
 const LEDGER_FILE = ".data/ledger.jsonl";
@@ -37,6 +38,10 @@ Komutlar:
   version                           Çalışan sürüm
   styles                            Hazır stil paketleri
   library [--backfill]              Kütüphanedeki karakterler; --backfill eski bölümlerden kimlik yazar (ücretsiz)
+  bank [list]                       Karakter bankası (bölümlerde ve bankada çizilen onaylı karakterler)
+  bank add --name "..." --desc "..." --pack <paket> [--line ...] [--role "sunucu"] [--reference "..."]
+                                    Konudan bağımsız karakter çizer ve kapıdan geçirir (Claude, ~$0.15–0.35)
+  bank mascot <kimlik> --series "Seri" [--remove]   Serinin maskotu: serinin her bölümüne kendiliğinden girer
 
   episode new --topic "..." [--lang tr] [--minutes 3] [--tier economy] [--budget 10]
               [--clips 0.2] [--style "..."] [--voice id] [--vertical]
@@ -48,6 +53,7 @@ Komutlar:
   episode preview <id>              seçilen referanslarla deneme kareleri
               new için: [--motion animated|mixed|still|vector] [--manual: onaylarda dur] [--no-qa: kare kontrolü kapalı] [--no-realism: gerçeklik denetimi kapalı] [--side-views: yürüyen karakterlere yan görünüş] [--line outline|flat|sketch|ink]
               [--series "Seri adı"] [--style-pack auto|custom|<paket>]  (paketler: pnpm ys styles)
+              [--presenter <banka kimliği>] [--with <kimlik,kimlik>]  bankadan sunucu/karakter (vektör; bölüm onların stiline geçer)
   render-demo                       API'siz yerel Remotion testi (FFmpeg görselleri)
   lessons [--curate]                Orkestratörün ders defteri; --curate benzer kuralları birleştirir (Claude çağırır, ~$0.01)
 
@@ -119,6 +125,14 @@ async function main(): Promise<void> {
       "no-qa": { type: "boolean", default: false },
       "no-realism": { type: "boolean", default: false },
       "side-views": { type: "boolean", default: false },
+      presenter: { type: "string" },
+      with: { type: "string" },
+      name: { type: "string" },
+      desc: { type: "string" },
+      pack: { type: "string" },
+      role: { type: "string" },
+      reference: { type: "string" },
+      remove: { type: "boolean", default: false },
       curate: { type: "boolean", default: false },
       line: { type: "string" },
       "style-pack": { type: "string" },
@@ -225,6 +239,14 @@ async function main(): Promise<void> {
       }
     }
     return;
+  }
+
+  if (command === "bank") {
+    const store = createStoreFromEnv(process.env);
+    const log = (m: string) => console.error(m);
+    const gateway = new MediaGateway({ providers, store, ledger, log: (m) => log(`  · ${m}`) });
+    const pipeline = new EpisodePipeline({ gateway, store, ledger, workDir: WORK_DIR, log, agentDeps: { log } });
+    return bankCommand({ pipeline, store, print: (l) => console.log(l) }, positionals[1], positionals[2], values);
   }
 
   if (command === "episode" || command === "render-demo") {

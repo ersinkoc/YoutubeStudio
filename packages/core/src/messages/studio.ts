@@ -8,6 +8,7 @@ export const STUDIO_MESSAGES = {
   "api.badMotion": { tr: "Geçersiz hareket modu", en: "Invalid motion mode" },
   "api.badAction": { tr: "Bilinmeyen eylem: {type}", en: "Unknown action: {type}" },
   "api.topic": { tr: "Konu gerekli", en: "A topic is required" },
+  "api.bank.fields": { tr: "Ad ve tarif gerekli (çizgi stili geçerli olmalı)", en: "A name and a description are required (and a valid line style)" },
   "api.minutes": { tr: "Süre 0,5–30 dk olmalı", en: "Length must be 0.5–30 min" },
   "api.budget": { tr: "Bütçe pozitif olmalı", en: "Budget must be positive" },
   "api.jobRunning": { tr: "Zaten çalışan bir iş var: {label}", en: "A job is already running: {label}" },

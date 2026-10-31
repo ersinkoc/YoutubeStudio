@@ -1,6 +1,7 @@
-import { VectorAssetMeta } from "@ys/core";
+import { LineStyle, LocalizedError, msg, stylePackOf, VectorAssetMeta } from "@ys/core";
 import { getJson, putJson, type AssetStore } from "@ys/storage";
-import { lineStyleOf, type EpisodeState } from "./state.ts";
+import { cleanSeries, sameSeries } from "./series.ts";
+import { lineStyleOf, motionModeOf, type EpisodeInput, type EpisodeState } from "./state.ts";
 
 const CHARACTER_DIR = "library/vector/character/";
 
@@ -16,6 +17,12 @@ export interface LibraryCharacter {
   artStyle: string;
   lineStyle: string;
   episodes: string[];
+  /** Genel rol (bankada çizilenler). */
+  role?: string;
+  /** Bankada doğrudan çizildi. */
+  bank?: boolean;
+  /** Maskotu olduğu seriler. */
+  mascotOf: string[];
 }
 
 export const libraryIdOf = (key: string) => key.slice(CHARACTER_DIR.length).replace(/\.svg$/, "");
@@ -81,4 +88,77 @@ export async function backfillLibraryIdentities(store: AssetStore): Promise<numb
     }
   }
   return added;
+}
+
+// ---------------- karakter bankası ----------------
+
+/**
+ * Karakter bankasında çizim yaparken kullanılan sanal bölümün kimliği: maliyet defterinde bu adla görünür, durumu
+ * kaydedilmez (bölüm listesine girmez); Stüdyo'da bankanın işi bu kimlikle izlenir.
+ */
+export const CHARACTER_BANK_ID = "character-bank";
+
+/** Bankadan bölüme seçilen karakterler ve bölüme uygulanacak stil (karakter yeniden çizilmeden kullanılsın diye). */
+export interface BankChoice {
+  characters: LibraryCharacter[];
+  pack: string;
+  lineStyle: LineStyle;
+}
+
+/**
+ * Bankadan seçilen karakterleri bulur ve ortak stillerini döndürür: hepsi aynı stil paketinde ve çizgi stilinde
+ * olmalı (bölüm o stile geçer). Paketsiz ("özel" stilde çizilmiş) karakterin stili yeniden kurulamaz, seçilemez.
+ */
+export async function bankChoice(store: AssetStore, ids: readonly string[]): Promise<BankChoice | undefined> {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (!wanted.length) return undefined;
+  const all = await listLibraryCharacters(store);
+  const characters = wanted.map((id) => {
+    const c = all.find((l) => l.id === id);
+    if (!c) throw new LocalizedError(msg("err.bank.notFound", { id }));
+    if (!c.pack || !stylePackOf(c.pack)) throw new LocalizedError(msg("err.bank.noPack", { name: c.name }));
+    return c;
+  });
+  const [first] = characters;
+  if (characters.some((c) => c.pack !== first!.pack || c.lineStyle !== first!.lineStyle)) {
+    throw new LocalizedError(msg("err.bank.mixedStyles", { names: characters.map((c) => `${c.name} (${c.pack}/${c.lineStyle})`).join(", ") }));
+  }
+  return { characters, pack: first!.pack!, lineStyle: LineStyle.parse(first!.lineStyle) };
+}
+
+/** Karakteri serinin maskotu yapar (ya da çıkarır): serinin her bölümünün kadrosuna kendiliğinden girer. */
+export async function setMascot(store: AssetStore, id: string, series: string, on: boolean): Promise<void> {
+  const name = cleanSeries(series);
+  const c = (await listLibraryCharacters(store)).find((l) => l.id === id);
+  if (!c || !name) throw new LocalizedError(msg("err.bank.notFound", { id }));
+  const meta = VectorAssetMeta.parse(await getJson(store, `${c.key}.json`));
+  const rest = meta.identity!.mascotOf.filter((s) => !sameSeries(s, name));
+  await putJson(store, `${c.key}.json`, { ...meta, identity: { ...meta.identity!, mascotOf: on ? [...rest, name] : rest } });
+}
+
+/** Serinin maskotları (bölüm kadrosuna kendiliğinden eklenir). */
+export async function seriesMascots(store: AssetStore, series: string | undefined): Promise<LibraryCharacter[]> {
+  if (!series) return [];
+  return (await listLibraryCharacters(store)).filter((c) => c.mascotOf.some((s) => sameSeries(s, series)));
+}
+
+/**
+ * Bölüm girdisine bankadan seçilenleri uygular: bölüm, karakterlerin stil paketine ve çizgi stiline geçer (karakterler
+ * yeniden çizilmeden kullanılsın). Kimlik kütüphane kimliği ya da en az 6 haneli başı olabilir. Yalnız vektör modunda.
+ */
+export async function withBankChoice(store: AssetStore, input: EpisodeInput): Promise<EpisodeInput> {
+  const asked = [input.presenter, ...(input.bankCast ?? [])].filter((id): id is string => Boolean(id));
+  if (!asked.length) return input;
+  if (motionModeOf(input) !== "vector") throw new LocalizedError(msg("err.bank.vectorOnly"));
+  const all = await listLibraryCharacters(store);
+  const full = (id: string) => {
+    if (all.some((c) => c.id === id)) return id;
+    const hits = id.length >= 6 ? all.filter((c) => c.id.startsWith(id)) : [];
+    // Belirsiz ya da bilinmeyen kimlik olduğu gibi kalır; bankChoice "bankada yok" der.
+    return hits.length === 1 ? hits[0]!.id : id;
+  };
+  const presenter = input.presenter ? full(input.presenter) : undefined;
+  const bankCast = [...new Set((input.bankCast ?? []).map(full))].filter((id) => id !== presenter);
+  const choice = (await bankChoice(store, [...(presenter ? [presenter] : []), ...bankCast]))!;
+  return { ...input, presenter, bankCast: bankCast.length ? bankCast : undefined, stylePack: choice.pack, lineStyle: choice.lineStyle };
 }

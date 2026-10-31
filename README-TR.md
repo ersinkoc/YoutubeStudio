@@ -101,6 +101,8 @@ pnpm ys version
 - `--side-views`: yalnız vektör modunda. Yürüyen karakterlere ikinci, yandan bir çizim yapılır ve yürürken ona döner. Her biri bir tasarımcı çağrısı ve kapı denetimi tutar (~$0,15–0,35), kütüphanede saklanır.
 - `--vertical`: 9:16 render eder.
 
+Karakter bankası (vektör modu): onaylanan her karakter kütüphanede saklanır ve Stüdyo'nun **Karakterler** sayfasında görünür. Orada Claude'a konudan bağımsız bir karakter çizdirebilirsin (sunucu, bilim insanı, çocuk…; tanesi ~$0,15–0,35, kalite kapısından geçer) ve herhangi bir karakteri seri maskotu yapabilirsin. Bölüm açarken bankadan bir karakteri ekrandaki sunucu seçebilirsin (anlatımı o konuşur, çekimlerin çoğunda görünür) ya da kadroya ekleyebilirsin. Seçilenler yeniden çizilmez; bölüm onların stil paketine geçer. CLI: `pnpm ys bank [list|add|mascot]`, `episode new --presenter <kimlik> --with <kimlik,kimlik>`.
+
 Hepsi için: `pnpm ys --help`.
 
 ## Yapılandırma

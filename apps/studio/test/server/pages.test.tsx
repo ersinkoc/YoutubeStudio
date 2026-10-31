@@ -8,7 +8,7 @@ import { msg, type Text } from "@ys/core/messages";
 import { QUALITY_GATE } from "@ys/core/rules";
 import type { CostEntry, ProviderAdapter, Quota } from "@ys/media-gateway";
 import { saveLessons, saveModelSettings, type EpisodeInput, type EpisodeState } from "@ys/pipeline/light";
-import { FsAssetStore, type AssetStore } from "@ys/storage";
+import { FsAssetStore, putJson, type AssetStore } from "@ys/storage";
 import { translator } from "../../src/lib/i18n.ts";
 import { fakeProvider } from "./fakes.ts";
 
@@ -25,6 +25,7 @@ const fake = vi.hoisted(() => ({
   quotas: new Map<string, Quota | Error>(),
   store: undefined as unknown as AssetStore,
   cookie: "tr" as string | undefined,
+  job: undefined as { status: string; log: string[] } | undefined,
   update: { current: "1.2.3", available: false } as { current: string; available: boolean; latest?: { version: string; url: string; publishedAt: string } },
 }));
 
@@ -62,11 +63,12 @@ vi.mock("../../src/lib/server", () => ({
     return q;
   },
   store: () => fake.store,
+  getJob: () => fake.job,
 }));
 vi.mock("../../src/lib/update", () => ({ updateInfo: async () => fake.update }));
 vi.mock("../../src/app/new-episode-form", () => ({
-  NewEpisodeForm: ({ series, initialSeries }: { series: { name: string }[]; initialSeries?: string }) => (
-    <div data-form={series.map((s) => s.name).join("|")} data-initial={initialSeries ?? ""} />
+  NewEpisodeForm: ({ series, initialSeries, bank }: { series: { name: string }[]; initialSeries?: string; bank: { name: string }[] }) => (
+    <div data-form={series.map((s) => s.name).join("|")} data-initial={initialSeries ?? ""} data-bank={bank.map((c) => c.name).join("|")} />
   ),
 }));
 vi.mock("../../src/app/auto-refresh", () => ({ AutoRefresh: ({ everyMs }: { everyMs: number }) => <i data-refresh={everyMs} /> }));
@@ -74,6 +76,11 @@ vi.mock("../../src/app/episodes/[id]/parts", () => ({
   Badge: ({ status, children }: { status: string; children: ReactNode }) => <b data-status={status}>{children}</b>,
 }));
 vi.mock("../../src/app/episodes/[id]/episode-view", () => ({ EpisodeView: ({ id }: { id: string }) => <div data-episode={id} /> }));
+vi.mock("../../src/app/characters/character-bank", () => ({
+  CharacterBank: ({ initial, series, initialJob }: { initial: { name: string }[]; series: string[]; initialJob: unknown }) => (
+    <div data-bank={initial.map((c) => c.name).join("|")} data-series={series.join("|")} data-job={JSON.stringify(initialJob)} />
+  ),
+}));
 vi.mock("../../src/app/models/models-form", () => ({ ModelsForm: ({ initial }: { initial: object }) => <div data-models={JSON.stringify(initial)} /> }));
 vi.mock("../../src/app/locale-provider", () => ({
   LocaleProvider: ({ locale, children }: { locale: string; children: ReactNode }) => <div data-locale={locale}>{children}</div>,
@@ -86,6 +93,7 @@ const PricingPage = (await import("../../src/app/pricing/page.tsx")).default;
 const LessonsPage = (await import("../../src/app/lessons/page.tsx")).default;
 const RulesPage = (await import("../../src/app/rules/page.tsx")).default;
 const ModelsPage = (await import("../../src/app/models/page.tsx")).default;
+const CharactersPage = (await import("../../src/app/characters/page.tsx")).default;
 const EpisodePage = (await import("../../src/app/episodes/[id]/page.tsx")).default;
 const layout = await import("../../src/app/layout.tsx");
 
@@ -115,6 +123,7 @@ beforeEach(() => {
   fake.quotas.clear();
   fake.store = new FsAssetStore(mkdtempSync(join(tmpdir(), "ys-pages-")));
   fake.cookie = "tr";
+  fake.job = undefined;
   fake.update = { current: "1.2.3", available: false };
 });
 
@@ -361,6 +370,38 @@ describe("Kurallar sayfası", () => {
     expect(t).toContain(`recognisability at least ${QUALITY_GATE.recognizableMin.character} for characters`);
     expect(t).toContain(`at most ${QUALITY_GATE.maxDraws} draws`);
     expect(t).not.toMatch(/\{\w+\}/);
+  });
+});
+
+/** Kütüphaneye onaylı karakter yazar (paketli ya da paketsiz). */
+async function libraryCharacter(id: string, name: string, pack?: string) {
+  const key = `library/vector/character/${id.padEnd(32, "0")}.svg`;
+  await fake.store.put(key, new TextEncoder().encode("<svg/>"), "image/svg+xml");
+  await putJson(fake.store, `${key}.json`, {
+    check: { kind: "character", name, recognizable: 9, passed: true, defects: [], attempts: 1, sources: [], refs: [] },
+    identity: { name, description: "", pack, artStyle: "a", lineStyle: "outline", episodes: [] },
+  });
+}
+
+describe("Karakterler sayfası", () => {
+  it("bankadaki karakterleri, serileri ve banka işini bileşene verir", async () => {
+    await libraryCharacter("a", "Ada", "flat-explainer");
+    fake.episodes = [ep("e1", {}, { series: "Bilim" })];
+    fake.job = { status: "running", log: [] };
+    const h = await html(CharactersPage());
+    expect(h).toContain('data-bank="Ada"');
+    expect(h).toContain('data-series="Bilim"');
+    expect(h).toContain("&quot;running&quot;");
+    expect(text(h)).toContain(translator("tr")("bank.title"));
+    fake.job = undefined;
+    expect(await html(CharactersPage())).toContain('data-job="null"');
+  });
+
+  it("ana sayfadaki forma yalnız paketli (seçilebilir) karakterler gider", async () => {
+    await libraryCharacter("a", "Ada", "flat-explainer");
+    await libraryCharacter("b", "Özel");
+    await libraryCharacter("c", "Eski paket", "kaldirilmis-paket");
+    expect(await html(Home({ searchParams: Promise.resolve({}) }))).toContain('data-bank="Ada"');
   });
 });
 

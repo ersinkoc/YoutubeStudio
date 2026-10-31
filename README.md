@@ -101,6 +101,8 @@ Useful options for `episode new`:
 - `--side-views`: vector mode only. Characters that walk get a second, profile drawing and turn to it while walking. Each one costs a designer call and a gate check (about $0.15–0.35) and is kept in the library.
 - `--vertical`: render in 9:16.
 
+Character bank (vector mode): every approved character is kept in a library and shown on the Studio's **Characters** page. You can have Claude draw a topic-independent character there (a presenter, a scientist, a child…; about $0.15–0.35 each, gate-checked) and make any character a series mascot. When you start an episode you can pick a bank character as the on-screen presenter (it speaks the narration and appears in most shots) or add bank characters to the cast. They are not redrawn: the episode switches to their style pack. CLI: `pnpm ys bank [list|add|mascot]`, `episode new --presenter <id> --with <id,id>`.
+
 Run `pnpm ys --help` for everything.
 
 ## Configuration

@@ -117,10 +117,10 @@ function conceptState(over: Partial<EpisodeState> = {}, input: Parameters<typeof
 }
 
 const library = [
-  { id: "x1", key: "library/vector/character/x1.svg", name: "Hoca", description: "", artStyle: "", lineStyle: "flat", episodes: ["e1", "e2"] },
-  { id: "x2", key: "library/vector/character/x2.svg", name: "Çırak", description: "", artStyle: "", lineStyle: "flat", episodes: [] },
+  { id: "x1", key: "library/vector/character/x1.svg", name: "Hoca", description: "", artStyle: "", lineStyle: "flat", episodes: ["e1", "e2"], mascotOf: [] },
+  { id: "x2", key: "library/vector/character/x2.svg", name: "Çırak", description: "", artStyle: "", lineStyle: "flat", episodes: [], mascotOf: [] },
   // Zaten aday olan anahtar listelenmez.
-  { id: "c1", key: "c1-a.svg", name: "Aynı", description: "", artStyle: "", lineStyle: "flat", episodes: [] },
+  { id: "c1", key: "c1-a.svg", name: "Aynı", description: "", artStyle: "", lineStyle: "flat", episodes: [], mascotOf: [] },
 ];
 
 describe("ConceptTab", () => {

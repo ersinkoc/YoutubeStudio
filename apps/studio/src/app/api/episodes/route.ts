@@ -1,8 +1,8 @@
 import { BudgetTier, LineStyle, STYLE_AUTO, STYLE_CUSTOM, stylePackOf } from "@ys/core";
-import { cleanSeries, newEpisodeState, type MotionMode } from "@ys/pipeline/light";
+import { cleanSeries, newEpisodeState, withBankChoice, type EpisodeInput, type MotionMode } from "@ys/pipeline/light";
 import { msg } from "@ys/core/messages";
-import { apiError } from "../../../lib/api";
-import { repo, startJob } from "../../../lib/server";
+import { apiError, errorResponse } from "../../../lib/api";
+import { repo, startJob, store } from "../../../lib/server";
 
 export async function GET() {
   const episodes = await repo().list();
@@ -33,6 +33,9 @@ interface CreateBody {
   qa?: boolean;
   realism?: boolean;
   sideViews?: boolean;
+  /** Karakter bankasından sunucu ve kadroya eklenecekler (kütüphane kimlikleri). */
+  presenter?: string;
+  bankCast?: string[];
   lineStyle?: string;
   stylePack?: string;
   series?: string;
@@ -48,7 +51,7 @@ export async function POST(req: Request) {
   if (!Number.isFinite(budget) || budget <= 0) return apiError(req, msg("api.budget"));
   const motionMode = (["animated", "mixed", "still", "vector"] as const).find((m) => m === body.motionMode) ?? "animated";
   const lang = typeof body.lang === "string" && /^[a-z]{2,3}(-[A-Z]{2})?$/.test(body.lang) ? body.lang : "tr";
-  const state = newEpisodeState({
+  let input: EpisodeInput = {
     topic: body.topic.trim(),
     lang,
     targetSec: Math.round(minutes * 60),
@@ -69,7 +72,16 @@ export async function POST(req: Request) {
     width: body.vertical ? 1080 : 1920,
     height: body.vertical ? 1920 : 1080,
     fps: 30,
-  });
+    presenter: typeof body.presenter === "string" && body.presenter ? body.presenter : undefined,
+    bankCast: Array.isArray(body.bankCast) ? body.bankCast.filter((id): id is string => typeof id === "string" && Boolean(id)).slice(0, 5) : undefined,
+  };
+  // Bankadan karakter seçildiyse bölüm onların stil paketine ve çizgi stiline geçer.
+  try {
+    input = await withBankChoice(store(), input);
+  } catch (e) {
+    return errorResponse(req, e);
+  }
+  const state = newEpisodeState(input);
   await repo().save(state);
   startJob(state.id, "job.script", ["episode", "run", state.id, "--until", "script"]);
   return Response.json({ id: state.id });

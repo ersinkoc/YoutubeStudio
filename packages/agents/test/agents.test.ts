@@ -124,6 +124,10 @@ describe("senaryo ajanları", () => {
     const b = await capture((d) => castingDirector(script, style, d, [{ id: "lib-1", name: "Host", description: "red scarf" }]));
     expect(b.system).toContain("Character library");
     expect(b.system).toContain("- lib-1: Host — red scarf");
+    expect(b.system).not.toContain("character bank");
+    const c = await capture((d) => castingDirector(script, style, d, [], [{ name: "Ada", role: "on-screen presenter" }]));
+    expect(c.system).toContain("Already cast from the channel's character bank");
+    expect(c.system).toContain("- Ada: on-screen presenter");
   });
 });
 
@@ -307,5 +311,11 @@ describe("vektör ajanları", () => {
     expect(b.prompt).toContain("Fix these problems in your new plan:\nyazılar üst üste");
     // Sistem talimatı düzeltme notundan bağımsız (önek önbelleği).
     expect(b.system).not.toContain("yazılar üst üste");
+    expect(a.system).toContain("the narrator is off-screen");
+    // Ekrandaki sunucu: varlık listesinde işaretli, anlatımı o konuşur.
+    const p = await capture((d) => vectorDirector({ ...input, presenter: "c1" }, style, d));
+    expect(p.prompt).toContain("- c1 (character, rigged, ON-SCREEN PRESENTER): Billy, rider");
+    expect(p.system).toContain("c1 is the on-screen presenter and the narration is their voice");
+    expect(p.system).not.toContain("the narrator is off-screen");
   });
 });

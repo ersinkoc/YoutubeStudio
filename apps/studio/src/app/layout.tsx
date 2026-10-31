@@ -30,6 +30,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 <Link href="/pricing" className="hover:text-white">{t("nav.pricing")}</Link>
                 <Link href="/lessons" className="hover:text-white">{t("nav.lessons")}</Link>
                 <Link href="/rules" className="hover:text-white">{t("nav.rules")}</Link>
+                <Link href="/characters" className="hover:text-white">{t("nav.characters")}</Link>
                 <Link href="/models" className="hover:text-white">{t("nav.models")}</Link>
                 <LanguageSwitch />
               </nav>
