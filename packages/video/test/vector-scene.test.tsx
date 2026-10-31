@@ -243,7 +243,9 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect([g("arm-l").rotate, g("arm-l").ty, g("forearm-l").rotate, g("forearm-r").rotate, g("head").rotate]).toEqual([16, -7, 62, -62, -6]);
     const t = 5;
     g = at("explain");
-    expect(g("forearm-r").rotate).toBeCloseTo(-75 + Math.sin(t * 3.4) * 14, 1);
+    // Tek başına: baskın el sağdaki; öbür el kalça hizasında küçük eşlik.
+    expect(g("forearm-r").rotate).toBeCloseTo(-(60 + Math.sin(t * 3.4) * 12), 1);
+    expect(g("forearm-l").rotate).toBeCloseTo(28 + Math.sin(t * 3 + 1) * 8, 1);
     expect(g("brows").ty).toBeCloseTo(-3 + Math.sin(t * 3) * 2, 1);
     // Yerinde yürüyüş (hedefsiz): adımlar rahat tempoda; kalkan bacağın uyluğu kısalır, baldır boyunu korur.
     g = at("walk");
@@ -460,6 +462,15 @@ describe("vektör sahne: dikkat (işaret ve bakış)", () => {
     // Tam önündeki nesne atlanır; yazı varsa ona gösterir.
     const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, ...point }, { asset: "box", x: 980, y: 900, height: 100 }], texts: [{ text: "1923", x: 400, y: 200 }] }, { frame: 150 });
     expect(pose(c, "arm-l").rotate).toBeGreaterThan(90);
+  });
+
+  it("explain'de baskın el konuşulan kişiye doğru açılır", () => {
+    const t = 5;
+    const left = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "hero", x: 300, depth: 0 }]);
+    expect(left("forearm-l").rotate).toBeCloseTo(60 + Math.sin(t * 3.4) * 12, 1);
+    expect(left("forearm-r").rotate).toBeCloseTo(-(28 + Math.sin(t * 3 + 1) * 8), 1);
+    const right = withOthers({ anims: [{ type: "explain" }] }, [{ asset: "hero", x: 1600, depth: 0 }]);
+    expect(right("forearm-r").rotate).toBeCloseTo(-(60 + Math.sin(t * 3.4) * 12), 1);
   });
 
   it("sahnede başka karakter varsa gözler çoğunlukla ona döner", () => {

@@ -313,14 +313,20 @@ function rigPose(
         mix("eyes", "tx", 5 * toward);
         break;
       }
-      case "explain":
-        // Anlatırken eller dışa açılır (avuç yukarı), konuşma ritmiyle iner kalkar.
-        mix("arm-r", "rotate", -24 + Math.sin(t * 3) * 5);
-        mix("forearm-r", "rotate", -75 + Math.sin(t * 3.4) * 14);
-        mix("arm-l", "rotate", 16 + Math.sin(t * 2.6 + 1) * 4);
-        mix("forearm-l", "rotate", 55 + Math.sin(t * 3 + 1) * 10);
+      case "explain": {
+        // Anlatırken baskın el konuşulan kişiye (yoksa sağa) avuç yukarı açılır ve konuşma ritmiyle iner kalkar; öbür el
+        // kalça hizasında küçük bir eşlik yapar. İki kolun birden omuz hizasında açılması "ta-da" gibi duruyordu.
+        const dom = (attention.lookDir ?? 1) >= 0 ? "r" : "l";
+        const other = dom === "r" ? "l" : "r";
+        // Sağdaki kol (r) eksiyle, soldaki artıyla dışa açılır.
+        const out = dom === "r" ? -1 : 1;
+        mix(`arm-${dom}`, "rotate", out * (20 + Math.sin(t * 3) * 5));
+        mix(`forearm-${dom}`, "rotate", out * (60 + Math.sin(t * 3.4) * 12));
+        mix(`arm-${other}`, "rotate", -out * (8 + Math.sin(t * 2.6 + 1) * 3));
+        mix(`forearm-${other}`, "rotate", -out * (28 + Math.sin(t * 3 + 1) * 8));
         mix("brows", "ty", -3 + Math.sin(t * 3) * 2);
         break;
+      }
       case "think":
         mix("arm-r", "rotate", -8);
         mix("forearm-r", "rotate", 162);
