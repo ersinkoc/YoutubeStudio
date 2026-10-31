@@ -99,6 +99,26 @@ describe("runStructured: kalan durumlar", () => {
     }
   });
 
+  it("durum kodsuz ağ hatası (bağlantı reddi/kopması) geçicidir, yeniden denenir", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const flaky = (() => {
+      n++;
+      return (async function* () {
+        if (n === 1) {
+          // Gerçek CLI çıktısı (ANTHROPIC_BASE_URL erişilemezken, 31 Eki).
+          yield { type: "result", subtype: "success", is_error: true, api_error_status: null, result: "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)", duration_ms: 1, total_cost_usd: 0 };
+        } else {
+          yield { type: "result", subtype: "success", is_error: false, duration_ms: 1, total_cost_usd: 0.02, structured_output: { ok: true } };
+        }
+      })();
+    }) as unknown as QueryFn;
+    const run = runStructured(call, { queryFn: flaky });
+    await vi.runAllTimersAsync();
+    expect((await run).costUsd).toBeCloseTo(0.02);
+    expect(n).toBe(2);
+  });
+
   it("hata alt türünde modelin hata metinleri mesaja eklenir; kalıcı hatada önceki geçici denemelerin maliyeti de taşınır", async () => {
     vi.useFakeTimers();
     let n = 0;

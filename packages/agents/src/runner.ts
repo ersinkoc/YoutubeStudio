@@ -212,6 +212,12 @@ async function runOnce<T>(call: AgentCall<T>, deps: AgentDeps): Promise<AgentRes
   throw new AgentError(`${call.name}: sonuç mesajı gelmedi`, 0, model, call.name, true);
 }
 
+/**
+ * HTTP yanıtı hiç gelmeyen API hatası (durum kodu yok): bağlantı reddi/kopması, DNS, zaman aşımı. CLI kendi denemelerini
+ * bitirip "API Error: Connection refused … (ECONNREFUSED)" ile döner; ağ geçici olduğundan yeniden denenir.
+ */
+const NETWORK_ERROR = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|connection (refused|reset|error)|timed out|network/i;
+
 function finish<T>(call: AgentCall<T>, model: string, message: SDKResultMessage, deps: AgentDeps): AgentResult<T> {
   const cost = message.total_cost_usd;
   if (message.subtype !== "success") {
@@ -227,7 +233,7 @@ function finish<T>(call: AgentCall<T>, model: string, message: SDKResultMessage,
       cost,
       model,
       call.name,
-      status === 429 || (typeof status === "number" && status >= 500),
+      status === 429 || (typeof status === "number" && status >= 500) || (status == null && NETWORK_ERROR.test(message.result)),
     );
   }
   const parsed = call.schema.safeParse(message.structured_output);
