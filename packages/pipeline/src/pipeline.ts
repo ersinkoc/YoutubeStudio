@@ -1215,8 +1215,8 @@ export class EpisodePipeline {
     return dir;
   }
 
-  /** Render beklemeden önizleme: taslak denetimi kapalıyken de Çekimler sekmesi boş kalmasın. */
-  private async vectorPreviews(state: EpisodeState, only?: Set<string>): Promise<void> {
+  /** Render beklemeden önizleme: taslak denetimi kapalıyken de Çekimler sekmesi boş kalmasın. Çıkarılabildiyse true. */
+  private async vectorPreviews(state: EpisodeState, only?: Set<string>): Promise<boolean> {
     try {
       const dir = await this.draftDir(state);
       const timeline = buildTimeline(state, (key) => key, await this.vectorAssets(state));
@@ -1224,9 +1224,11 @@ export class EpisodePipeline {
       /* v8 ignore next -- çekim yoksa buildTimeline daha önce fırlatır */
       const n = only?.size ?? state.shots?.length ?? 0;
       this.log(msg("log.preview.done", { n }));
+      return true;
     } catch (e) {
       // Önizleme yardımcıdır; çıkarılamazsa üretim sürer.
       this.log(msg("log.preview.failed", { error: errorText(e) }));
+      return false;
     }
   }
 
@@ -1332,7 +1334,7 @@ export class EpisodePipeline {
    * gözden geçirip sorunlu sahneleri yeniden planlatır.
    */
   private async vectorProps(state: EpisodeState): Promise<void> {
-    await this.vectorPropsDraw(state);
+    await this.vectorPropsDraw(state, true);
     if (state.input.qa !== false) await this.vectorRevise(state);
     else {
       state.stills = {};
@@ -1340,8 +1342,12 @@ export class EpisodePipeline {
     }
   }
 
-  /** Çekimlerin istediği yeni nesne ve mekânları çizer (kütüphanedekiler ücretsiz). */
-  private async vectorPropsDraw(state: EpisodeState): Promise<void> {
+  /**
+   * Çekimlerin istediği yeni nesne ve mekânları çizer (kütüphanedekiler ücretsiz). `preview`: çizim sürerken bütün
+   * varlıkları hazır olan çekimin karesi hemen çıkarılır (yerel, ücretsiz); eskiden Çekimler sekmesi bütün nesneler
+   * bitene kadar boş kalıyordu (Microsoft bölümü, 1 Kas: 39 nesne). Sonraki taslak denetimi/önizleme hepsini yeniler.
+   */
+  private async vectorPropsDraw(state: EpisodeState, preview = false): Promise<void> {
     const props = state.vectorProps ?? {};
     // Yalnız güncel çekimlerin kullandığı nesneler çizilir: atılan/yeniden planlanan sahnelerin nesnelerine para gitmez.
     /* v8 ignore next -- iki çağıran da (kare aşaması, taslak denetimi) çekim ister */
@@ -1351,21 +1357,51 @@ export class EpisodePipeline {
     );
     const todo = Object.entries(props).filter(([id, p]) => !p.key && (!state.shots || used.has(id)));
     const failed: Text[] = [];
-    await mapLimit(todo, this.deps.concurrency ?? 3, async ([id, p]) => {
-      try {
-        p.key =
-          p.map || p.flag
-            ? await this.realWorldAsset(state, id, p)
-            : (await this.designAsset(state, "keyframes", { kind: p.kind ?? "prop", id, name: id, description: p.description, reference: p.reference })).key;
+    const waiting = new Set(todo.map(([id]) => id));
+    const shown = new Set<string>();
+    let previewing = preview && todo.length > 0;
+    let previews = Promise.resolve();
+    // Bekleyen varlığı kalmayan çekimler tek render'da çıkarılır; render'lar sırayla (makinede tek Remotion işi).
+    const showReady = () => {
+      const ready = shots.filter((s) => s.vector && !shown.has(s.id) && ![s.vector.background, ...s.vector.layers.map((l) => l.asset)].some((a) => a && waiting.has(a)));
+      if (!previewing || !ready.length) return;
+      for (const s of ready) shown.add(s.id);
+      previews = previews.then(async () => {
+        // İlk hatadan sonra denenmez (tarayıcı açılamıyorsa her nesnede yeniden düşmesin).
+        if (previewing && !(await this.vectorPreviews(state, new Set(ready.map((s) => s.id))))) previewing = false;
         await this.save(state);
-      } catch (e) {
-        // Yalnız kesin sonuçlar nesneyi düşürür (kapı reddi, harita/bayrak verisi yok). Ağ ya da model hatası aşamayı
-        // durdurur ki devam edince yeniden denensin; yoksa nesne sessizce videodan kaybolurdu.
-        if (!(e instanceof AssetRejectedError) && !p.map && !p.flag) throw e;
-        if (e instanceof AssetRejectedError) p.rejected = true;
-        failed.push(msg("log.item", { id, error: errorText(e) }));
-      }
-    });
+      });
+    };
+    // Önceki planın kareleri yanıltır: çekim kareleri hazır oldukça yeniden dolar. Timeline kare kaydını ister
+    // (vektörde boş; aşama sonunda da boşaltılır).
+    if (previewing) {
+      state.stills = {};
+      state.keyframes ??= {};
+    }
+    showReady();
+    try {
+      await mapLimit(todo, this.deps.concurrency ?? 3, async ([id, p]) => {
+        try {
+          p.key =
+            p.map || p.flag
+              ? await this.realWorldAsset(state, id, p)
+              : (await this.designAsset(state, "keyframes", { kind: p.kind ?? "prop", id, name: id, description: p.description, reference: p.reference })).key;
+          await this.save(state);
+        } catch (e) {
+          // Yalnız kesin sonuçlar nesneyi düşürür (kapı reddi, harita/bayrak verisi yok). Ağ ya da model hatası aşamayı
+          // durdurur ki devam edince yeniden denensin; yoksa nesne sessizce videodan kaybolurdu.
+          if (!(e instanceof AssetRejectedError) && !p.map && !p.flag) throw e;
+          if (e instanceof AssetRejectedError) p.rejected = true;
+          failed.push(msg("log.item", { id, error: errorText(e) }));
+        }
+        // Aşamayı durduran hatada kare çıkarılmaz (nesnesi eksik çekim yanıltır).
+        waiting.delete(id);
+        showReady();
+      });
+    } finally {
+      // Aşama düşse de süren önizleme bitmeden dönülmez (durumu arkadan yazmasın).
+      await previews;
+    }
     state.keyframes = {};
     // Çizilemeyen nesne çekimden düşer; video yine de çıkar.
     if (failed.length) this.log(msg("log.props.failed", { n: failed.length, list: joinTexts(failed, "log.join.indented") }));

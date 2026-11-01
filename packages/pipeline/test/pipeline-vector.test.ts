@@ -408,6 +408,24 @@ describe("vektör nesneleri ve önizleme (kare denetimi kapalı)", () => {
     await expect(h.pipeline.run(failing, { only: "keyframes" })).rejects.toThrow("ağ hatası");
   });
 
+  it("çizim sürerken varlıkları hazır olan çekimin karesi hemen çıkarılır; ilk hatadan sonra denenmez", async () => {
+    const h = harness({ concurrency: 1 });
+    agents();
+    const id = await keyframeReady(h, { qa: false });
+    render.stills.mockClear();
+    await h.pipeline.run(id, { only: "keyframes" });
+    // Sıra: p-flag, b-map, p-cup (s1-sh1 hazır), b-room (s1-sh2 hazır), sonra hepsinin önizlemesi.
+    expect(render.stills.mock.calls.map((c) => Object.keys(c[0].frames).sort())).toEqual([["s1-sh1"], ["s1-sh2"], ["s1-sh1", "s1-sh2"]]);
+
+    const again = await keyframeReady(h, { qa: false }, { vectorProps: { "p-cup": { description: "a tea cup" }, "b-room": { description: "empty office", kind: "background" } } });
+    render.stills.mockClear();
+    render.stills.mockRejectedValueOnce(new Error("chrome yok"));
+    const state = await h.pipeline.run(again, { only: "keyframes" });
+    expect(render.stills).toHaveBeenCalledTimes(2);
+    expect(h.logs).toContain("  önizleme kareleri çıkarılamadı (chrome yok)");
+    expect(Object.keys(state.stills!).sort()).toEqual(["s1-sh1", "s1-sh2"]);
+  });
+
   it("önizleme çıkarılamazsa üretim sürer (Error, düz değer, ses yok)", async () => {
     const h = harness();
     agents();
