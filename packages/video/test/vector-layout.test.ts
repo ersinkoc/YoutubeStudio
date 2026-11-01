@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { stripBackdrop, VectorText } from "@ys/core";
 import { layoutTexts, readable } from "../src/Vector.tsx";
 
-const text = (t: string, y: number, style: "title" | "label" | "number" = "label") => VectorText.parse({ text: t, x: 960, y, style });
+const text = (t: string, y: number, style: "title" | "label" | "number" = "label", x = 960) => VectorText.parse({ text: t, x, y, style });
 
 describe("yazı yerleşimi", () => {
   it("altyazı bölgesine inmez, en fazla iki yazı gösterir", () => {
@@ -12,9 +12,20 @@ describe("yazı yerleşimi", () => {
   });
 
   it("aynı yere konan yazıları üst üste bindirmez", () => {
-    const [a, b] = layoutTexts([text("İlk mikroişlemci", 150, "title"), text("2.300 transistör", 160)]);
-    // Başlık ~114 px, etiket ~52 px yüksek: merkezler arası en az yarı yükseklikler + boşluk.
-    expect(b!.y - a!.y).toBeGreaterThanOrEqual(114 / 2 + 52 / 2 + 24 - 1);
+    const [a, b] = layoutTexts([text("İlk mikroişlemci", 150, "title"), text("2.300 transistör", 160, "label", 400)]);
+    // Kart satırı üst kenarından ~93 px; etiket (~46 px) onun altına iner.
+    expect(b!.y - a!.y).toBeGreaterThanOrEqual(64 * 1.15 + 64 * 0.3 + 24 + (40 * 1.15) / 2 - 1);
+  });
+
+  it("yatayda örtüşmeyen etiketler kendi yerinde kalır (yan yana iki kişi, kartın sağındaki kişi)", () => {
+    const [left, right] = layoutTexts([text("Steve Wozniak", 400, "label", 600), text("Steve Jobs", 400, "label", 1300)]);
+    expect(left!.y).toBe(400);
+    expect(right!.y).toBe(400);
+    const [, tag] = layoutTexts([text("1976", 0, "title"), text("Steve Jobs", 120, "label", 1500)]);
+    expect(tag!.y).toBe(120);
+    // Aynı hizadaki iki etiket örtüşüyorsa ikincisi alta iner.
+    const [a, b] = layoutTexts([text("Steve Wozniak", 400, "label", 900), text("Steve Jobs", 400, "label", 1000)]);
+    expect(b!.y - a!.y).toBeCloseTo(40 * 1.15 + 24);
   });
 
   it("uzun metni iki satıra sığacak kadar küçültür", () => {

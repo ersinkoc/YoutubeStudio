@@ -848,15 +848,15 @@ describe("vektör sahne: yazılar", () => {
     expect(textAt({ text: "x", anims: [{ type: "fade_in", start: 0.6, end: 1 }] }).el.style.opacity).toBe("0");
   });
 
-  it("kart satırları alt alta; etiketler kartın altında, birbirine binmez, alt sınırı aşınca birlikte yukarı kayar", () => {
+  it("kart satırları alt alta; kartla örtüşen etiket kartın altında, birbirine binmez, alt sınırı aşınca birlikte yukarı kayar", () => {
     const t = (o: object) => VectorShot.shape.texts.parse([{ text: "Ad", x: 960, y: 300, ...o }])[0]!;
     // İki kart satırı: birincil (başlık) üstte, ikincil (alt başlık) hemen altında.
     const [title, sub] = layoutTexts([t({ text: "1923", style: "title" }), t({ text: "Ankara", style: "subtitle" })]);
     expect(title).toMatchObject({ card: true, x: 72, y: 64, size: 64 });
     expect(sub).toMatchObject({ card: true, size: 44 });
     expect(sub!.y).toBeCloseTo(64 + 64 * 1.15 + 64 * 0.3 + 12);
-    // Kartın altına itilen etiket.
-    const [card, tag] = layoutTexts([t({ text: "Ali", y: 70 }), t({ text: "1923", style: "title" })]);
+    // Kartın altına itilen etiket (yatayda kartla örtüşüyor).
+    const [card, tag] = layoutTexts([t({ text: "Ali", x: 200, y: 70 }), t({ text: "1923", style: "title" })]);
     expect(card!.card).toBe(true);
     expect(tag!.y).toBeGreaterThan(64 + 64 * 1.15);
     // Alt sınırı aşan iki etiket birlikte yukarı kayar.

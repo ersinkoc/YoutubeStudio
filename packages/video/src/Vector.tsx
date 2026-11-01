@@ -685,8 +685,8 @@ function fit(text: string, size: number, width: number): { size: number; lines: 
 }
 
 /**
- * Yazıları yerleştirir: bilgi kartı satırları sol üstte alt alta, kişi etiketleri kendi yerinde (kartın altına ve
- * altyazı bölgesinin üstüne sıkıştırılır, birbirine binmez). En fazla iki yazı. vertical: 9:16'da kart kırpılan
+ * Yazıları yerleştirir: bilgi kartı satırları sol üstte alt alta, kişi etiketleri kendi yerinde (altyazı bölgesinin
+ * üstüne sıkıştırılır; yatayda örtüştüğü kartın ya da etiketin altına iner, birbirine binmez). En fazla iki yazı. vertical: 9:16'da kart kırpılan
  * kenardan içeri alınır.
  */
 export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text: VectorText) => TagAnchor | undefined = (text) => ({ x: text.x, y: text.y })): PlacedText[] {
@@ -697,8 +697,9 @@ export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text
     .map((text) => {
       const { size, lines } = fit(text.text, TEXT_SIZE[text.style], CARD.width);
       const y = cardBottom;
-      cardBottom += lines * size * 1.15 + size * 0.3 + CARD.gap;
-      return { text, x: vertical ? CARD.verticalX : CARD.x, y, size, card: true };
+      const height = lines * size * 1.15 + size * 0.3;
+      cardBottom += height + CARD.gap;
+      return { text, x: vertical ? CARD.verticalX : CARD.x, y, size, height, card: true };
     });
   const tags = shown
     .filter((text) => text.style === "label")
@@ -710,20 +711,32 @@ export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text
       const height = lines * size * 1.15;
       // Kafaya bağlı etiket kafanın hemen üstünde durur (y kafanın tepesi); değilse y etiketin ortasıdır.
       const y = at.head ? at.y - height / 2 - TAG_LIFT : at.y;
-      // Kenar sınırı yazının kendi genişliğiyle (kaba tahmin + plaka payı): kenardaki kişinin etiketi ondan uzağa itilmesin.
-      const half = Math.min(TAG_WIDTH, text.text.length * size * 0.55) / 2 + size * 0.5;
-      return [{ text, x: Math.min(W - half - 24, Math.max(half + 24, at.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, y)), size, height, card: false }];
+      // Kenar sınırı yazının kendi genişliğiyle: kenardaki kişinin etiketi ondan uzağa itilmesin.
+      const half = plateWidth(text.text, size, TAG_WIDTH) / 2;
+      return [{ text, x: Math.min(W - half - 24, Math.max(half + 24, at.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, y)), size, height, half, card: false }];
     })
     .sort((a, b) => a.y - b.y);
-  // Etiketler kartın altında başlar, birbirine binmez; alt sınırı aşarsa birlikte yukarı kayar.
-  let bottom = card.length ? cardBottom : TEXT_TOP;
+  // Etiket yalnız yatayda örtüştüğü karta ya da etikete binmesin diye onun altına iner: yan yana iki kişinin etiketi
+  // kendi kafalarının üstünde kalır (eskiden ikincisi her durumda alta itilip yüzün üstüne düşüyordu; inceleme
+  // "text_overlap", 1 Kas). Alt sınırı aşarsa etiketler birlikte yukarı kayar.
+  const boxes = card.map((c) => ({ left: c.x, right: c.x + plateWidth(c.text.text, c.size, CARD.width), bottom: c.y + c.height }));
+  let bottom: number = TEXT_TOP;
   for (const t of tags) {
-    t.y = Math.max(t.y, bottom + t.height / 2);
-    bottom = t.y + t.height / 2 + TEXT_GAP;
+    const left = t.x - t.half;
+    const right = t.x + t.half;
+    for (const b of boxes) if (left < b.right + TEXT_GAP && right > b.left - TEXT_GAP) t.y = Math.max(t.y, b.bottom + TEXT_GAP + t.height / 2);
+    t.y = Math.max(t.y, TEXT_TOP + t.height / 2);
+    boxes.push({ left, right, bottom: t.y + t.height / 2 });
+    bottom = Math.max(bottom, t.y + t.height / 2);
   }
-  const overflow = bottom - TEXT_GAP - TEXT_BOTTOM;
+  const overflow = bottom - TEXT_BOTTOM;
   if (overflow > 0) for (const t of tags) t.y -= overflow;
-  return [...card, ...tags.map(({ text, x, y, size }) => ({ text, x, y, size, card: false }))];
+  return [...card.map(({ text, x, y, size }) => ({ text, x, y, size, card: true })), ...tags.map(({ text, x, y, size }) => ({ text, x, y, size, card: false }))];
+}
+
+/** Yazı plakasının kaba genişliği: harf başına ~0,55 em (en çok kutu genişliği) + iki yanda 0,5 em dolgu. */
+function plateWidth(text: string, size: number, width: number): number {
+  return Math.min(width, text.length * size * 0.55) + size;
 }
 
 /** #rgb/#rrggbb rengin bağıl parlaklığı (0–1); çözülemezse undefined. */
