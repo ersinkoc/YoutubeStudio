@@ -7,9 +7,9 @@ export const character = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4
     <g id="shin-r"><rect x="205" y="615" width="38" height="130" rx="18" fill="#2b3a55" stroke="#1b1f2a" stroke-width="4"/><ellipse cx="234" cy="748" rx="38" ry="15" fill="#1a1a1a"/></g></g>
   <g id="body"><path d="M128 290 Q200 262 272 290 L286 540 Q200 562 114 540 Z" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/><path d="M200 280 L286 540 Q240 556 200 558 Z" fill="#a8432f"/></g>
   <g id="arm-l"><rect x="120" y="285" width="38" height="130" rx="19" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/>
-    <g id="forearm-l"><rect x="122" y="385" width="34" height="120" rx="17" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/><circle cx="139" cy="512" r="21" fill="#f2c79b" stroke="#1b1f2a" stroke-width="4"/></g></g>
+    <g id="forearm-l"><rect x="122" y="385" width="34" height="120" rx="17" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/><g id="hand-l"><circle cx="139" cy="512" r="21" fill="#f2c79b" stroke="#1b1f2a" stroke-width="4"/></g></g></g>
   <g id="arm-r"><rect x="242" y="285" width="38" height="130" rx="19" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/>
-    <g id="forearm-r"><rect x="244" y="385" width="34" height="120" rx="17" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/><circle cx="261" cy="512" r="21" fill="#f2c79b" stroke="#1b1f2a" stroke-width="4"/></g></g>
+    <g id="forearm-r"><rect x="244" y="385" width="34" height="120" rx="17" fill="#c8553d" stroke="#1b1f2a" stroke-width="4"/><g id="hand-r"><circle cx="261" cy="512" r="21" fill="#f2c79b" stroke="#1b1f2a" stroke-width="4"/></g></g></g>
   <g id="head">
     <rect x="184" y="228" width="32" height="44" fill="#e0b088"/>
     <circle cx="200" cy="170" r="82" fill="#f2c79b" stroke="#1b1f2a" stroke-width="4"/>

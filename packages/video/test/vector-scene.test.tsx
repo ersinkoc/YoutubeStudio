@@ -376,6 +376,24 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect(talk([{ text: "bir", startMs: 4000, endMs: 4500 }, { text: "iki", startMs: 5500, endMs: 6000 }])).toBeCloseTo(0.35, 2);
   });
 
+  it("bilek: boşta ön kolu izler, el sallarken kıvrılır, anlatırken avuç dışa döner, nesne tutan el düz kalır", () => {
+    const idle = heroAt(150).get("hand-r").rotate;
+    cleanup();
+    expect(idle).toBeLessThan(0);
+    const waves = [150, 153, 156].map((f) => {
+      const r = heroAt(f, { anims: [{ type: "wave" }] }).get("hand-r").rotate;
+      cleanup();
+      return r;
+    });
+    expect(Math.max(...waves) - Math.min(...waves)).toBeGreaterThan(10);
+    expect(heroAt(150, { anims: [{ type: "explain" }] }).get("hand-r").rotate).toBeLessThan(-10);
+    cleanup();
+    expect(heroAt(150, { anims: [{ type: "think" }] }).get("hand-r").rotate).toBeGreaterThan(10);
+    cleanup();
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0.3 }, { asset: "cup", x: 960, heldBy: 0 }] }, { frame: 150 });
+    expect(pose(c, "hand-r").rotate).toBe(0);
+  });
+
   it("mouthOpen: kelimeyi heceye böler, ünlüsüz kelime tek hecedir, kelime dışında 0", () => {
     const words = [
       { text: "bir", startMs: 0, endMs: 300 },

@@ -212,6 +212,9 @@ function rigPose(
   part("arm-r").rotate = -4 - Math.sin(t * 1.0 + r("ar") * 6) * 2;
   part("forearm-l").rotate = -10 - Math.sin(t * 1.3 + r("fl") * 6) * 3;
   part("forearm-r").rotate = 10 + Math.sin(t * 1.2 + r("fr") * 6) * 3;
+  // Bilek ön kolu geriden izler (gevşek el): ön kolun salınımıyla aynı ritim, biraz gecikmeli.
+  part("hand-l").rotate = 6 + Math.sin(t * 1.3 + r("fl") * 6 - 0.8) * 4;
+  part("hand-r").rotate = -6 - Math.sin(t * 1.2 + r("fr") * 6 - 0.8) * 4;
   // Üst gövde kalçadan yavaşça bir yandan öbürüne ağırlık aktarır: kollar ve baş gövdeyle birlikte gider. Eskiden
   // gövde hiç oynamıyor, yalnız kollar dönüyordu; karakter kâğıt kukla gibi duruyordu (1 Kas).
   part("torso").rotate = Math.sin(t * 0.55 + r("sw") * 6) * 1.6;
@@ -220,6 +223,7 @@ function rigPose(
     // izleyici fark etmiyordu; Apple bölümü incelemesi, 1 Kas). Jestler bu duruşun üstüne karışır.
     part("arm-r").rotate = -HOLD_POSE.arm - Math.sin(t * 1.0 + r("ar") * 6) * 1.5;
     part("forearm-r").rotate = -HOLD_POSE.forearm - Math.sin(t * 1.2 + r("fr") * 6) * 3;
+    part("hand-r").rotate = 0;
   }
   // İfade taban pozdur; jestler bunun üstüne karışır.
   part("brows").ty = face.brows;
@@ -250,9 +254,11 @@ function rigPose(
       if (right) {
         part("arm-r").rotate -= 14 * k;
         part("forearm-r").rotate -= 62 * k + Math.sin(t * 5) * 6 * k;
+        part("hand-r").rotate -= 22 * k;
       } else {
         part("arm-l").rotate += 14 * k;
         part("forearm-l").rotate += 62 * k + Math.sin(t * 5) * 6 * k;
+        part("hand-l").rotate += 22 * k;
       }
       part("brows").ty = face.brows - 3 * k;
     }
@@ -320,6 +326,8 @@ function rigPose(
       case "wave":
         mix("arm-r", "rotate", -150);
         mix("forearm-r", "rotate", Math.sin(t * 9) * 28);
+        // Bilek sallamayı geriden izler (kamçı gibi).
+        mix("hand-r", "rotate", Math.sin(t * 9 - 0.9) * 30);
         mix("brows", "ty", -4);
         // El sallarken gövde öbür yana yaslanır, sallamayla hafifçe sallanır.
         mix("torso", "rotate", -4 + Math.sin(t * 9) * 1);
@@ -333,6 +341,7 @@ function rigPose(
         const toward = hand === "r" ? 1 : -1;
         mix(`arm-${hand}`, "rotate", (Math.atan2(-(ax - sx), ay - sy) * 180) / Math.PI);
         mix(`forearm-${hand}`, "rotate", -6 * toward);
+        mix(`hand-${hand}`, "rotate", 0);
         mix("head", "rotate", -4 * toward);
         mix("eyes", "tx", 5 * toward);
         // Gövde hedefe doğru uzanır.
@@ -348,6 +357,8 @@ function rigPose(
         const out = dom === "r" ? -1 : 1;
         mix(`arm-${dom}`, "rotate", out * (20 + Math.sin(t * 3) * 5));
         mix(`forearm-${dom}`, "rotate", out * (60 + Math.sin(t * 3.4) * 12));
+        // Avuç yukarı-dışa döner, vurguyla bilek kıvrılır.
+        mix(`hand-${dom}`, "rotate", out * (26 + Math.sin(t * 3.4 - 0.7) * 12));
         mix(`arm-${other}`, "rotate", -out * (8 + Math.sin(t * 2.6 + 1) * 3));
         mix(`forearm-${other}`, "rotate", -out * (28 + Math.sin(t * 3 + 1) * 8));
         mix("brows", "ty", -3 + Math.sin(t * 3) * 2);
@@ -361,6 +372,8 @@ function rigPose(
         const hand = attention.holding ? -1 : 1;
         mix(hand > 0 ? "arm-r" : "arm-l", "rotate", -8 * hand);
         mix(hand > 0 ? "forearm-r" : "forearm-l", "rotate", 162 * hand);
+        // El çeneye doğru kıvrılır.
+        mix(hand > 0 ? "hand-r" : "hand-l", "rotate", 24 * hand);
         mix("head", "rotate", 7);
         mix("brows", "ty", -5);
         mix("eyes", "tx", 5);
@@ -373,6 +386,8 @@ function rigPose(
         mix("arm-r", "rotate", -150 - Math.sin(t * 6) * 8);
         mix("forearm-l", "rotate", -15);
         mix("forearm-r", "rotate", 15);
+        mix("hand-l", "rotate", -12 + Math.sin(t * 6) * 10);
+        mix("hand-r", "rotate", 12 - Math.sin(t * 6) * 10);
         mix("brows", "ty", -8);
         mix("mouth", "sy", 1.5);
         // Sevinçte gövde gerilir ve kollarla birlikte sallanır.
@@ -385,6 +400,9 @@ function rigPose(
         mix("arm-r", "rotate", -30);
         mix("forearm-l", "rotate", 115);
         mix("forearm-r", "rotate", -115);
+        // Avuçlar dışa açılır.
+        mix("hand-l", "rotate", 20);
+        mix("hand-r", "rotate", -20);
         mix("brows", "ty", -10);
         mix("eyes", "sy", 1.25);
         mix("mouth", "sy", 1.6);
@@ -400,6 +418,8 @@ function rigPose(
         mix("arm-r", "ty", -7);
         mix("forearm-l", "rotate", 62);
         mix("forearm-r", "rotate", -62);
+        mix("hand-l", "rotate", 18);
+        mix("hand-r", "rotate", -18);
         mix("head", "rotate", -6);
         mix("brows", "ty", -6);
         // Omuzlar kalkınca baş omuzların arasına iner.

@@ -22,6 +22,9 @@ export const RIG = {
     "arm-r": [260, 300],
     "forearm-l": [140, 400],
     "forearm-r": [260, 400],
+    /** Bilek (isteğe bağlı, ön kolun içinde): el sallarken kıvrılır, anlatırken avuç döner. */
+    "hand-l": [140, 490],
+    "hand-r": [260, 490],
     "leg-l": [175, 520],
     "leg-r": [225, 520],
     "shin-l": [175, 630],
@@ -50,6 +53,8 @@ export const RIG_SIDE = {
     "arm-r": [200, 300],
     "forearm-l": [200, 400],
     "forearm-r": [200, 400],
+    "hand-l": [200, 490],
+    "hand-r": [200, 490],
     "leg-l": [200, 520],
     "leg-r": [200, 520],
     "shin-l": [200, 630],
