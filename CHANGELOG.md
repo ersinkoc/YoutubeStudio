@@ -2,6 +2,22 @@
 
 Releases are cut with `pnpm release`. The Studio shows an update banner when a newer GitHub release exists.
 
+## v0.1.2 (2026-11-01)
+
+- Shot previews appear while props are still being drawn
+- Voice-over no longer needs ffprobe on PATH
+- Episode jobs survive the Studio going away
+- Wide shots keep everyone in frame
+- Hide name tags whose face is out of frame
+- Close-ups zoom on the things on a table, not the table
+- Hidden name tags no longer use up an on-screen text slot
+- Side-by-side name tags stay above their own heads
+- Name tags follow their person through camera moves and walks
+- Director frames narrated small objects as close-ups
+- Characters hold objects up at chest height instead of letting them hang at the hip
+- Director stages each moment in its own place instead of reusing unrelated rooms
+- Review frames match the video when subtitles are off
+
 ## v0.1.1 (2026-10-31)
 
 - Rename the product to AI Video Factory and refresh the READMEs
