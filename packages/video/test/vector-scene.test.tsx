@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
-import { RIG, RIG_SIDE, TimelineVisual, VectorAsset, VectorShot, type LineStyle } from "@ys/core";
+import { RIG, RIG_SIDE, TimelineVisual, VectorAsset, VectorLayer, VectorShot, type LineStyle } from "@ys/core";
 import { random } from "remotion";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -1086,8 +1086,31 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
     const out2 = closeUpCamera({ ...cam, focusX: 960, focusY: 600, zoomTo: 2 }, [altair, cover], false, all);
     expect(out2).toMatchObject({ centre: true, cam: { focusX: 960, focusY: 330, zoomFrom: 1 } });
     expect(out2.cam.zoomTo).toBeCloseTo(1.152);
+    // Elde tutulan nesne kişiden önce özne olur; ince uzun nesnede ölçü alanın karekökü (bant "büyük" sayılmasın).
+    const person = { ...PL, index: 9, width: 300, height: 600, x: 900, y: 950, grounded: true };
+    const tape = { ...PL, index: 10, width: 240, height: 40, x: 1050, y: 660, grounded: false, heldBy: 9 };
+    const thing = (pl: { index: number }) => pl.index !== 9;
+    const insert = closeUpCamera({ ...cam, focusX: 900, focusY: 600 }, [person, tape], false, thing);
+    expect(insert).toMatchObject({ centre: true, cam: { focusX: 1050, focusY: 640 } });
+    expect(insert.cam.zoomTo).toBeCloseTo(3.2);
+    // Yönetmenin kadrajı dışındaki nesne özneyi kişiden almaz.
+    expect(closeUpCamera({ ...cam, focusX: 300, focusY: 600 }, [{ ...person, x: 300 }, { ...tape, x: 1900, y: 100 }], false, thing).cam.focusX).toBe(300);
+    // Okunur boydaki nesneye yaklaşılmaz.
+    expect(closeUpCamera({ ...cam, focusX: 900, focusY: 600 }, [person, { ...tape, width: 300, height: 300, y: 800 }], false, thing).centre).toBe(false);
     // Odaksız kamera merkezden yaklaşır; tuvalden küçük zoom'da da ortada kalır.
     expect(cameraTransform({ zoomFrom: 0.5, zoomTo: 0.5, panX: 0 }, 0, true)).toBe("translate(480px, 270px) scale(0.5) translateX(0%)");
+  });
+
+  it("kadraj için elde tutulan nesne tutuş duruşundaki elin altına konur (render ile aynı), aynalıda öbür yana", () => {
+    const holder = { ...PL, width: 200, height: 400, x: 900, y: 900 };
+    const cup = { ...PL, index: 1, width: 40, height: 40, x: 900, y: 780, grounded: false, heldBy: 0 };
+    const layers = [VectorLayer.parse({ asset: "ali", x: 900 }), VectorLayer.parse({ asset: "cup", x: 900, heldBy: 0 })];
+    const [same, held] = heldFraming([holder, cup], layers);
+    expect(same).toBe(holder);
+    expect(held!.x).not.toBe(900);
+    expect(held!.y).toBeLessThan(900);
+    const [, mirrored] = heldFraming([holder, cup], [{ ...layers[0]!, flip: true }, layers[1]!]);
+    expect(mirrored!.x - 900).toBeCloseTo(-(held!.x - 900), 0);
   });
 
   it("dikey kadrajda sahne 1,3 kat yakın çekimle ortalanır, boşluğu bulanık arka plan doldurur", () => {

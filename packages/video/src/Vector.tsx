@@ -453,20 +453,7 @@ export function closeUpCamera(
   const fy = cam.focusY ?? H / 2;
   const centre = (pl: PlacedLayer) => [pl.x, pl.y - pl.height / 2] as const;
   const dist = (pl: PlacedLayer) => Math.hypot(centre(pl)[0] - fx, centre(pl)[1] - fy);
-  // Duvardaki/havadaki öğe (ışın, ok, poster) yalnız başka aday yoksa özne olur. Üstünde bir şey duran yüzey (masa)
-  // özne olmaz, üstündeki olur: odak masadaki iPod'dayken büyük masa seçiliyor, yakınlaşma hiç olmuyordu (Apple
-  // incelemesi, 1 Kas: "iPod ve iPhone masada minik noktalar").
-  const surfaces = new Set(placed.map((pl) => pl.on));
-  const standing = placed.filter((pl) => (pl.grounded || pl.heldBy !== undefined) && !surfaces.has(pl.index));
-  const subject = (standing.length ? standing : placed).reduce((a, b) => (dist(b) < dist(a) ? b : a));
-  const side = Math.max(subject.width, subject.height);
-  // Aynı yüzeydeki nesneler birlikte kadrajlanır (masada iPod ve iPhone: yalnız birine yaklaşınca öteki kenarda kesiliyordu).
-  const group = subject.on === undefined ? [subject] : standing.filter((pl) => pl.on === subject.on);
-  const left = Math.min(...group.map((pl) => pl.x - pl.width / 2));
-  const right = Math.max(...group.map((pl) => pl.x + pl.width / 2));
-  // Yönetmenin kadrajında görünen öteki nesneler de kadrajda kalır: küçük tokmağa yaklaşınca yanında beliren, anlatılan
-  // logo kadraj dışında kalıyordu; duvardaki büyük dergi kapağı ise yakın çekimde dört yandan taşıyordu (Microsoft
-  // incelemesi, 1 Kas: "Microsoft logosunun ikiye bölünmesi yok", "dergi kapağı görünmüyor").
+  // Yönetmenin kadrajında (çekim sonu) görünenler.
   const at = cameraAt(cam, 1, false);
   const x0 = -at.tx / at.scale - (at.panX / 100) * W;
   const y0 = -at.ty / at.scale;
@@ -474,14 +461,32 @@ export function closeUpCamera(
     const [cx, cy] = centre(pl);
     return cx >= x0 && cx <= x0 + W / at.scale && cy >= y0 && cy <= y0 + H / at.scale;
   };
+  // Duvardaki/havadaki öğe (ışın, ok, poster) yalnız başka aday yoksa özne olur. Üstünde bir şey duran yüzey (masa)
+  // özne olmaz, üstündeki olur: odak masadaki iPod'dayken büyük masa seçiliyor, yakınlaşma hiç olmuyordu (Apple
+  // incelemesi, 1 Kas: "iPod ve iPhone masada minik noktalar").
+  const surfaces = new Set(placed.map((pl) => pl.on));
+  const standing = placed.filter((pl) => (pl.grounded || pl.heldBy !== undefined) && !surfaces.has(pl.index));
+  // Elde tutulan ya da masaya konan nesne (anlatılan şey) kişiden önce özne olur: kamera kişiyi seçince kâğıt bant,
+  // iPad, disket gerçek boyunda göğüs hizasında küçük kalıyordu (Microsoft incelemesi, 1 Kas: "paper tape tiny in the
+  // hand, not a close-up"; 25 ölçek notunun en büyük grubu).
+  const props = standing.filter((pl) => whole(pl) && (pl.heldBy !== undefined || pl.on !== undefined) && seen(pl));
+  const subject = (props.length ? props : standing.length ? standing : placed).reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  // Nesne öznesinde ölçü alanın karekökü (ince uzun bant en uzun kenarıyla "büyük" sayılıyordu) ve hedef okunur boy.
+  const side = props.length ? Math.sqrt(subject.width * subject.height) : Math.max(subject.width, subject.height);
+  const small = props.length ? CLOSE_UP.target : CLOSE_UP.min;
+  // Aynı yüzeydeki nesneler birlikte kadrajlanır (masada iPod ve iPhone: yalnız birine yaklaşınca öteki kenarda kesiliyordu).
+  const group = subject.on === undefined ? [subject] : standing.filter((pl) => pl.on === subject.on);
+  // Yönetmenin kadrajında görünen öteki nesneler de kadrajda kalır: küçük tokmağa yaklaşınca yanında beliren, anlatılan
+  // logo kadraj dışında kalıyordu; duvardaki büyük dergi kapağı ise yakın çekimde dört yandan taşıyordu (Microsoft
+  // incelemesi, 1 Kas: "Microsoft logosunun ikiye bölünmesi yok", "dergi kapağı görünmüyor").
   const extra = placed.filter((pl) => !group.includes(pl) && !surfaces.has(pl.index) && whole(pl) && seen(pl));
   const framed = [...group, ...extra];
-  if (side * z >= CLOSE_UP.min * H) {
+  if (side * z >= small * H) {
     const fit = [...(whole(subject) ? group : []), ...extra];
     return fit.length ? fitWhole(cam, z, fit) : keep;
   }
-  const l = Math.min(left, ...extra.map((pl) => pl.x - pl.width / 2));
-  const r = Math.max(right, ...extra.map((pl) => pl.x + pl.width / 2));
+  const l = Math.min(...framed.map((pl) => pl.x - pl.width / 2));
+  const r = Math.max(...framed.map((pl) => pl.x + pl.width / 2));
   const top = Math.min(...framed.map((pl) => pl.y - pl.height));
   const bottom = Math.max(...framed.map((pl) => pl.y));
   const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side, (CLOSE_UP.groupWidth * W) / (r - l), (CLOSE_UP.groupWidth * H) / (bottom - top)) / z;
@@ -643,6 +648,22 @@ function motionOf(
  * İskelet pozundan sağ elin tuval üzerindeki yeri: elde tutulan nesne her karede bunu izler. Katmanın bütün dönüşümü
  * (yürüme, eğilme, ölçek, aynalama) uygulanır; yoksa nesne yürürken elden ayrılıyordu.
  */
+/**
+ * Kadraj hesabı için elde tutulan nesnenin yeri: yerleşim onu tutanın ortasına koyar, render ise tutuş duruşundaki
+ * (HOLD_POSE) elin altına. Yakın çekimde bu fark nesneyi kadraj dışına itebiliyordu.
+ */
+export function heldFraming(placed: PlacedLayer[], layers: VectorLayer[]): PlacedLayer[] {
+  return placed.map((pl) => {
+    const holder = placed.find((h) => h.index === pl.heldBy);
+    if (!holder) return pl;
+    const layer = layers[holder.index]!;
+    const arm = (rotate: number): PartPose => ({ rotate, sx: 1, sy: 1, tx: 0, ty: 0 });
+    const m: Motion = { tr: { x: 0, y: 0, scale: 1, rotate: 0, opacity: 1 }, pose: { "arm-r": arm(-HOLD_POSE.arm), "forearm-r": arm(-HOLD_POSE.forearm) }, flip: layer.flip, squash: 1 };
+    const [hx, hy] = handPoint(holder, layer, m);
+    return { ...pl, x: hx, y: hy + pl.height * 0.45 };
+  });
+}
+
 function handPoint(placed: PlacedLayer, layer: VectorLayer, m: Motion): [number, number] {
   // Karakter hareketinde poz her zaman vardır; "?? 0" yalnız tip için (Partial).
   /* v8 ignore next */
@@ -1013,7 +1034,7 @@ export function VectorScene({
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
   const bg = spec.background ? safe[spec.background] : undefined;
   const { cam, centre } = useMemo(() => {
-    const close = closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact), (pl) => safe[spec.layers[pl.index]!.asset]!.kind !== "character");
+    const close = closeUpCamera(spec.camera, heldFraming(placed, spec.layers), Boolean(bg?.meta.exact), (pl) => safe[spec.layers[pl.index]!.asset]!.kind !== "character");
     if (close.centre || bg?.meta.exact) return close;
     // Geniş çekimde kadrajda kalacaklar: karakterler ve sahnedeki küçük nesneler; sahneye giren (yürüyen, kayan) hariç.
     const keep = placed.filter((pl) => {
