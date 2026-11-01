@@ -548,6 +548,40 @@ export function frameWide(cam: VectorShot["camera"], keep: PlacedLayer[]): Vecto
 }
 
 /**
+ * Geniş çekimi doldurma: en çok zoom (yakın çekimin altında), yan pay, en az kazanç; ekranda kafaların üst sınırı,
+ * nesnelerin alt sınırı (altyazı bandının üstü) ve kişinin kesilebileceği yer (diz, boyunun alttan %30'u).
+ */
+const FILL = { most: 1.8, margin: 1.2, gain: 1.1, top: 0.08, props: 0.8, knee: 0.3 } as const;
+
+/**
+ * Geniş çekimde içerik kadrajın küçük bir bölümündeyse kamera ona yaklaşır (yakın çekim sınırının altında): boş
+ * duvar kareye hâkim oluyordu (incelemeler, 1 Kas: 123 "empty" notu; "geniş boş oda, köşede küçük iki figür, büyük
+ * boş duvar"). Ayakta duran kişi tam boy kadrajda zaten yüksekliğin yarısını kapladığından orta plana geçilir: kişi
+ * dizden kesilebilir, nesne bütün kalır ve altyazı bandına inmez, kafalar üst kenara yapışmaz. Sahneye yürüyen/kayan
+ * biri varsa uygulanmaz (yolu kadrajın dışına düşerdi): çağıran onları ayıklar.
+ */
+export function fillWide(
+  cam: VectorShot["camera"],
+  content: PlacedLayer[],
+  person: (pl: PlacedLayer) => boolean,
+): { cam: VectorShot["camera"]; centre: boolean } | undefined {
+  const z = Math.max(cam.zoomFrom, cam.zoomTo);
+  if (z >= CLOSE_UP.zoom || !content.length) return undefined;
+  const left = Math.max(0, Math.min(...content.map((pl) => pl.x - pl.width / 2)));
+  const right = Math.min(W, Math.max(...content.map((pl) => pl.x + pl.width / 2)));
+  const top = Math.max(0, Math.min(...content.map((pl) => pl.y - pl.height)));
+  // Ekranda y = H/2 + (nokta - odak) × zoom. Her alt çizgi (nesnenin tabanı ya da kişinin dizi) kendi sınırının üstünde.
+  const lines = content.map((pl) => (person(pl) ? { y: pl.y - pl.height * FILL.knee, max: 1 } : { y: Math.min(H, pl.y), max: FILL.props }));
+  const zoom = Math.min(FILL.most, W / FILL.margin / (right - left), ...lines.map((l) => ((l.max - FILL.top) * H) / (l.y - top)));
+  if (zoom < z * FILL.gain) return undefined;
+  const low = Math.max(...lines.map((l) => l.y - ((l.max - 0.5) * H) / zoom));
+  const high = top + ((0.5 - FILL.top) * H) / zoom;
+  const y = Math.min(Math.max((top + Math.max(...lines.map((l) => l.y))) / 2, low), high);
+  const f = zoom / z;
+  return { cam: { ...cam, panX: 0, zoomFrom: cam.zoomFrom * f, zoomTo: cam.zoomTo * f, focusX: (left + right) / 2, focusY: y }, centre: true };
+}
+
+/**
  * Kameranın bu karedeki dönüşümü (sol üst köşe kökenli). Odak noktası ekranda yerinde kalarak yaklaşılır (yönetmenin
  * kadrajı); centre ile (kod özneyi yeniden çerçevelediyse) odak kadrajın ortasına gelir, tuvalin dışı görünmez. Sabit
  * odak alttaki küçük nesneyi kadrajın dibinde bırakıyordu; her çekimi ortalamak ise iyi kadrajları bozuyordu.
@@ -1036,10 +1070,14 @@ export function VectorScene({
   const { cam, centre } = useMemo(() => {
     const close = closeUpCamera(spec.camera, heldFraming(placed, spec.layers), Boolean(bg?.meta.exact), (pl) => safe[spec.layers[pl.index]!.asset]!.kind !== "character");
     if (close.centre || bg?.meta.exact) return close;
+    const moving = (i: number) => spec.layers[i]!.anims.some((a) => a.type === "walk" || a.type === "slide_in" || a.type === "move");
+    // Boş geniş çekim içeriğe yaklaşır; sahneye giren biri varsa yolu kadrajda kalsın diye yaklaşılmaz.
+    const filled = placed.some((pl) => moving(pl.index)) ? undefined : fillWide(close.cam, placed, (pl) => safe[spec.layers[pl.index]!.asset]!.kind === "character");
+    if (filled) return filled;
     // Geniş çekimde kadrajda kalacaklar: karakterler ve sahnedeki küçük nesneler; sahneye giren (yürüyen, kayan) hariç.
     const keep = placed.filter((pl) => {
       const layer = spec.layers[pl.index]!;
-      if (layer.anims.some((a) => a.type === "walk" || a.type === "slide_in" || a.type === "move")) return false;
+      if (moving(pl.index)) return false;
       return safe[layer.asset]!.kind === "character" || ((pl.grounded || pl.heldBy !== undefined) && pl.width < W * 0.4);
     });
     return { cam: frameWide(close.cam, keep), centre: false };

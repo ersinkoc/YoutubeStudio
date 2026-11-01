@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming, fillWide } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -50,6 +50,8 @@ const ASSETS = {
   }),
   flag: asset("flag", "background", '<svg viewBox="0 0 1920 1080"><rect id="red" width="1920" height="1080" fill="#e30a17"/></svg>', 1920, 1080, { exact: true }),
   broken: asset("broken", "prop", "bu bir svg değil", 100, 100),
+  // Tuvali kaplayan duvar öğesi: içerik kadrajı doldurur, geniş çekimde kamera kendiliğinden yaklaşmaz (fillWide).
+  panorama: asset("panorama", "prop", '<svg viewBox="0 0 1920 1080"><rect id="panorama" width="1920" height="1080" fill="#999999"/></svg>', 1920, 1080, { grounded: false }),
   longtable: asset("longtable", "prop", '<svg viewBox="0 0 1000 100"><rect id="longtable" width="1000" height="100"/></svg>', 1000, 100, { realHeight: 0.9, grounded: true }),
   // Aynı karakterin ön (kırmızı) ve yan (mavi) çizimi.
   walker: asset("walker", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#aa0000"/></g>`).join("")}</svg>`, 400, 800),
@@ -756,12 +758,14 @@ describe("vektör sahne: yazılar", () => {
   });
 
   describe("kişi etiketi kişiye bağlıdır", () => {
+    // Kamera yönetmeninki kalsın (boş geniş çekim yaklaşması etiket konumlarını değiştirmesin).
+    const FULL = { asset: "panorama", x: 960, y: 1080, height: 1080 };
     const tagOf = (c: HTMLElement, text: string) => [...c.querySelectorAll<HTMLElement>("[data-text=tag]")].find((el) => el.textContent === text);
     const centre = (el: HTMLElement) => [parseFloat(el.style.left) + 450, parseFloat(el.style.top)] as const;
 
     it("adı geçen kişinin kafasının üstüne gider (yönetmenin noktası uzakta olsa da)", () => {
       const c = scene({
-        layers: [{ asset: "ada", x: 500, depth: 0.3 }, { asset: "babbage", x: 1400, depth: 0.3 }],
+        layers: [FULL, { asset: "ada", x: 500, depth: 0.3 }, { asset: "babbage", x: 1400, depth: 0.3 }],
         texts: [{ text: "Babbage", style: "label", x: 400, y: 200 }],
       }, { frame: 150 });
       const tag = tagOf(c, "Babbage")!;
@@ -770,17 +774,17 @@ describe("vektör sahne: yazılar", () => {
     });
 
     it("adı eşleşmeyen etiket yakındaki kafaya bağlanır; yakında kimse yoksa yönetmenin noktasında kalır", () => {
-      const near = scene({ layers: [{ asset: "hero", x: 700, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 820, y: 330 }] }, { frame: 150 });
+      const near = scene({ layers: [FULL, { asset: "hero", x: 700, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 820, y: 330 }] }, { frame: 150 });
       expect(centre(tagOf(near, "işçi")!)[0]).toBeCloseTo(700, -2);
       cleanup();
       // İki kafa yakınsa en yakını seçilir.
       const two = scene(
-        { layers: [{ asset: "hero", x: 700, depth: 0.3 }, { asset: "walker", x: 1000, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 950, y: 330 }] },
+        { layers: [FULL, { asset: "hero", x: 700, depth: 0.3 }, { asset: "walker", x: 1000, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 950, y: 330 }] },
         { frame: 150 },
       );
       expect(centre(tagOf(two, "işçi")!)[0]).toBeCloseTo(1000, -2);
       cleanup();
-      const far = scene({ layers: [{ asset: "hero", x: 300, depth: 0.3 }], texts: [{ text: "değirmen", style: "label", x: 1500, y: 300 }] }, { frame: 150 });
+      const far = scene({ layers: [FULL, { asset: "hero", x: 300, depth: 0.3 }], texts: [{ text: "değirmen", style: "label", x: 1500, y: 300 }] }, { frame: 150 });
       // Noktası kamerayla taşınır (varsayılan hafif zoom), kişiye bağlanmaz.
       const [fx, fy] = centre(tagOf(far, "değirmen")!);
       expect(fx).toBeCloseTo(1500, -2);
@@ -796,7 +800,7 @@ describe("vektör sahne: yazılar", () => {
         return r;
       };
       expect(at(280)[0] - at(5)[0]).toBeGreaterThan(600);
-      const c = scene({ layers: [{ asset: "ada", x: 960, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 960, y: 100 }] }, { frame: 0 });
+      const c = scene({ layers: [FULL, { asset: "ada", x: 960, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 960, y: 100 }] }, { frame: 0 });
       const box = layerBox(c, "body");
       const top = parseFloat(box.style.top) + transformOf(box).y;
       const [, y] = centre(tagOf(c, "Ada")!);
@@ -807,7 +811,7 @@ describe("vektör sahne: yazılar", () => {
 
     it("kamera yaklaşınca etiket kafayla birlikte ekranda yer değiştirir", () => {
       const shot = (zoom: number) => ({
-        layers: [{ asset: "ada", x: 600, depth: 0.3 }],
+        layers: [FULL, { asset: "ada", x: 600, depth: 0.3 }],
         texts: [{ text: "Ada", style: "label", x: 600, y: 300 }],
         camera: { zoomFrom: zoom, zoomTo: zoom, panX: 0, focusX: 960, focusY: 540 },
       });
@@ -1012,9 +1016,44 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
     expect(frameWide({ zoomFrom: 1.2, zoomTo: 1.2, panX: 0 }, [person(1850)]).focusX).toBeGreaterThan(960);
   });
 
+  it("boş geniş çekim içeriğe yaklaşır: kişi dizden kesilebilir, nesne altyazı bandına inmez, kafa üst kenara yapışmaz", () => {
+    const man = (x: number) => ({ ...PL, x, y: 950, width: 280, height: 560 });
+    const isMan = (pl: { height: number }) => pl.height === 560;
+    const cam = { zoomFrom: 1.1, zoomTo: 1.3, panX: 0.2, focusX: 960, focusY: 540 };
+    const out = fillWide(cam, [man(800), man(1200)], isMan)!;
+    expect(out.centre).toBe(true);
+    expect(out.cam).toMatchObject({ panX: 0, focusX: 1000, zoomTo: 1.8 });
+    expect(out.cam.zoomFrom).toBeCloseTo((1.1 * 1.8) / 1.3);
+    const screen = (y: number) => 540 + (y - out.cam.focusY!) * 1.8;
+    expect(screen(950 - 560)).toBeGreaterThanOrEqual(0.08 * 1080 - 0.5);
+    expect(screen(950 - 560 * 0.3)).toBeLessThanOrEqual(1080);
+    // Yerdeki nesne bütün kalır, tabanı altyazı bandının üstünde.
+    const box = { ...PL, x: 1100, y: 950, width: 120, height: 120 };
+    const withBox = fillWide({ ...cam, zoomTo: 1.1 }, [man(800), box], isMan)!;
+    const z = withBox.cam.zoomTo;
+    expect(540 + (950 - withBox.cam.focusY!) * z).toBeLessThanOrEqual(0.8 * 1080 + 0.5);
+    // Yakın çekim, boş sahne ve az kazanç: dokunulmaz.
+    expect(fillWide({ ...cam, zoomTo: 1.6 }, [man(800)], isMan)).toBeUndefined();
+    expect(fillWide(cam, [], isMan)).toBeUndefined();
+    expect(fillWide({ ...cam, zoomTo: 1.75 }, [man(800)], isMan)).toBeUndefined();
+    expect(fillWide(cam, [{ ...PL, x: 960, y: 1080, width: 1920, height: 1080 }], isMan)).toBeUndefined();
+  });
+
+  it("sahnede boş geniş çekim yaklaşır; sahneye yürüyen biri varsa yaklaşmaz", () => {
+    const zoomOf = (layers: object[]) => {
+      const c = scene({ layers, camera: { zoomFrom: 1.1, zoomTo: 1.1, panX: 0, focusX: 960, focusY: 540 } }, { frame: 150 });
+      const t = [...c.querySelectorAll("div")].map((d) => d.style.transform).find((tr) => tr.includes("scale(") && tr.includes("translateX("))!;
+      cleanup();
+      return Number(/scale\(([\d.]+)\)/.exec(t)![1]);
+    };
+    expect(zoomOf([{ asset: "hero", x: 800, depth: 0.5 }, { asset: "hero", x: 1100, depth: 0.5 }])).toBeGreaterThan(1.3);
+    expect(zoomOf([{ asset: "hero", x: 800, depth: 0.5 }, { asset: "walker", x: 1100, depth: 0.5, anims: [{ type: "walk", toX: 1400 }] }])).toBeCloseTo(1.1);
+  });
+
   it("sahnede geniş çekim kenardaki karakteri kadrajda tutar; sahneye yürüyen ve büyük nesne hesaba katılmaz", () => {
     const zoomOf = (layers: object[]) => {
-      const c = scene({ layers, camera: { zoomFrom: 1.2, zoomTo: 1.2, panX: 0, focusX: 960, focusY: 540 } }, { frame: 150 });
+      // Tuvali kaplayan panorama: boş geniş çekim yaklaşması (fillWide) devreye girmez, burada frameWide sınanır.
+      const c = scene({ layers: [{ asset: "panorama", x: 960, y: 1080, height: 1080 }, ...layers], camera: { zoomFrom: 1.2, zoomTo: 1.2, panX: 0, focusX: 960, focusY: 540 } }, { frame: 150 });
       const t = [...c.querySelectorAll("div")].map((d) => d.style.transform).find((tr) => tr.includes("scale(") && tr.includes("translateX("))!;
       cleanup();
       return t;
