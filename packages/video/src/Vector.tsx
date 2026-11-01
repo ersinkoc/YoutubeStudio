@@ -472,6 +472,35 @@ export function closeUpCamera(
 }
 
 /**
+ * Geniş çekimde (zoom 1 ile yakın çekim arası) yönetmenin hafif yaklaşması kenardaki kişiyi/nesneyi kesiyordu
+ * (incelemeler, 1 Kas: "en sağdaki asker kadrajın kenarında kesik", "atların başı görünmüyor"; 98 not). Kadraj
+ * çekimin başında ve sonunda bunların hepsini (ve kafalarını) göstermiyorsa: kaydırma bırakılır, odak hepsini içine
+ * alacak kadar kaydırılır; yine sığmıyorsa zoom sığacak kadar azalır. Yakın çekim bilerek keser, ona dokunulmaz.
+ */
+export function frameWide(cam: VectorShot["camera"], keep: PlacedLayer[]): VectorShot["camera"] {
+  const z = Math.max(cam.zoomFrom, cam.zoomTo);
+  if (z <= 1 || z >= CLOSE_UP.zoom || !keep.length) return cam;
+  const left = Math.max(0, Math.min(...keep.map((pl) => pl.x - pl.width / 2)));
+  const right = Math.min(W, Math.max(...keep.map((pl) => pl.x + pl.width / 2)));
+  const top = Math.max(0, Math.min(...keep.map((pl) => pl.y - pl.height)));
+  const shows = (k: number) => {
+    const at = cameraAt(cam, k, false);
+    const pan = (at.panX / 100) * W;
+    return -at.tx / at.scale - pan <= left + 1 && (W - at.tx) / at.scale - pan >= right - 1 && -at.ty / at.scale <= top + 1;
+  };
+  if (shows(0) && shows(1)) return cam;
+  // Kaydırmasız, odağı sabit kamerada kadraj zoom küçüldükçe genişler: en büyük zoom'da sığan her karede sığar.
+  const zoom = Math.min(z, W / (right - left));
+  const shrink = 1 - 1 / zoom;
+  const out = { ...cam, panX: 0, zoomFrom: Math.min(cam.zoomFrom, zoom), zoomTo: Math.min(cam.zoomTo, zoom) };
+  // Grup tuvalin iki kenarına değiyorsa zoom 1'e iner; odak önemsizleşir.
+  if (shrink <= 0) return out;
+  const x0 = Math.min(Math.max((cam.focusX ?? W / 2) * shrink, right - W / zoom), left);
+  const y0 = Math.min((cam.focusY ?? H / 2) * shrink, top);
+  return { ...out, focusX: Math.round(x0 / shrink), focusY: Math.round(y0 / shrink) };
+}
+
+/**
  * Kameranın bu karedeki dönüşümü (sol üst köşe kökenli). Odak noktası ekranda yerinde kalarak yaklaşılır (yönetmenin
  * kadrajı); centre ile (kod özneyi yeniden çerçevelediyse) odak kadrajın ortasına gelir, tuvalin dışı görünmez. Sabit
  * odak alttaki küçük nesneyi kadrajın dibinde bırakıyordu; her çekimi ortalamak ise iyi kadrajları bozuyordu.
@@ -941,7 +970,17 @@ export function VectorScene({
   );
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
   const bg = spec.background ? safe[spec.background] : undefined;
-  const { cam, centre } = useMemo(() => closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact)), [spec.camera, placed, bg]);
+  const { cam, centre } = useMemo(() => {
+    const close = closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact));
+    if (close.centre || bg?.meta.exact) return close;
+    // Geniş çekimde kadrajda kalacaklar: karakterler ve sahnedeki küçük nesneler; sahneye giren (yürüyen, kayan) hariç.
+    const keep = placed.filter((pl) => {
+      const layer = spec.layers[pl.index]!;
+      if (layer.anims.some((a) => a.type === "walk" || a.type === "slide_in" || a.type === "move")) return false;
+      return safe[layer.asset]!.kind === "character" || ((pl.grounded || pl.heldBy !== undefined) && pl.width < W * 0.4);
+    });
+    return { cam: frameWide(close.cam, keep), centre: false };
+  }, [spec, placed, bg, safe]);
   const k = interpolate(p, [0, 1], [0, 1], { easing: ease });
   const dur = visual.durationInFrames / fps;
   const motions = new Map(

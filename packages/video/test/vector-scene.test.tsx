@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -50,6 +50,7 @@ const ASSETS = {
   }),
   flag: asset("flag", "background", '<svg viewBox="0 0 1920 1080"><rect id="red" width="1920" height="1080" fill="#e30a17"/></svg>', 1920, 1080, { exact: true }),
   broken: asset("broken", "prop", "bu bir svg değil", 100, 100),
+  longtable: asset("longtable", "prop", '<svg viewBox="0 0 1000 100"><rect id="longtable" width="1000" height="100"/></svg>', 1000, 100, { realHeight: 0.9, grounded: true }),
   // Aynı karakterin ön (kırmızı) ve yan (mavi) çizimi.
   walker: asset("walker", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#aa0000"/></g>`).join("")}</svg>`, 400, 800),
   // Adı bilinen karakterler (kalite kapısının kaydı): etiketler adla kişiye bağlanır.
@@ -822,9 +823,9 @@ describe("vektör sahne: yazılar", () => {
     });
 
     it("yüzü kadraj dışında kalan kişinin etiketi gösterilmez", () => {
-      // Odak sağ altta, 1.4 zoom: soldaki kişi ekranın dışına çıkar.
+      // Yakın çekim (1.6) sağ altta: soldaki kişi ekranın dışına çıkar (geniş çekim onu kadrajda tutardı).
       const c = scene(
-        { layers: [{ asset: "ada", x: 200, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 200, y: 300 }], camera: { zoomFrom: 1.4, zoomTo: 1.4, panX: 0, focusX: 1900, focusY: 1000 } },
+        { layers: [{ asset: "ada", x: 200, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 200, y: 300 }], camera: { zoomFrom: 1.6, zoomTo: 1.6, panX: 0, focusX: 1900, focusY: 1000 } },
         { frame: 150 },
       );
       expect(tagOf(c, "Ada")).toBeUndefined();
@@ -977,6 +978,51 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
   it("odak verilmezse kadraj merkezine yakınlaşır", () => {
     const c = scene({});
     expect([...c.querySelectorAll("div")].some((d) => d.style.transform.startsWith("translate(-0px, -0px) scale(1)") || d.style.transform.startsWith("translate(0px, 0px) scale(1)"))).toBe(true);
+  });
+
+  it("geniş çekim kenardaki kişiyi kesmez: odak kayar, sığmazsa zoom azalır; yakın çekime ve sığana dokunmaz", () => {
+    const person = (x: number, i = 0) => ({ ...PL, index: i, x, y: 900, width: 200, height: 500 });
+    // Ekranda görünen tuval aralığı (cameraPoint'in tersi) her iki uçta da kişiyi içermeli.
+    const visible = (cam: Parameters<typeof frameWide>[0], k: number) => {
+      const [a] = cameraPoint(cam, k, false, [0, 0]);
+      const [b] = cameraPoint(cam, k, false, [1920, 0]);
+      const per = (b - a) / 1920;
+      return [-a / per, (1920 - a) / per] as const;
+    };
+    const cam = { zoomFrom: 1.1, zoomTo: 1.3, panX: 0.5, focusX: 960, focusY: 540 };
+    const out = frameWide(cam, [person(600), person(1800, 1)]);
+    expect(out).toMatchObject({ panX: 0, zoomTo: 1.3 });
+    for (const k of [0, 1]) {
+      const [l, r] = visible(out, k);
+      expect(l).toBeLessThanOrEqual(500 + 1);
+      expect(r).toBeGreaterThanOrEqual(1900 - 1);
+    }
+    // Kafa üst kenarda kesiliyorsa odak aşağı iner.
+    const high = frameWide({ ...cam, panX: 0, focusY: 1000 }, [{ ...person(960), y: 600 }]);
+    expect(high.focusY).toBeLessThan(1000);
+    // Çok geniş grup: zoom sığacak kadar azalır; iki kenara değen grupta 1'e iner.
+    expect(frameWide(cam, [person(200), person(1700, 1)]).zoomTo).toBeCloseTo(1920 / 1700);
+    expect(frameWide(cam, [person(50), person(1880, 1)])).toMatchObject({ zoomFrom: 1, zoomTo: 1, focusX: 960 });
+    // Dokunulmayanlar: zaten sığan, yakın çekim, zoom'suz, boş.
+    const fits = { zoomFrom: 1, zoomTo: 1.1, panX: 0, focusX: 960, focusY: 540 };
+    expect(frameWide(fits, [person(960)])).toBe(fits);
+    for (const c of [{ ...cam, zoomTo: 1.6 }, { ...cam, zoomFrom: 1, zoomTo: 1 }]) expect(frameWide(c, [person(1850)])).toBe(c);
+    expect(frameWide(cam, [])).toBe(cam);
+    // Odaksız kamera da düzeltilir.
+    expect(frameWide({ zoomFrom: 1.2, zoomTo: 1.2, panX: 0 }, [person(1850)]).focusX).toBeGreaterThan(960);
+  });
+
+  it("sahnede geniş çekim kenardaki karakteri kadrajda tutar; sahneye yürüyen ve büyük nesne hesaba katılmaz", () => {
+    const zoomOf = (layers: object[]) => {
+      const c = scene({ layers, camera: { zoomFrom: 1.2, zoomTo: 1.2, panX: 0, focusX: 960, focusY: 540 } }, { frame: 150 });
+      const t = [...c.querySelectorAll("div")].map((d) => d.style.transform).find((tr) => tr.includes("scale(") && tr.includes("translateX("))!;
+      cleanup();
+      return t;
+    };
+    const plain = zoomOf([{ asset: "hero", x: 960, depth: 0.3 }]);
+    expect(zoomOf([{ asset: "hero", x: 1880, depth: 0.3 }])).not.toBe(plain);
+    expect(zoomOf([{ asset: "hero", x: 960, depth: 0.3 }, { asset: "hero", x: 1880, depth: 0.3, anims: [{ type: "walk", toX: 1200 }] }])).toBe(plain);
+    expect(zoomOf([{ asset: "hero", x: 960, depth: 0.3 }, { asset: "longtable", x: 1700, depth: 0.3 }])).toBe(plain);
   });
 
   it("yakın çekimde özne çok küçükse zoom büyür ve özne ortalanır; büyük özne ve harita çekimi olduğu gibi", () => {
