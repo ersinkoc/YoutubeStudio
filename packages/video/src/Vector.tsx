@@ -668,6 +668,12 @@ const TAG_LIFT = 14;
 /** Yönetmenin etiket noktası bir kafaya bundan yakınsa etiket o kişiye bağlanır (tuval px). */
 const TAG_SNAP = 360;
 
+/** Ekrandaki baş tepesi ve ayak noktasından: yüz kadrajda mı (baş boyun ~1/7'si; tamamı kenarın dışındaysa görünmüyor). */
+export function faceOnScreen([x, top]: readonly [number, number], [, foot]: readonly [number, number]): boolean {
+  const face = top + (foot - top) / 7;
+  return x >= 0 && x <= W && face >= 0 && top <= H;
+}
+
 /** Etiket bir kişinin adı mı: biri ötekini içeriyorsa (büyük/küçük harf duyarsız; "Babbage" ↔ "Charles Babbage"). */
 export function namesMatch(name: string, label: string): boolean {
   const a = name.trim().toLocaleLowerCase("tr");
@@ -955,7 +961,7 @@ export function VectorScene({
     .map((pl) => {
       const tr = motions.get(pl.index)!.tr;
       const name = safe[spec.layers[pl.index]!.asset]!.meta.check?.name ?? "";
-      return { at: [pl.x + tr.x, pl.y + tr.y - pl.height * tr.scale] as const, name };
+      return { at: [pl.x + tr.x, pl.y + tr.y - pl.height * tr.scale] as const, foot: [pl.x + tr.x, pl.y + tr.y] as const, name };
     });
   const present = new Set(placed.map((pl) => spec.layers[pl.index]!.asset));
   const absent = Object.entries(safe).flatMap(([id, a]) => (a.kind === "character" && !present.has(id) && a.meta.check?.name ? [a.meta.check.name] : []));
@@ -966,6 +972,9 @@ export function VectorScene({
     if (!named && absent.some((name) => namesMatch(name, text.text))) return undefined;
     const near = named ?? heads.filter((h) => gap(h) < TAG_SNAP).sort((a, b) => gap(a) - gap(b))[0];
     const [x, y] = cameraPoint(cam, k, centre, near?.at ?? [text.x, text.y]);
+    // Yüzü kadrajda olmayan kişinin adı gösterilmez: yakın çekim masadaki gazeteye yaklaşınca Dell'in etiketi ekranın
+    // üst kenarına yapışıyordu (Apple s6-sh6, 1 Kas).
+    if (near && !faceOnScreen([x, y], cameraPoint(cam, k, centre, near.foot))) return undefined;
     return { x, y, head: near !== undefined };
   });
   const [c0 = "#1d2433", c1 = "#3a4a66", accent = "#ffd84d"] = palette;

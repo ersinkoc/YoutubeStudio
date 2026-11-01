@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, cameraPoint, namesMatch, HOLD_POSE } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -819,6 +819,21 @@ describe("vektör sahne: yazılar", () => {
       // Odak (960, 540) yerinde kalır: soldaki kafa daha sola, yukarıdaki daha yukarı kayar.
       expect(b[0]).toBeCloseTo(960 + (a[0] - 960) * 1.4, -1);
       expect(b[1]).toBeLessThan(a[1]);
+    });
+
+    it("yüzü kadraj dışında kalan kişinin etiketi gösterilmez", () => {
+      // Odak sağ altta, 1.4 zoom: soldaki kişi ekranın dışına çıkar.
+      const c = scene(
+        { layers: [{ asset: "ada", x: 200, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 200, y: 300 }], camera: { zoomFrom: 1.4, zoomTo: 1.4, panX: 0, focusX: 1900, focusY: 1000 } },
+        { frame: 150 },
+      );
+      expect(tagOf(c, "Ada")).toBeUndefined();
+      cleanup();
+      expect(faceOnScreen([500, -20], [500, 700])).toBe(true); // baş tepesi kesik, yüz görünüyor
+      expect(faceOnScreen([500, -200], [500, 500])).toBe(false);
+      expect(faceOnScreen([-10, 300], [-10, 900])).toBe(false);
+      expect(faceOnScreen([1930, 300], [1930, 900])).toBe(false);
+      expect(faceOnScreen([500, 1100], [500, 1600])).toBe(false);
     });
 
     it("çekimde olmayan karakterin adını taşıyan etiket gösterilmez", () => {
