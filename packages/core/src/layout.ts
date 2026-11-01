@@ -193,5 +193,24 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
     if (!moved) break;
   }
 
+  // Duvardaki/havadaki öğe (logo, ok, tabela) yerdeki her şeyin arkasında çizilir. Bir mobilya onu yarıdan fazla
+  // örtüyorsa (Microsoft incelemesi, 1 Kas: ikiye bölünen logo yakın çekimdeki masanın arkasında kayboldu) o
+  // mobilyanın önüne alınır. Karakterin arkasındaki poster yerinde kalır; yönetmen z verdiyse dokunulmaz.
+  const box = (p: PlacedLayer) => ({ l: p.x - p.width / 2, r: p.x + p.width / 2, t: p.y - p.height, b: p.y });
+  const hidden = (p: PlacedLayer, q: PlacedLayer) => {
+    const a = box(p);
+    const c = box(q);
+    const w = Math.min(a.r, c.r) - Math.max(a.l, c.l);
+    const h = Math.min(a.b, c.b) - Math.max(a.t, c.t);
+    return w > 0 && h > 0 ? (w * h) / ((a.r - a.l) * (a.b - a.t)) : 0;
+  };
+  for (const p of list) {
+    if (p.grounded || p.heldBy !== undefined || spec.layers[p.index]!.z !== undefined) continue;
+    const covers = list.filter((q) => q.grounded && q.z > p.z && assets[spec.layers[q.index]!.asset]!.kind !== "character" && hidden(p, q) > 0.5);
+    if (!covers.length) continue;
+    p.z = Math.max(...covers.map((q) => q.z)) + 0.1;
+    note(p, "mobilyanın arkasında kalıyordu, önüne alındı");
+  }
+
   return list.sort((a, b) => a.z - b.z || a.index - b.index);
 }

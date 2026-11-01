@@ -116,4 +116,24 @@ describe("sahne fiziği: olmayan katmana başvuru", () => {
     expect(placed).toHaveLength(1);
     expect(placed[0]!.z).toBeCloseTo(50);
   });
+
+  it("mobilyanın yarıdan fazla örttüğü duvar/hava öğesi önüne alınır; karakterin arkasındaki ve z verilen yerinde kalır", () => {
+    const assets = {
+      bench: asset("bench", "prop", { grounded: true, realHeight: 2 }, 1600, 400),
+      logo: asset("logo", "prop", { grounded: false }),
+      ali: asset("ali", "character", { realHeight: 1.7 }, 400, 800),
+    };
+    const logo = { asset: "logo", x: 960, y: 700, height: 200 };
+    const [bench, front] = resolveLayout(shot([{ asset: "bench", x: 960, depth: 0.3 }, logo]), assets).sort((a, b) => a.index - b.index);
+    expect(front!.z).toBeCloseTo(bench!.z + 0.1);
+    expect(front!.fixes).toContain("mobilyanın arkasında kalıyordu, önüne alındı");
+    for (const layers of [
+      [{ asset: "ali", x: 960, depth: 0.3 }, logo],
+      [{ asset: "bench", x: 960, depth: 0.3 }, { ...logo, z: -5 }],
+      [{ asset: "bench", x: 960, depth: 0.3 }, { ...logo, y: 100 }],
+    ]) {
+      const back = resolveLayout(shot(layers), assets).find((p) => p.index === 1)!;
+      expect(back.z).toBeLessThan(0);
+    }
+  });
 });

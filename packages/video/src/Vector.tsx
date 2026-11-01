@@ -444,6 +444,7 @@ export function closeUpCamera(
   cam: VectorShot["camera"],
   placed: PlacedLayer[],
   exactBackground: boolean,
+  whole: (pl: PlacedLayer) => boolean = () => false,
 ): { cam: VectorShot["camera"]; centre: boolean } {
   const z = Math.max(cam.zoomFrom, cam.zoomTo);
   const keep = { cam, centre: false };
@@ -459,16 +460,57 @@ export function closeUpCamera(
   const standing = placed.filter((pl) => (pl.grounded || pl.heldBy !== undefined) && !surfaces.has(pl.index));
   const subject = (standing.length ? standing : placed).reduce((a, b) => (dist(b) < dist(a) ? b : a));
   const side = Math.max(subject.width, subject.height);
-  if (side * z >= CLOSE_UP.min * H) return keep;
   // Aynı yüzeydeki nesneler birlikte kadrajlanır (masada iPod ve iPhone: yalnız birine yaklaşınca öteki kenarda kesiliyordu).
   const group = subject.on === undefined ? [subject] : standing.filter((pl) => pl.on === subject.on);
   const left = Math.min(...group.map((pl) => pl.x - pl.width / 2));
   const right = Math.max(...group.map((pl) => pl.x + pl.width / 2));
-  const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side, (CLOSE_UP.groupWidth * W) / (right - left)) / z;
-  const x = (left + right) / 2;
-  const y = centre(subject)[1];
+  // Yönetmenin kadrajında görünen öteki nesneler de kadrajda kalır: küçük tokmağa yaklaşınca yanında beliren, anlatılan
+  // logo kadraj dışında kalıyordu; duvardaki büyük dergi kapağı ise yakın çekimde dört yandan taşıyordu (Microsoft
+  // incelemesi, 1 Kas: "Microsoft logosunun ikiye bölünmesi yok", "dergi kapağı görünmüyor").
+  const at = cameraAt(cam, 1, false);
+  const x0 = -at.tx / at.scale - (at.panX / 100) * W;
+  const y0 = -at.ty / at.scale;
+  const seen = (pl: PlacedLayer) => {
+    const [cx, cy] = centre(pl);
+    return cx >= x0 && cx <= x0 + W / at.scale && cy >= y0 && cy <= y0 + H / at.scale;
+  };
+  const extra = placed.filter((pl) => !group.includes(pl) && !surfaces.has(pl.index) && whole(pl) && seen(pl));
+  const framed = [...group, ...extra];
+  if (side * z >= CLOSE_UP.min * H) {
+    const fit = [...(whole(subject) ? group : []), ...extra];
+    return fit.length ? fitWhole(cam, z, fit) : keep;
+  }
+  const l = Math.min(left, ...extra.map((pl) => pl.x - pl.width / 2));
+  const r = Math.max(right, ...extra.map((pl) => pl.x + pl.width / 2));
+  const top = Math.min(...framed.map((pl) => pl.y - pl.height));
+  const bottom = Math.max(...framed.map((pl) => pl.y));
+  const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side, (CLOSE_UP.groupWidth * W) / (r - l), (CLOSE_UP.groupWidth * H) / (bottom - top)) / z;
+  const x = (l + r) / 2;
+  const y = extra.length ? (top + bottom) / 2 : centre(subject)[1];
   // Zoom zaten tavandaysa yalnız odak düzelir.
   return { cam: { ...cam, zoomFrom: cam.zoomFrom * Math.max(1, k), zoomTo: cam.zoomTo * Math.max(1, k), focusX: x, focusY: y }, centre: true };
+}
+
+/**
+ * Yakın çekimin öznesi olan nesne (ve yönetmenin kadrajındaki öteki nesneler) yeterince büyük ama kadraja sığmıyorsa (Microsoft incelemesi, 1 Kas: yerdeki DOS
+ * ekranı alt kenarda kesik, dergi kapağı dört yandan taşıyor; denetçi "anlatılan şey görünmüyor" diyordu) odak nesneye
+ * taşınır, sığmıyorsa zoom sığacak kadar azalır. Karakterde yakın çekim bilerek keser (yüz), bu yalnız nesneler için.
+ */
+function fitWhole(cam: VectorShot["camera"], z: number, group: PlacedLayer[]): { cam: VectorShot["camera"]; centre: boolean } {
+  const left = Math.max(0, Math.min(...group.map((pl) => pl.x - pl.width / 2)));
+  const right = Math.min(W, Math.max(...group.map((pl) => pl.x + pl.width / 2)));
+  const top = Math.max(0, Math.min(...group.map((pl) => pl.y - pl.height)));
+  const bottom = Math.min(H, Math.max(...group.map((pl) => pl.y)));
+  const shows = (k: number) => {
+    const at = cameraAt(cam, k, false);
+    const x0 = -at.tx / at.scale - (at.panX / 100) * W;
+    const y0 = -at.ty / at.scale;
+    return x0 <= left + 1 && x0 + W / at.scale >= right - 1 && y0 <= top + 1 && y0 + H / at.scale >= bottom - 1;
+  };
+  if (shows(0) && shows(1)) return { cam, centre: false };
+  const f = Math.min(1, (0.9 * W) / ((right - left) * z), (0.9 * H) / ((bottom - top) * z));
+  const zoom = (v: number) => Math.max(1, v * f);
+  return { cam: { ...cam, panX: 0, zoomFrom: zoom(cam.zoomFrom), zoomTo: zoom(cam.zoomTo), focusX: (left + right) / 2, focusY: (top + bottom) / 2 }, centre: true };
 }
 
 /**
@@ -971,7 +1013,7 @@ export function VectorScene({
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
   const bg = spec.background ? safe[spec.background] : undefined;
   const { cam, centre } = useMemo(() => {
-    const close = closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact));
+    const close = closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact), (pl) => safe[spec.layers[pl.index]!.asset]!.kind !== "character");
     if (close.centre || bg?.meta.exact) return close;
     // Geniş çekimde kadrajda kalacaklar: karakterler ve sahnedeki küçük nesneler; sahneye giren (yürüyen, kayan) hariç.
     const keep = placed.filter((pl) => {

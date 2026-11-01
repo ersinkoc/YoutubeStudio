@@ -1062,6 +1062,30 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
       closeUpCamera(cam, [], false),
     ])
       expect(keep).toEqual({ cam: expect.objectContaining({ zoomTo: keep.cam.zoomTo }), centre: false });
+    // Büyük nesne kadraja sığmıyorsa (yerdeki ekran alt kenarda): odak nesneye taşınır, gerekirse zoom azalır;
+    // karakter bilerek kesilir, kadraja sığan nesneye dokunulmaz.
+    const all = () => true;
+    const screen = { ...PL, width: 300, height: 260, x: 960, y: 1060, grounded: true };
+    const moved = closeUpCamera({ ...cam, focusY: 400 }, [screen], false, all);
+    expect(moved).toEqual({ cam: { ...cam, panX: 0, focusX: 960, focusY: 930 }, centre: true });
+    const huge = closeUpCamera(cam, [{ ...screen, width: 1600, height: 900, y: 1000 }], false, all).cam;
+    expect(huge.zoomTo).toBeCloseTo(1.08);
+    expect(huge.zoomFrom).toBe(1);
+    expect(closeUpCamera({ ...cam, focusY: 400 }, [screen], false).centre).toBe(false);
+    expect(closeUpCamera(cam, [{ ...screen, y: 700 }], false, all)).toEqual({ cam, centre: false });
+    // Yönetmenin kadrajında görünen öteki nesne (anlatılan logo) küçük özneye yaklaşınca dışarıda kalmaz.
+    const gavel = { ...tiny, x: 960, y: 600 };
+    const logo = { ...PL, index: 6, width: 300, height: 300, x: 1400, y: 500, grounded: false };
+    const both = closeUpCamera({ ...cam, focusX: 1100, focusY: 600 }, [gavel, logo], false, all).cam;
+    expect(both.focusX).toBe(1245);
+    expect(both.focusY).toBe(400);
+    expect(closeUpCamera({ ...cam, focusX: 1100, focusY: 600 }, [gavel, { ...logo, x: 1900, y: 100 }], false, all).cam.focusX).toBe(960);
+    // Özne yeterince büyük ve kadrajda, ama duvardaki büyük dergi kapağı taşıyor: kapak sığacak kadar uzaklaşılır.
+    const altair = { ...PL, index: 7, width: 130, height: 70, x: 1100, y: 600, grounded: true };
+    const cover = { ...PL, index: 8, width: 1500, height: 620, x: 960, y: 640, grounded: false };
+    const out2 = closeUpCamera({ ...cam, focusX: 960, focusY: 600, zoomTo: 2 }, [altair, cover], false, all);
+    expect(out2).toMatchObject({ centre: true, cam: { focusX: 960, focusY: 330, zoomFrom: 1 } });
+    expect(out2.cam.zoomTo).toBeCloseTo(1.152);
     // Odaksız kamera merkezden yaklaşır; tuvalden küçük zoom'da da ortada kalır.
     expect(cameraTransform({ zoomFrom: 0.5, zoomTo: 0.5, panX: 0 }, 0, true)).toBe("translate(480px, 270px) scale(0.5) translateX(0%)");
   });
