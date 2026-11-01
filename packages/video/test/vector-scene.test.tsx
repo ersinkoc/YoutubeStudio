@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming, fillWide } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming, fillWide, wrapTorso } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -474,6 +474,33 @@ describe("vektör sahne: dikkat (işaret ve bakış)", () => {
     // Tam önündeki nesne atlanır; yazı varsa ona gösterir.
     const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0, ...point }, { asset: "box", x: 980, y: 900, height: 100 }], texts: [{ text: "1923", x: 400, y: 200 }] }, { frame: 150 });
     expect(pose(c, "arm-l").rotate).toBeGreaterThan(90);
+  });
+
+  it("gövde, kollar ve baş kalçadan birlikte eğilir: işaret ederken hedefe, şaşırınca geri", () => {
+    const right = withOthers(point, [{ asset: "box", x: 1500, y: 300, height: 100 }]);
+    expect(right("torso").rotate).toBeGreaterThan(4);
+    const left = withOthers(point, [{ asset: "box", x: 400, y: 300, height: 100 }]);
+    expect(left("torso").rotate).toBeLessThan(-4);
+    const c = scene({ layers: [{ asset: "hero", x: 960, depth: 0.3, anims: [{ type: "surprised" }] }] }, { frame: 150 });
+    expect(c.querySelector("style")!.textContent).toContain("transform-origin:200px 520px");
+    expect(c.querySelector('[id="s1-0-torso"] > [id="s1-0-body"]')).not.toBeNull();
+    expect(pose(c, "torso").rotate).toBeLessThan(-4);
+    expect(pose(c, "torso").sy).toBeGreaterThan(1);
+    // Yanında biri varken ondan geri çekilir (soldaki kişiden sağa).
+    const away = withOthers({ anims: [{ type: "surprised" }] }, [{ asset: "walker", x: 300, depth: 0 }]);
+    expect(away("torso").rotate).toBeGreaterThan(4);
+  });
+
+  it("üst gövde grubu yalnız kardeş gövde/kol/baş gruplarını sarar; eksik parça, iç içe baş ya da aradaki bacakta dokunulmaz", () => {
+    const g = (id: string, inner = "") => `<g id="p-${id}">${inner}</g>`;
+    const svg = `<svg>${g("leg-l", g("shin-l"))}${g("body")}${g("arm-l", g("forearm-l"))}${g("arm-r")}<g id="p-x"/>${g("head", g("eyes"))}</svg>`;
+    expect(wrapTorso(svg, "p-")).toBe(`<svg>${g("leg-l", g("shin-l"))}<g id="p-torso">${g("body")}${g("arm-l", g("forearm-l"))}${g("arm-r")}<g id="p-x"/>${g("head", g("eyes"))}</g></svg>`);
+    for (const bad of [
+      `<svg>${g("body")}${g("arm-l")}${g("arm-r")}<g></g></g></svg>`,
+      `<svg>${g("body", g("head"))}${g("arm-l")}${g("arm-r")}</svg>`,
+      `<svg>${g("body")}${g("leg-r")}${g("arm-l")}${g("arm-r")}${g("head")}</svg>`,
+    ])
+      expect(wrapTorso(bad, "p-")).toBe(bad);
   });
 
   it("explain'de baskın el konuşulan kişiye doğru açılır", () => {

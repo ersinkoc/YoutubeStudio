@@ -141,6 +141,9 @@ function layerTransform(
   return tr;
 }
 
+/** İskelet parçası ya da üst gövde (gövde + kollar + baş; kalçadan, `wrapTorso`). */
+type PosePart = RigPart | "torso";
+
 interface PartPose {
   rotate: number;
   sx: number;
@@ -192,9 +195,9 @@ function rigPose(
   dur = 1,
   /** Yan görünüş çizimi yürüyor (RIG_SIDE). */
   side = false,
-): Partial<Record<RigPart, PartPose>> {
-  const pose: Partial<Record<RigPart, PartPose>> = {};
-  const part = (k: RigPart) => (pose[k] ??= { rotate: 0, sx: 1, sy: 1, tx: 0, ty: 0 });
+): Partial<Record<PosePart, PartPose>> {
+  const pose: Partial<Record<PosePart, PartPose>> = {};
+  const part = (k: PosePart) => (pose[k] ??= { rotate: 0, sx: 1, sy: 1, tx: 0, ty: 0 });
   const r = (k: string) => random(`${seed}-${k}`);
   const face = EXPRESSIONS[expression];
 
@@ -206,6 +209,9 @@ function rigPose(
   part("arm-r").rotate = -4 - Math.sin(t * 1.0 + r("ar") * 6) * 2;
   part("forearm-l").rotate = -10 - Math.sin(t * 1.3 + r("fl") * 6) * 3;
   part("forearm-r").rotate = 10 + Math.sin(t * 1.2 + r("fr") * 6) * 3;
+  // Üst gövde kalçadan yavaşça bir yandan öbürüne ağırlık aktarır: kollar ve baş gövdeyle birlikte gider. Eskiden
+  // gövde hiç oynamıyor, yalnız kollar dönüyordu; karakter kâğıt kukla gibi duruyordu (1 Kas).
+  part("torso").rotate = Math.sin(t * 0.55 + r("sw") * 6) * 1.6;
   if (attention.holding && !side) {
     // Elde nesne: ön kol kalkar, nesne göğüs hizasında yana doğru gösterilir (sarkan elde kalça hizasında küçük kalıyor,
     // izleyici fark etmiyordu; Apple bölümü incelemesi, 1 Kas). Jestler bu duruşun üstüne karışır.
@@ -271,6 +277,8 @@ function rigPose(
     part("forearm-r").rotate = -14 * k;
     part("forearm-l").rotate = -14 * k;
     part("eyes").tx = 0;
+    // Yürürken gövde öne (sağa bakan çizimde saat yönü) eğilir.
+    part("torso").rotate += 4 * k;
   } else if (gait.amount > 0) {
     // Ön görünüşte adım: diz öne gelir, uyluk kısalır ve ayak yerden kalkar (baldır boyunu korur); bacak gidiş yönüne
     // hafifçe açılır. Eski makas salınımı (±22°) bacakları çaprazlıyor ve hızdan bağımsız olduğu için ayak kayıyordu.
@@ -285,9 +293,10 @@ function rigPose(
       part(`shin-${leg}`).sy = 1 / (1 - 0.3 * k);
       part(`leg-${leg}`).rotate = toward * 7 * k;
     }
-    // Kollar karşı bacakla birlikte salınır.
+    // Kollar karşı bacakla birlikte salınır; gövde gidiş yönüne eğilir ve adımla yana yaslanır.
     part("arm-l").rotate -= 6 * s * gait.amount;
     part("arm-r").rotate -= 6 * s * gait.amount;
+    part("torso").rotate += (toward * 2.5 + s * 1.5) * gait.amount;
   }
 
   // --- Claude'un istediği jestler: hazırlık + taşmayla girer (gestureWeight), ön kol üst kolu geriden izler.
@@ -297,7 +306,7 @@ function rigPose(
     if (arm === 0 && fore === 0) continue;
     // Baş sallama ve konuşma genliği taşmaz.
     const w = Math.min(1, Math.max(0, arm));
-    const mix = (k: RigPart, field: keyof PartPose, target: number) => {
+    const mix = (k: PosePart, field: keyof PartPose, target: number) => {
       // Yan görünüşte kollar yürür; ön görünüş için tasarlanmış kol jestleri uygulanmaz (yüz ve baş jestleri sürer).
       if (side && /arm-/.test(k)) return;
       const pp = part(k);
@@ -309,6 +318,8 @@ function rigPose(
         mix("arm-r", "rotate", -150);
         mix("forearm-r", "rotate", Math.sin(t * 9) * 28);
         mix("brows", "ty", -4);
+        // El sallarken gövde öbür yana yaslanır, sallamayla hafifçe sallanır.
+        mix("torso", "rotate", -4 + Math.sin(t * 9) * 1);
         break;
       case "point": {
         // Hedefe doğru: hedef hangi yandaysa o yandaki kol, omuzdan hedefe uzanır; baş ve gözler de hedefe döner.
@@ -321,6 +332,8 @@ function rigPose(
         mix(`forearm-${hand}`, "rotate", -6 * toward);
         mix("head", "rotate", -4 * toward);
         mix("eyes", "tx", 5 * toward);
+        // Gövde hedefe doğru uzanır.
+        mix("torso", "rotate", 6 * toward);
         break;
       }
       case "explain": {
@@ -335,6 +348,9 @@ function rigPose(
         mix(`arm-${other}`, "rotate", -out * (8 + Math.sin(t * 2.6 + 1) * 3));
         mix(`forearm-${other}`, "rotate", -out * (28 + Math.sin(t * 3 + 1) * 8));
         mix("brows", "ty", -3 + Math.sin(t * 3) * 2);
+        // Dinleyene eğilir, vurgularla öne gelir; baş anlatırken yana eğilir.
+        mix("torso", "rotate", -out * (5 + Math.sin(t * 3) * 1.5));
+        mix("head", "rotate", -out * (3 + Math.sin(t * 2.2) * 2));
         break;
       }
       case "think": {
@@ -345,6 +361,8 @@ function rigPose(
         mix("head", "rotate", 7);
         mix("brows", "ty", -5);
         mix("eyes", "tx", 5);
+        // Düşünürken çeneyi tutan elin tarafına yaslanır.
+        mix("torso", "rotate", -2 * hand);
         break;
       }
       case "cheer":
@@ -354,6 +372,9 @@ function rigPose(
         mix("forearm-r", "rotate", 15);
         mix("brows", "ty", -8);
         mix("mouth", "sy", 1.5);
+        // Sevinçte gövde gerilir ve kollarla birlikte sallanır.
+        mix("torso", "sy", 1.04);
+        mix("torso", "rotate", Math.sin(t * 6) * 3.5);
         break;
       case "surprised":
         // Eller omuz hizasına kalkar, avuçlar dışa.
@@ -364,6 +385,9 @@ function rigPose(
         mix("brows", "ty", -10);
         mix("eyes", "sy", 1.25);
         mix("mouth", "sy", 1.6);
+        // Şaşkınlıkta geri çekilir (baktığı yönün tersine) ve dikleşir.
+        mix("torso", "rotate", -6 * (attention.lookDir ?? 1));
+        mix("torso", "sy", 1.02);
         break;
       case "shrug":
         // Omuzlar kalkar, ön kollar dışa yatay açılır (avuç yukarı), baş yana eğilir.
@@ -375,6 +399,8 @@ function rigPose(
         mix("forearm-r", "rotate", -62);
         mix("head", "rotate", -6);
         mix("brows", "ty", -6);
+        // Omuzlar kalkınca baş omuzların arasına iner.
+        mix("head", "ty", 6);
         break;
       case "nod":
         part("head").rotate += Math.sin(t * 6) * 7 * w;
@@ -383,6 +409,9 @@ function rigPose(
         // Konuşurken ağız açılıp kapanır; somurtan yüzde eğri ters kalır.
         part("mouth").sy = Math.sign(face.mouth) * (0.35 + Math.abs(Math.sin(t * 13)) * 0.9 * w + (1 - w) * 0.65);
         part("brows").ty += Math.sin(t * 4) * 2 * w;
+        // Konuşurken baş ve gövde cümle ritmiyle hafifçe oynar.
+        part("head").rotate += Math.sin(t * 3.1) * 2.5 * w;
+        part("torso").rotate += Math.sin(t * 2.3) * 1.5 * w;
         break;
       default:
         break;
@@ -611,7 +640,7 @@ export function cameraPoint(cam: VectorShot["camera"], k: number, centre: boolea
 /** Katmanın bu karedeki hareketi: katman dönüşümü ve (karakterse) iskelet pozu. */
 interface Motion {
   tr: Transform;
-  pose?: Partial<Record<RigPart, PartPose>>;
+  pose?: Partial<Record<PosePart, PartPose>>;
   /** Yürürken çizilen yan görünüş (varsa); iskelet RIG_SIDE'a göre pozlanır. */
   side?: VectorAsset;
   /** Çizim aynalı mı: yan görünüşte gidiş yönünden gelir (çizim sağa bakar). */
@@ -698,6 +727,34 @@ export function heldFraming(placed: PlacedLayer[], layers: VectorLayer[]): Place
   });
 }
 
+/** Kalçadan birlikte eğilen parçalar (çizimde kardeş gruplar). */
+const TORSO_PARTS = ["body", "arm-l", "arm-r", "head"] as const;
+
+/**
+ * Gövde, kollar ve başı tek grupta toplar ki kalçadan birlikte eğilsinler: çizimde bunlar kardeş gruplardır, gövdeyi
+ * döndürmek kolları ve başı yerinde bırakırdı. Parçalardan biri yoksa, aynı düzeyde değillerse ya da aralarında
+ * bacak varsa (bacak gövdeyle eğilmemeli) çizime dokunulmaz.
+ */
+export function wrapTorso(svg: string, prefix: string): string {
+  const spans = new Map<string, { start: number; end: number; depth: number }>();
+  const open: { start: number; id?: string }[] = [];
+  for (const m of svg.matchAll(/<(\/?)g\b[^>]*?(\/?)>/g)) {
+    if (m[1]) {
+      const g = open.pop();
+      if (g?.id) spans.set(g.id, { start: g.start, end: m.index + m[0].length, depth: open.length });
+    } else if (!m[2]) open.push({ start: m.index, id: /\sid="([^"]+)"/.exec(m[0])?.[1] });
+  }
+  const parts = TORSO_PARTS.map((p) => spans.get(prefix + p));
+  if (parts.some((p) => !p || p.depth !== parts[0]!.depth)) return svg;
+  const start = Math.min(...parts.map((p) => p!.start));
+  const end = Math.max(...parts.map((p) => p!.end));
+  for (const leg of ["leg-l", "leg-r"]) {
+    const l = spans.get(prefix + leg);
+    if (l && l.start >= start && l.end <= end) return svg;
+  }
+  return `${svg.slice(0, start)}<g id="${prefix}torso">${svg.slice(start, end)}</g>${svg.slice(end)}`;
+}
+
 function handPoint(placed: PlacedLayer, layer: VectorLayer, m: Motion): [number, number] {
   // Karakter hareketinde poz her zaman vardır; "?? 0" yalnız tip için (Partial).
   /* v8 ignore next */
@@ -709,7 +766,15 @@ function handPoint(placed: PlacedLayer, layer: VectorLayer, m: Motion): [number,
   const elbow = rot([ex - sx, ey - sy], a);
   const hand = rot([0, 112], a + f);
   let rx = sx + elbow[0] + hand[0];
-  const ry = sy + elbow[1] + hand[1];
+  let ry = sy + elbow[1] + hand[1];
+  // Üst gövde eğildiyse el de onunla gider (CSS: kalçadan çevir, ölçekle, kaydır).
+  const tp = m.pose?.torso;
+  if (tp) {
+    const [hx, hy] = (m.side ? RIG_SIDE : RIG).pivots.body;
+    const [qx, qy] = rot([(rx - hx) * tp.sx, (ry - hy) * tp.sy], tp.rotate);
+    rx = hx + tp.tx + qx;
+    ry = hy + tp.ty + qy;
+  }
   if (m.flip) rx = RIG.width - rx;
   // Katman dönüşümünün merkezi alt-orta noktadır (transformOrigin 50% 100%).
   const k = (placed.height / RIG.height) * m.tr.scale;
@@ -735,13 +800,15 @@ function Layer({
 }) {
   const { width: w, height: h } = placed;
   const { tr, pose } = motion;
-  const svg = prefixSvgIds(fitSvg((motion.side ?? asset).svg, "meet"), prefix);
+  const raw = prefixSvgIds(fitSvg((motion.side ?? asset).svg, "meet"), prefix);
+  const svg = pose?.torso ? wrapTorso(raw, prefix) : raw;
 
   // İskeletli karakterde parça dönüşleri kimlik seçicisiyle uygulanır (dönme noktaları RIG'de sabit).
   const rigCss = pose
     ? Object.entries(pose)
         .map(([k, v]) => {
-          const [px, py] = (motion.side ? RIG_SIDE : RIG).pivots[k as RigPart];
+          const pivots = (motion.side ? RIG_SIDE : RIG).pivots;
+          const [px, py] = k === "torso" ? pivots.body : pivots[k as RigPart];
           const transform = `translate(${v.tx.toFixed(2)}px, ${v.ty.toFixed(2)}px) rotate(${v.rotate.toFixed(2)}deg) scale(${v.sx.toFixed(3)}, ${v.sy.toFixed(3)})`;
           return `#${prefix}${k}{transform:${transform};transform-origin:${px}px ${py}px;transform-box:view-box}`;
         })
