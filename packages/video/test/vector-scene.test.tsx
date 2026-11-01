@@ -981,6 +981,17 @@ describe("vektör sahne: arka plan, harita ve kadraj", () => {
     const near = { ...tiny, index: 2, x: 1000, y: 600 };
     expect(closeUpCamera({ zoomFrom: 1.6, zoomTo: 1.9, panX: 0 }, [tiny, near], false).cam).toMatchObject({ focusX: 1000, focusY: 585 });
     expect(closeUpCamera({ zoomFrom: 1.6, zoomTo: 1.9, panX: 0 }, [near, tiny], false).cam).toMatchObject({ focusX: 1000 });
+    // Masadaki küçük nesne masadan uzakta olsa da özne odur; üstünde bir şey duran masa özne olmaz.
+    const table = { ...PL, index: 3, width: 300, height: 180, x: 960, y: 860, grounded: true };
+    const ipod = { ...tiny, index: 4, x: 820, y: 680, on: 3 };
+    expect(closeUpCamera({ ...cam, focusY: 700 }, [table, ipod], false).cam).toMatchObject({ focusX: 820, focusY: 665, zoomTo: 3.2 });
+    // Aynı masadaki iki nesne birlikte kadrajlanır: odak ikisinin ortası, ikisi de kadraja sığar.
+    const iphone = { ...ipod, index: 5, x: 1120 };
+    const pair = closeUpCamera({ ...cam, focusY: 700 }, [table, ipod, iphone], false).cam;
+    expect(pair).toMatchObject({ focusX: 970, focusY: 665, zoomTo: 3.2 });
+    const wide = closeUpCamera({ ...cam, focusY: 700 }, [table, ipod, { ...iphone, x: 1700 }], false).cam;
+    // Çok geniş grup: yönetmenin zoom'u küçültülmez, yalnız grup ortalanır.
+    expect(wide).toMatchObject({ focusX: 1260, zoomTo: 1.9 });
     // Yalnız havada öğe varsa o özne olur; zoom tavandaysa yalnız odak düzelir.
     expect(closeUpCamera({ ...cam, zoomFrom: 3.2, zoomTo: 3.2 }, [wall], false).cam).toMatchObject({ zoomTo: 3.2, focusX: 960, focusY: 540 });
     for (const keep of [

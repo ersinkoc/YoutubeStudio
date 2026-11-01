@@ -433,7 +433,7 @@ export function focusOf(spec: VectorShot, placed: PlacedLayer[], index: number, 
 }
 
 /** Yakın çekim çerçevesi: bu zoom'dan itibaren yakın çekim sayılır; özne kare yüksekliğinin en az min'i kadar görünmeli. */
-const CLOSE_UP = { zoom: 1.5, min: 0.2, target: 0.4, maxZoom: 3.2 };
+const CLOSE_UP = { zoom: 1.5, min: 0.2, target: 0.4, maxZoom: 3.2, groupWidth: 0.8 };
 
 /**
  * Yakın çekimde odağa en yakın şey kadrajda çok küçük kalıyorsa (31 Eki: 12 cm'lik reçine kabı yerde, 1,9 zoom'da
@@ -452,13 +452,21 @@ export function closeUpCamera(
   const fy = cam.focusY ?? H / 2;
   const centre = (pl: PlacedLayer) => [pl.x, pl.y - pl.height / 2] as const;
   const dist = (pl: PlacedLayer) => Math.hypot(centre(pl)[0] - fx, centre(pl)[1] - fy);
-  // Duvardaki/havadaki öğe (ışın, ok, poster) yalnız başka aday yoksa özne olur.
-  const standing = placed.filter((pl) => pl.grounded || pl.heldBy !== undefined);
+  // Duvardaki/havadaki öğe (ışın, ok, poster) yalnız başka aday yoksa özne olur. Üstünde bir şey duran yüzey (masa)
+  // özne olmaz, üstündeki olur: odak masadaki iPod'dayken büyük masa seçiliyor, yakınlaşma hiç olmuyordu (Apple
+  // incelemesi, 1 Kas: "iPod ve iPhone masada minik noktalar").
+  const surfaces = new Set(placed.map((pl) => pl.on));
+  const standing = placed.filter((pl) => (pl.grounded || pl.heldBy !== undefined) && !surfaces.has(pl.index));
   const subject = (standing.length ? standing : placed).reduce((a, b) => (dist(b) < dist(a) ? b : a));
   const side = Math.max(subject.width, subject.height);
   if (side * z >= CLOSE_UP.min * H) return keep;
-  const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side) / z;
-  const [x, y] = centre(subject);
+  // Aynı yüzeydeki nesneler birlikte kadrajlanır (masada iPod ve iPhone: yalnız birine yaklaşınca öteki kenarda kesiliyordu).
+  const group = subject.on === undefined ? [subject] : standing.filter((pl) => pl.on === subject.on);
+  const left = Math.min(...group.map((pl) => pl.x - pl.width / 2));
+  const right = Math.max(...group.map((pl) => pl.x + pl.width / 2));
+  const k = Math.min(CLOSE_UP.maxZoom, (CLOSE_UP.target * H) / side, (CLOSE_UP.groupWidth * W) / (right - left)) / z;
+  const x = (left + right) / 2;
+  const y = centre(subject)[1];
   // Zoom zaten tavandaysa yalnız odak düzelir.
   return { cam: { ...cam, zoomFrom: cam.zoomFrom * Math.max(1, k), zoomTo: cam.zoomTo * Math.max(1, k), focusX: x, focusY: y }, centre: true };
 }

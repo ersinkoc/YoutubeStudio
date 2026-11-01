@@ -52,6 +52,8 @@ export interface PlacedLayer {
   grounded: boolean;
   /** Bu nesneyi tutan karakter katmanı; konum her karede eline göre hesaplanır. */
   heldBy?: number;
+  /** Üstünde durduğu/oturduğu katman (masa, sandalye). */
+  on?: number;
   /** Yerleşimi koddan düzeltildiyse nedeni (inceleme ve testler için). */
   fixes: string[];
 }
@@ -122,14 +124,14 @@ export function resolveLayout(spec: VectorShot, assets: Record<string, VectorAss
       const h = sized * STAGE.pxPerMeter * base.scale;
       if (asset.kind === "character") {
         // Sandalyede/bankta oturur: ayaklar yerde, oturağın önünde.
-        out = { index: i, x: base.x, y: base.y + 2, height: h, scale: base.scale, z: base.z + 0.5, sitting: true, grounded: true, fixes };
+        out = { index: i, x: base.x, y: base.y + 2, height: h, scale: base.scale, z: base.z + 0.5, sitting: true, grounded: true, on: base.index, fixes };
       } else {
         // Yüzeyin üstünde: yüzey yüksekliği tabanın boyundan; yüzeyden taşmasın.
         const surfaceY = base.y - base.height * (baseAsset.meta.surface ?? (baseAsset.kind === "character" ? 0.5 : 1));
         const halfBase = base.width / 2;
         const x = clamp(layer.x, base.x - halfBase * 0.8, base.x + halfBase * 0.8);
         if (x !== layer.x) fixes.push("yüzeyin dışına taşıyordu, içeri alındı");
-        out = { index: i, x, y: surfaceY, height: h, scale: base.scale, z: base.z + 0.4, sitting: false, grounded: true, fixes };
+        out = { index: i, x, y: surfaceY, height: h, scale: base.scale, z: base.z + 0.4, sitting: false, grounded: true, on: base.index, fixes };
       }
     } else if (isGrounded(layer, asset, floorY)) {
       let depth = layer.depth;
