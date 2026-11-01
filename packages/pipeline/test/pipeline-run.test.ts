@@ -886,6 +886,8 @@ describe("timeline, render ve inceleme", () => {
     await h.pipeline.save(s);
     const off = await h.pipeline.run(id, { only: "review" });
     expect(render.stills.mock.calls.at(-1)![0].timeline.captions).toEqual([]);
+    // Dudak senkronunun kelime zamanları altyazı kapalıyken de kalır.
+    expect(render.stills.mock.calls.at(-1)![0].timeline.speech.length).toBeGreaterThan(0);
     expect(callsOf("sceneCritic").at(-1)!.args[3]).toBe(false);
     expect(off.review!.shots["s1-sh1"]!.issues.map((i) => i.type)).toEqual(["empty"]);
     // Anlatım yine denetçiye gider (altyazı yalnız kareden çıkar).

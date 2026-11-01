@@ -166,6 +166,8 @@ export const Timeline = z.object({
   visuals: z.array(TimelineVisual),
   audio: z.array(TimelineAudio),
   captions: z.array(WordTiming).default([]),
+  /** Anlatımın kelime zamanları (dudak senkronu): altyazı kapatılsa da kalır. */
+  speech: z.array(WordTiming).default([]),
   /** Vektör sahnelerin kullandığı SVG varlıkları (kimlik → varlık). */
   vectorAssets: z.record(z.string(), VectorAsset).default({}),
   /** Vektör sahnelerde arka plan yoksa kullanılan palet. */

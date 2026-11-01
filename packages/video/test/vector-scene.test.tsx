@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming, fillWide, wrapTorso } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, frameWide, cameraTransform, cameraPoint, namesMatch, faceOnScreen, HOLD_POSE, heldFraming, fillWide, wrapTorso, mouthOpen } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -72,6 +72,7 @@ interface Opts {
   width?: number;
   height?: number;
   shotId?: string;
+  speech?: { text: string; startMs: number; endMs: number }[];
 }
 
 function scene(shot: object, o: Opts = {}) {
@@ -84,7 +85,7 @@ function scene(shot: object, o: Opts = {}) {
     durationInFrames: DURATION,
     vector: VectorShot.parse(shot),
   });
-  const props = { visual, assets: ASSETS, palette: o.palette ?? [] };
+  const props = { visual, assets: ASSETS, palette: o.palette ?? [], ...(o.speech ? { speech: o.speech } : {}) };
   return render(o.lineStyle ? <VectorScene {...props} lineStyle={o.lineStyle} /> : <VectorScene {...props} />).container;
 }
 
@@ -360,6 +361,35 @@ describe("vektör sahne: karakter iskeleti", () => {
     expect(heroAt(150, { anims: [{ type: "talk" }] }).get("mouth").sy).toBeCloseTo(want, 2);
     cleanup();
     expect(heroAt(150, { anims: [{ type: "talk" }], expression: "sad" }).get("mouth").sy).toBeCloseTo(-want, 2);
+  });
+
+  it("anlatımın kelime zamanı varsa konuşan ağız hecelerle açılır, sessizlikte kapanır", () => {
+    // Kare 150 = 5000 ms: "kedi" 4800–5200 (iki hece) ortasında, ilk hecenin sonunda (kapalı) ve kelime arasında.
+    const talk = (speech: { text: string; startMs: number; endMs: number }[]) => {
+      const c = scene(heroShot({ anims: [{ type: "talk" }] }), { frame: 150, speech });
+      const sy = pose(c, "mouth").sy;
+      cleanup();
+      return sy;
+    };
+    expect(talk([{ text: "kedi", startMs: 4900, endMs: 5300 }])).toBeCloseTo(0.35 + 0.9, 2);
+    expect(talk([{ text: "kedi", startMs: 4800, endMs: 5200 }])).toBeCloseTo(0.35, 2);
+    expect(talk([{ text: "bir", startMs: 4000, endMs: 4500 }, { text: "iki", startMs: 5500, endMs: 6000 }])).toBeCloseTo(0.35, 2);
+  });
+
+  it("mouthOpen: kelimeyi heceye böler, ünlüsüz kelime tek hecedir, kelime dışında 0", () => {
+    const words = [
+      { text: "bir", startMs: 0, endMs: 300 },
+      { text: "kedi", startMs: 400, endMs: 800 },
+      { text: "Şşt", startMs: 900, endMs: 1100 },
+      { text: "ağaç", startMs: 1200, endMs: 1200 },
+    ];
+    expect(mouthOpen(words, 150)).toBeCloseTo(1);
+    expect(mouthOpen(words, 500)).toBeCloseTo(1);
+    expect(mouthOpen(words, 600)).toBeCloseTo(0);
+    expect(mouthOpen(words, 1000)).toBeCloseTo(1);
+    expect(mouthOpen(words, 350)).toBe(0);
+    expect(mouthOpen(words, 5000)).toBe(0);
+    expect(mouthOpen([], 10)).toBe(0);
   });
 
   it("jest girerken ön kol üst kolu geriden izler", () => {

@@ -203,6 +203,7 @@ export function buildTimeline(
     visuals,
     audio,
     captions,
+    speech: captions,
     vectorAssets,
     palette: state.style?.palette ?? [],
     lineStyle: lineStyleOf(state),

@@ -132,7 +132,7 @@ export function Episode({ timeline }: EpisodeProps) {
             <FadeIn>
               {v.kind === "motion_graphic" && v.vector ? (
                 <AbsoluteFill>
-                  <VectorScene visual={v} assets={timeline.vectorAssets} palette={timeline.palette} lineStyle={timeline.lineStyle} />
+                  <VectorScene visual={v} assets={timeline.vectorAssets} palette={timeline.palette} lineStyle={timeline.lineStyle} speech={timeline.speech} />
                   <Ambience kind={v.ambience} seed={v.shotId} />
                 </AbsoluteFill>
               ) : v.kind === "still_motion" ? (

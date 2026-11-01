@@ -19,6 +19,7 @@ import {
   type VectorMood,
   type VectorShot,
   type VectorText,
+  type WordTiming,
   STAGE,
   TEXT_RULES,
 } from "@ys/core";
@@ -165,6 +166,8 @@ interface Attention {
   lookDir?: number;
   /** Sağ elinde nesne var: yüze giden jest sol elle yapılır. */
   holding?: boolean;
+  /** Anlatımın bu andaki ağız açıklığı (0 kapalı – 1 açık); kelime zamanı yoksa undefined. */
+  voice?: number;
 }
 
 /** İskelet parçalarının bu karedeki pozu: sürekli canlılık + Claude'un istediği jestler. */
@@ -406,8 +409,10 @@ function rigPose(
         part("head").rotate += Math.sin(t * 6) * 7 * w;
         break;
       case "talk":
-        // Konuşurken ağız açılıp kapanır; somurtan yüzde eğri ters kalır.
-        part("mouth").sy = Math.sign(face.mouth) * (0.35 + Math.abs(Math.sin(t * 13)) * 0.9 * w + (1 - w) * 0.65);
+        // Konuşurken ağız açılıp kapanır; somurtan yüzde eğri ters kalır. Kelime zamanı varsa anlatımın hecelerine
+        // göre (sessizlikte kapalı), yoksa sabit ritimle.
+        const open = attention.voice ?? Math.abs(Math.sin(t * 13));
+        part("mouth").sy = Math.sign(face.mouth) * (0.35 + open * 0.9 * w + (1 - w) * 0.65);
         part("brows").ty += Math.sin(t * 4) * 2 * w;
         // Konuşurken baş ve gövde cümle ritmiyle hafifçe oynar.
         part("head").rotate += Math.sin(t * 3.1) * 2.5 * w;
@@ -663,6 +668,7 @@ function motionOf(
   dur: number,
   focus: Focus = {},
   sideAsset?: VectorAsset,
+  voice?: number,
 ): Motion {
   const pxPerMeter = STAGE.pxPerMeter * placed.scale;
   const anims = paceWalks(
@@ -703,6 +709,7 @@ function motionOf(
     aim: focus.aim ? [toRigX(focus.aim[0]), (focus.aim[1] - tr.y - (placed.y - placed.height)) / k] : undefined,
     lookDir: focus.lookX === undefined ? undefined : Math.sign(toRigX(focus.lookX) - RIG.width / 2),
     holding: focus.holding,
+    voice,
   };
   return { tr, flip: layer.flip, squash, pose: rigPose(anims, p, t, prefix, placed.sitting, layer.expression, gait, layer.flip, attention, dur) };
 }
@@ -725,6 +732,28 @@ export function heldFraming(placed: PlacedLayer[], layers: VectorLayer[]): Place
     const [hx, hy] = handPoint(holder, layer, m);
     return { ...pl, x: hx, y: hy + pl.height * 0.45 };
   });
+}
+
+/**
+ * Dudak senkronu: anlatımın o anki ağız açıklığı (0–1). Söylenen kelimenin süresi hece sayısına bölünür, her hecede
+ * ağız açılıp kapanır; kelime arası ve sessizlikte kapalıdır. Eskiden konuşan karakterin ağzı anlatımdan bağımsız sabit
+ * ritimle oynuyordu; sesle uyuşmayan ağız yapay duruyordu.
+ */
+export function mouthOpen(words: WordTiming[], ms: number): number {
+  let lo = 0;
+  let hi = words.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const w = words[mid]!;
+    if (ms < w.startMs) hi = mid - 1;
+    else if (ms >= w.endMs) lo = mid + 1;
+    else {
+      const syllables = Math.max(1, w.text.match(/[aeıioöuüâîûyáéíóúàèìòùäë]+/giu)?.length ?? 0);
+      const phase = ((ms - w.startMs) / Math.max(1, w.endMs - w.startMs)) * syllables;
+      return Math.sin(Math.PI * (phase % 1)) ** 0.7;
+    }
+  }
+  return 0;
 }
 
 /** Kalçadan birlikte eğilen parçalar (çizimde kardeş gruplar). */
@@ -1104,14 +1133,18 @@ export function VectorScene({
   assets,
   palette,
   lineStyle = "outline",
+  speech = [],
 }: {
   visual: Visual;
   assets: Assets;
   palette: string[];
   lineStyle?: LineStyle;
+  /** Anlatımın kelime zamanları (bölüm başından, ms): konuşan karakterin ağzı bunlarla oynar. */
+  speech?: WordTiming[];
 }) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
+  const voice = speech.length ? mouthOpen(speech, ((visual.fromFrame + frame) / fps) * 1000) : undefined;
   // Eski planlarda aynı karakterin kopyaları olabilir; render'da da tek kalır.
   const spec = useMemo(() => uniqueCharacters(visual.vector!, (id) => assets[id]?.kind === "character"), [visual.vector, assets]);
   const p = Math.min(1, frame / Math.max(1, visual.durationInFrames));
@@ -1156,7 +1189,7 @@ export function VectorScene({
       const layer = spec.layers[pl.index]!;
       const asset = safe[layer.asset]!;
       const focus = asset.kind === "character" ? focusOf(spec, placed, pl.index, (i) => safe[spec.layers[i]!.asset]?.kind) : {};
-      return [pl.index, motionOf(layer, asset, pl, p, t, `${visual.shotId}-${pl.index}-`, dur, focus, safe[sideAssetId(layer.asset)])] as const;
+      return [pl.index, motionOf(layer, asset, pl, p, t, `${visual.shotId}-${pl.index}-`, dur, focus, safe[sideAssetId(layer.asset)], voice)] as const;
     }),
   );
   // Kişi etiketi yazı katmanında (kamera dışında) çizilir ama kişiye aittir: yönetmenin noktasına en yakın kafaya
