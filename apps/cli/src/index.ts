@@ -18,6 +18,7 @@ import { backfillLibraryIdentities, curateLessons, EpisodePipeline, listLibraryC
 import { createStoreFromEnv } from "@ys/storage";
 import { bankCommand } from "./bank.ts";
 import { episodeCommand, positive, renderDemo } from "./episode.ts";
+import { surviveBrokenPipe } from "./pipes.ts";
 
 const LEDGER_FILE = ".data/ledger.jsonl";
 const WORK_DIR = ".data/episodes";
@@ -367,6 +368,8 @@ async function exit(code: number): Promise<never> {
   await Promise.all([process.stdout, process.stderr].map((s) => new Promise<void>((r) => s.write("", () => r()))));
   process.exit(code);
 }
+
+surviveBrokenPipe(process.stdout, process.stderr);
 
 main()
   .then(() => exit(Number(process.exitCode ?? 0)))
