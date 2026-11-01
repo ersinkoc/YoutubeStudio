@@ -38,7 +38,7 @@ Mimari, sağlayıcı seçimi ve yol haritası: [docs/PROJE_PLANI.md](docs/PROJE_
 ## Gereksinimler
 
 - Node.js 24 veya üstü ve pnpm 11
-- FFmpeg (yerel render testi için)
+- FFmpeg (yerel render testi ve video klipleri için; `ffmpeg`/`ffprobe` PATH'te yoksa seslendirme süresi ve ses düzeyi Remotion'un kendi kopyasıyla ölçülür)
 - Claude: oturum açılmış bir Claude Code kurulumu (abonelik) ya da `ANTHROPIC_API_KEY`
 - İsteğe bağlı API anahtarları: fal, Gemini, ElevenLabs. Anahtarı olmayan sağlayıcı devre dışı kalır.
 

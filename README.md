@@ -38,7 +38,7 @@ Architecture, provider choices and the roadmap are in [docs/PROJE_PLANI.md](docs
 ## Requirements
 
 - Node.js 24 or newer, and pnpm 11
-- FFmpeg (for the local render test)
+- FFmpeg (for the local render test and video clips; if `ffmpeg`/`ffprobe` is not on PATH, voice-over durations and loudness use the copy bundled with Remotion)
 - Claude: either a signed-in Claude Code installation (subscription) or `ANTHROPIC_API_KEY`
 - Optional API keys: fal, Gemini, ElevenLabs. Providers without a key are disabled.
 

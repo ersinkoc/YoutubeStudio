@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./render": "./src/render.ts"
+    "./render": "./src/render.ts",
+    "./tools": "./src/tools.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.539",

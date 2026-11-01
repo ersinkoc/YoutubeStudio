@@ -220,6 +220,10 @@ export const PIPELINE_MESSAGES = {
     en: "This episode is already running (process {pid}, {startedAt}); wait for it to finish or cancel it",
   },
   "err.media.probe": { tr: "ffprobe süre okuyamadı: {output}", en: "ffprobe could not read the duration: {output}" },
+  "err.media.missing": {
+    tr: "{tool} bulunamadı: FFmpeg'i kur ve PATH'e ekle; Stüdyo'yu yeni açılmış bir terminalden başlat",
+    en: "{tool} was not found: install FFmpeg and add it to PATH; start the Studio from a newly opened terminal",
+  },
   "err.flag.unknownCode": { tr: "bilinmeyen bayrak kodu: {code}", en: "unknown flag code: {code}" },
   "err.flag.notFound": { tr: "bayrak bulunamadı: {code}", en: "flag not found: {code}" },
 

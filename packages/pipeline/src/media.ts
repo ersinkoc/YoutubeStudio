@@ -1,19 +1,16 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { LocalizedError, msg } from "@ys/core";
+import { runMediaTool } from "@ys/video/tools";
 
-const run = promisify(execFile);
-
-/** ffprobe ile medya süresi (ms). FFmpeg kurulu olmalı (PATH). */
+/** ffprobe ile medya süresi (ms). PATH'te ffprobe yoksa Remotion'un kopyası kullanılır. */
 export async function probeDurationMs(bytes: Uint8Array, ext: string): Promise<number> {
   const dir = await mkdtemp(join(tmpdir(), "ys-probe-"));
   const file = join(dir, `media.${ext}`);
   try {
     await writeFile(file, bytes);
-    const { stdout } = await run("ffprobe", [
+    const { stdout } = await runMediaTool("ffprobe", [
       "-v",
       "error",
       "-show_entries",
@@ -35,27 +32,32 @@ export async function probeDurationMs(bytes: Uint8Array, ext: string): Promise<n
  * Sağlayıcılar 24 fps ve 1928×1072 gibi tek sayılı boyutlar döndürebiliyor; bu, render'da decode yükünü azaltır.
  */
 export async function normalizeClip(input: string, output: string, width: number, height: number, fps: number): Promise<void> {
-  await run("ffmpeg", [
-    "-y",
-    "-v",
-    "error",
-    "-i",
-    input,
-    "-an",
-    "-vf",
-    `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps}`,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "18",
-    "-g",
-    String(fps),
-    "-pix_fmt",
-    "yuv420p",
-    output,
-  ]);
+  // Remotion'un ffmpeg'inde fps filtresi yok: yedeğe düşmez.
+  await runMediaTool(
+    "ffmpeg",
+    [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      input,
+      "-an",
+      "-vf",
+      `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps}`,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "18",
+      "-g",
+      String(fps),
+      "-pix_fmt",
+      "yuv420p",
+      output,
+    ],
+    false,
+  );
 }
 
 /** Eşzamanlılığı sınırlı map; sağlayıcı rate limit'lerine ve GPU belleğine saygı için. */

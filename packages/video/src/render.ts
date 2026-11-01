@@ -1,15 +1,12 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { availableParallelism, tmpdir } from "node:os";
-import { promisify } from "node:util";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { openBrowser, renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import type { Timeline } from "@ys/core";
-
-const run = promisify(execFile);
+import { runMediaTool } from "./tools.ts";
 
 export const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "entry.ts");
 
@@ -164,7 +161,7 @@ async function renderOnce(opts: RenderOptions): Promise<string> {
  * (29 Eki ilk bölüm -18,7 LUFS çıktı). Görüntü yeniden kodlanmaz.
  */
 export async function normalizeLoudness(input: string, output: string): Promise<void> {
-  await run("ffmpeg", [
+  await runMediaTool("ffmpeg", [
     "-y",
     "-v",
     "error",
