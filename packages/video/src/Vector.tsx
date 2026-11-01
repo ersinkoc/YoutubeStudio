@@ -469,6 +469,11 @@ export function closeUpCamera(
  * odak alttaki küçük nesneyi kadrajın dibinde bırakıyordu; her çekimi ortalamak ise iyi kadrajları bozuyordu.
  */
 export function cameraTransform(cam: VectorShot["camera"], k: number, centre = false): string {
+  const { tx, ty, scale, panX } = cameraAt(cam, k, centre);
+  return `translate(${tx}px, ${ty}px) scale(${scale}) translateX(${panX}%)`;
+}
+
+function cameraAt(cam: VectorShot["camera"], k: number, centre: boolean) {
   const scale = cam.zoomFrom + (cam.zoomTo - cam.zoomFrom) * k;
   const panX = (cam.panX * (k - 0.5) * (scale - 1) * 100) / scale;
   const shift = (size: number, focus: number) => {
@@ -476,7 +481,13 @@ export function cameraTransform(cam: VectorShot["camera"], k: number, centre = f
     const px = centre ? Math.min(Math.max(size / 2 - focus * scale, Math.min(edge, 0)), Math.max(edge, 0)) : focus * (1 - scale);
     return Math.round(px * 100) / 100;
   };
-  return `translate(${shift(W, cam.focusX ?? W / 2)}px, ${shift(H, cam.focusY ?? H / 2)}px) scale(${scale}) translateX(${panX}%)`;
+  return { tx: shift(W, cam.focusX ?? W / 2), ty: shift(H, cam.focusY ?? H / 2), scale, panX };
+}
+
+/** Tuval noktasının bu karede ekrandaki yeri (cameraTransform ile aynı dönüşüm: önce kaydırma, sonra ölçek, sonra öteleme). */
+export function cameraPoint(cam: VectorShot["camera"], k: number, centre: boolean, [x, y]: readonly [number, number]): [number, number] {
+  const { tx, ty, scale, panX } = cameraAt(cam, k, centre);
+  return [tx + scale * (x + (panX / 100) * W), ty + scale * y];
 }
 
 /** Katmanın bu karedeki hareketi: katman dönüşümü ve (karakterse) iskelet pozu. */
@@ -625,7 +636,8 @@ function Layer({
  * Ekran yazısı düzeni (31 Eki: yazılar her çekimde başka boyda, başka yerde ve eğik/kalın karışık duruyordu).
  * - Bilgi kartı: mekân, tarih, olay, sayı, alıntı (label dışındaki her stil) her çekimde aynı yerde, sol üstte alt alta;
  *   yönetmenin x/y'si yok sayılır. Birincil satır (başlık, sayı) büyük, ikincil satır (alt başlık, alıntı) küçük.
- * - Kişi etiketi (label): yönetmenin verdiği yerde (kişinin yanında), tek boyda.
+ * - Kişi etiketi (label): yönetmenin noktasına en yakın kişinin kafasının üstünde (yakında kişi yoksa o noktada), kamerayla
+ *   birlikte taşınır; tek boyda.
  * Hepsi aynı yazı tipi, aynı plaka; kartın solunda paletin vurgu rengiyle çizgi.
  */
 const TEXT_SIZE: Record<VectorText["style"], number> = { title: 64, number: 72, subtitle: 44, quote: 44, label: 40 };
@@ -636,6 +648,24 @@ const CARD = { x: 72, verticalX: 300, top: 64, width: 960, gap: 12 };
 const { maxTexts: MAX_TEXTS, top: TEXT_TOP, bottom: TEXT_BOTTOM } = TEXT_RULES;
 const TAG_WIDTH = 900;
 const TEXT_GAP = 24;
+
+/** Etiketin ekrandaki dayanak noktası; head: y bir kafanın tepesidir. */
+interface TagAnchor {
+  x: number;
+  y: number;
+  head?: boolean;
+}
+/** Etiket ile kafa arası (px). */
+const TAG_LIFT = 14;
+/** Yönetmenin etiket noktası bir kafaya bundan yakınsa etiket o kişiye bağlanır (tuval px). */
+const TAG_SNAP = 360;
+
+/** Etiket bir kişinin adı mı: biri ötekini içeriyorsa (büyük/küçük harf duyarsız; "Babbage" ↔ "Charles Babbage"). */
+export function namesMatch(name: string, label: string): boolean {
+  const a = name.trim().toLocaleLowerCase("tr");
+  const b = label.trim().toLocaleLowerCase("tr");
+  return a.length > 2 && b.length > 2 && (a.includes(b) || b.includes(a));
+}
 
 interface PlacedText {
   text: VectorText;
@@ -659,7 +689,7 @@ function fit(text: string, size: number, width: number): { size: number; lines: 
  * altyazı bölgesinin üstüne sıkıştırılır, birbirine binmez). En fazla iki yazı. vertical: 9:16'da kart kırpılan
  * kenardan içeri alınır.
  */
-export function layoutTexts(texts: VectorText[], vertical = false): PlacedText[] {
+export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text: VectorText) => TagAnchor | undefined = (text) => ({ x: text.x, y: text.y })): PlacedText[] {
   const shown = texts.slice(0, MAX_TEXTS);
   let cardBottom = CARD.top;
   const card = shown
@@ -672,10 +702,17 @@ export function layoutTexts(texts: VectorText[], vertical = false): PlacedText[]
     });
   const tags = shown
     .filter((text) => text.style === "label")
-    .map((text) => {
+    .flatMap((text) => {
+      const at = anchor(text);
+      // Dayanağı olmayan etiket (adı geçen kişi bu çekimde yok) gösterilmez.
+      if (!at) return [];
       const { size, lines } = fit(text.text, TEXT_SIZE.label, TAG_WIDTH);
       const height = lines * size * 1.15;
-      return { text, x: Math.min(W - TAG_WIDTH / 2 - 40, Math.max(TAG_WIDTH / 2 + 40, text.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, text.y)), size, height, card: false };
+      // Kafaya bağlı etiket kafanın hemen üstünde durur (y kafanın tepesi); değilse y etiketin ortasıdır.
+      const y = at.head ? at.y - height / 2 - TAG_LIFT : at.y;
+      // Kenar sınırı yazının kendi genişliğiyle (kaba tahmin + plaka payı): kenardaki kişinin etiketi ondan uzağa itilmesin.
+      const half = Math.min(TAG_WIDTH, text.text.length * size * 0.55) / 2 + size * 0.5;
+      return [{ text, x: Math.min(W - half - 24, Math.max(half + 24, at.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, y)), size, height, card: false }];
     })
     .sort((a, b) => a.y - b.y);
   // Etiketler kartın altında başlar, birbirine binmez; alt sınırı aşarsa birlikte yukarı kayar.
@@ -876,7 +913,6 @@ export function VectorScene({
     [assets, lineStyle],
   );
   const placed = useMemo(() => resolveLayout(spec, safe), [spec, safe]);
-  const texts = useMemo(() => layoutTexts(spec.texts, height > width), [spec.texts, width, height]);
   const bg = spec.background ? safe[spec.background] : undefined;
   const { cam, centre } = useMemo(() => closeUpCamera(spec.camera, placed, Boolean(bg?.meta.exact)), [spec.camera, placed, bg]);
   const k = interpolate(p, [0, 1], [0, 1], { easing: ease });
@@ -889,6 +925,28 @@ export function VectorScene({
       return [pl.index, motionOf(layer, asset, pl, p, t, `${visual.shotId}-${pl.index}-`, dur, focus, safe[sideAssetId(layer.asset)])] as const;
     }),
   );
+  // Kişi etiketi yazı katmanında (kamera dışında) çizilir ama kişiye aittir: yönetmenin noktasına en yakın kafaya
+  // bağlanır, kişi yürüdükçe ve kamera yaklaştıkça onunla gider. Eskiden tuval noktası ekran noktası sayılıyordu;
+  // zoom'da etiket kafadan kopuyordu (Bilgisayarlar bölümü incelemesi: "etiket kafanın üstünde değil", 1 Kas).
+  // Önce adı etikette geçen kişi ("Babbage" → Charles Babbage), yoksa noktaya yeterince yakın kafa.
+  const heads = placed
+    .filter((pl) => safe[spec.layers[pl.index]!.asset]!.kind === "character")
+    .map((pl) => {
+      const tr = motions.get(pl.index)!.tr;
+      const name = safe[spec.layers[pl.index]!.asset]!.meta.check?.name ?? "";
+      return { at: [pl.x + tr.x, pl.y + tr.y - pl.height * tr.scale] as const, name };
+    });
+  const present = new Set(placed.map((pl) => spec.layers[pl.index]!.asset));
+  const absent = Object.entries(safe).flatMap(([id, a]) => (a.kind === "character" && !present.has(id) && a.meta.check?.name ? [a.meta.check.name] : []));
+  const texts = layoutTexts(spec.texts, height > width, (text) => {
+    const gap = (h: (typeof heads)[number]) => Math.hypot(h.at[0] - text.x, h.at[1] - text.y);
+    const named = heads.find((h) => namesMatch(h.name, text.text));
+    // Bölümün başka bir karakterinin adı ama o bu çekimde yok (ör. kopyası atıldı): etiket boşlukta asılı kalmasın.
+    if (!named && absent.some((name) => namesMatch(name, text.text))) return undefined;
+    const near = named ?? heads.filter((h) => gap(h) < TAG_SNAP).sort((a, b) => gap(a) - gap(b))[0];
+    const [x, y] = cameraPoint(cam, k, centre, near?.at ?? [text.x, text.y]);
+    return { x, y, head: near !== undefined };
+  });
   const [c0 = "#1d2433", c1 = "#3a4a66", accent = "#ffd84d"] = palette;
 
   const stage = (

@@ -12,7 +12,7 @@ vi.mock("remotion", async (orig) => ({
   useVideoConfig: () => ({ fps: clock.fps, width: clock.width, height: clock.height, durationInFrames: 300 }),
 }));
 
-const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, HOLD_POSE } = await import("../src/Vector.tsx");
+const { VectorScene, layoutTexts, closeUpCamera, cameraTransform, cameraPoint, namesMatch, HOLD_POSE } = await import("../src/Vector.tsx");
 /** Yerleşmiş katman örneği (kamera testleri). */
 const PL = { index: 0, x: 0, y: 0, height: 0, width: 0, scale: 1, z: 0, sitting: false, grounded: true, fixes: [] as string[] };
 
@@ -52,6 +52,13 @@ const ASSETS = {
   broken: asset("broken", "prop", "bu bir svg değil", 100, 100),
   // Aynı karakterin ön (kırmızı) ve yan (mavi) çizimi.
   walker: asset("walker", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#aa0000"/></g>`).join("")}</svg>`, 400, 800),
+  // Adı bilinen karakterler (kalite kapısının kaydı): etiketler adla kişiye bağlanır.
+  ada: asset("ada", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#335533"/></g>`).join("")}</svg>`, 400, 800, {
+    check: { kind: "character", name: "Ada Lovelace", recognizable: 8, passed: true },
+  }),
+  babbage: asset("babbage", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#553333"/></g>`).join("")}</svg>`, 400, 800, {
+    check: { kind: "character", name: "Charles Babbage", recognizable: 8, passed: true },
+  }),
   "walker~side": asset("walker~side", "character", `<svg viewBox="0 0 400 800">${PARTS.map((p) => `<g id="${p}"><rect width="10" height="10" fill="#0000aa"/></g>`).join("")}</svg>`, 400, 800),
 };
 
@@ -732,16 +739,109 @@ describe("vektör sahne: yazılar", () => {
   });
 
   it("kişi etiketi kendi yerinde, kadraj içine alınır; bilgi kartı her zaman sol üstte (dikeyde içeride)", () => {
-    const tag = textAt({ text: "kenar", x: 100 }).el;
+    // Kenar sınırı yazının genişliğiyle: "kenar" ≈ 5 × 40 × 0,55 = 110 px, yarısı + plaka payı 75 px, kenardan 24 px.
+    const tag = textAt({ text: "kenar", x: 10 }).el;
     expect(tag.dataset.text).toBe("tag");
-    expect(tag.style.left).toBe("40px");
+    expect(parseFloat(tag.style.left) + 450).toBeCloseTo(24 + 75);
     expect(tag.style.fontSize).toBe("40px");
-    expect(textAt({ text: "kenar", x: 1900 }).el.style.left).toBe(`${1920 - 900 - 40}px`);
+    expect(parseFloat(textAt({ text: "kenar", x: 1910 }).el.style.left) + 450).toBeCloseTo(1920 - 24 - 75);
+    // Uzun etiketin yarısı kutu genişliğiyle sınırlıdır.
+    expect(parseFloat(textAt({ text: "x".repeat(60), x: 10 }).el.style.left)).toBeCloseTo(24 + 450 + 20 - 450);
     const card = textAt({ text: "1923, Ankara", style: "title", x: 1500, y: 700 }).el;
     expect(card.dataset.text).toBe("card");
     expect(card).toMatchObject({ style: expect.objectContaining({ left: "72px", top: "64px", textAlign: "left" }) });
     expect(card.querySelector("span")!.style.borderLeft).toContain("6px solid");
     expect(textAt({ text: "1923", style: "number" }, 150, [], { width: 1080, height: 1920 }).el.style.left).toBe("300px");
+  });
+
+  describe("kişi etiketi kişiye bağlıdır", () => {
+    const tagOf = (c: HTMLElement, text: string) => [...c.querySelectorAll<HTMLElement>("[data-text=tag]")].find((el) => el.textContent === text);
+    const centre = (el: HTMLElement) => [parseFloat(el.style.left) + 450, parseFloat(el.style.top)] as const;
+
+    it("adı geçen kişinin kafasının üstüne gider (yönetmenin noktası uzakta olsa da)", () => {
+      const c = scene({
+        layers: [{ asset: "ada", x: 500, depth: 0.3 }, { asset: "babbage", x: 1400, depth: 0.3 }],
+        texts: [{ text: "Babbage", style: "label", x: 400, y: 200 }],
+      }, { frame: 150 });
+      const tag = tagOf(c, "Babbage")!;
+      expect(centre(tag)[0]).toBeCloseTo(1400, -2);
+      cleanup();
+    });
+
+    it("adı eşleşmeyen etiket yakındaki kafaya bağlanır; yakında kimse yoksa yönetmenin noktasında kalır", () => {
+      const near = scene({ layers: [{ asset: "hero", x: 700, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 820, y: 330 }] }, { frame: 150 });
+      expect(centre(tagOf(near, "işçi")!)[0]).toBeCloseTo(700, -2);
+      cleanup();
+      // İki kafa yakınsa en yakını seçilir.
+      const two = scene(
+        { layers: [{ asset: "hero", x: 700, depth: 0.3 }, { asset: "walker", x: 1000, depth: 0.3 }], texts: [{ text: "işçi", style: "label", x: 950, y: 330 }] },
+        { frame: 150 },
+      );
+      expect(centre(tagOf(two, "işçi")!)[0]).toBeCloseTo(1000, -2);
+      cleanup();
+      const far = scene({ layers: [{ asset: "hero", x: 300, depth: 0.3 }], texts: [{ text: "değirmen", style: "label", x: 1500, y: 300 }] }, { frame: 150 });
+      // Noktası kamerayla taşınır (varsayılan hafif zoom), kişiye bağlanmaz.
+      const [fx, fy] = centre(tagOf(far, "değirmen")!);
+      expect(fx).toBeCloseTo(1500, -2);
+      expect(fy).toBeCloseTo(300, -2);
+      cleanup();
+    });
+
+    it("kafanın hemen üstünde durur ve kişi yürüdükçe onunla gider", () => {
+      const at = (frame: number) => {
+        const c = scene({ layers: [{ asset: "ada", x: 500, depth: 0.3, anims: [{ type: "walk", toX: 1300 }] }], texts: [{ text: "Ada", style: "label", x: 500, y: 200 }] }, { frame });
+        const r = centre(tagOf(c, "Ada")!);
+        cleanup();
+        return r;
+      };
+      expect(at(280)[0] - at(5)[0]).toBeGreaterThan(600);
+      const c = scene({ layers: [{ asset: "ada", x: 960, depth: 0.3 }], texts: [{ text: "Ada", style: "label", x: 960, y: 100 }] }, { frame: 0 });
+      const box = layerBox(c, "body");
+      const top = parseFloat(box.style.top) + transformOf(box).y;
+      const [, y] = centre(tagOf(c, "Ada")!);
+      expect(y).toBeLessThan(top);
+      expect(y).toBeGreaterThan(top - 60);
+      cleanup();
+    });
+
+    it("kamera yaklaşınca etiket kafayla birlikte ekranda yer değiştirir", () => {
+      const shot = (zoom: number) => ({
+        layers: [{ asset: "ada", x: 600, depth: 0.3 }],
+        texts: [{ text: "Ada", style: "label", x: 600, y: 300 }],
+        camera: { zoomFrom: zoom, zoomTo: zoom, panX: 0, focusX: 960, focusY: 540 },
+      });
+      const wide = scene(shot(1), { frame: 150 });
+      const a = centre(tagOf(wide, "Ada")!);
+      cleanup();
+      const close = scene(shot(1.4), { frame: 150 });
+      const b = centre(tagOf(close, "Ada")!);
+      cleanup();
+      // Odak (960, 540) yerinde kalır: soldaki kafa daha sola, yukarıdaki daha yukarı kayar.
+      expect(b[0]).toBeCloseTo(960 + (a[0] - 960) * 1.4, -1);
+      expect(b[1]).toBeLessThan(a[1]);
+    });
+
+    it("çekimde olmayan karakterin adını taşıyan etiket gösterilmez", () => {
+      const c = scene({ layers: [{ asset: "ada", x: 600, depth: 0.3 }], texts: [{ text: "Charles Babbage", style: "label", x: 1300, y: 300 }] }, { frame: 150 });
+      expect(tagOf(c, "Charles Babbage")).toBeUndefined();
+      cleanup();
+    });
+
+    it("namesMatch: biri ötekini içerir, çok kısa adlar eşleşmez", () => {
+      expect(namesMatch("Charles Babbage", "babbage")).toBe(true);
+      expect(namesMatch("Jobs", "Steve Jobs")).toBe(true);
+      expect(namesMatch("Ada Lovelace", "Babbage")).toBe(false);
+      expect(namesMatch("Al", "Al")).toBe(false);
+    });
+
+    it("cameraPoint cameraTransform ile aynı dönüşümü uygular", () => {
+      const cam = { zoomFrom: 1, zoomTo: 2, panX: 0.4, focusX: 400, focusY: 300 };
+      const [x, y] = cameraPoint(cam, 1, true, [100, 50]);
+      const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\) translateX\((-?[\d.]+)%\)/.exec(cameraTransform(cam, 1, true))!;
+      const [tx, ty, sc, pan] = m.slice(1).map(Number) as [number, number, number, number];
+      expect(x).toBeCloseTo(tx + sc * (100 + (pan / 100) * 1920));
+      expect(y).toBeCloseTo(ty + sc * 50);
+    });
   });
 
   it("yazı animasyonu uygulanır (fade_in)", () => {
