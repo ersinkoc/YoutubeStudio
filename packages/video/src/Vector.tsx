@@ -690,7 +690,9 @@ function fit(text: string, size: number, width: number): { size: number; lines: 
  * kenardan içeri alınır.
  */
 export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text: VectorText) => TagAnchor | undefined = (text) => ({ x: text.x, y: text.y })): PlacedText[] {
-  const shown = texts.slice(0, MAX_TEXTS);
+  // Dayanağı olmayan etiket (adı geçen kişi bu çekimde yok) gösterilmez ve sınırdan yer kapmaz: ayıklama sınırdan önce.
+  const anchors = new Map(texts.filter((text) => text.style === "label").map((text) => [text, anchor(text)]));
+  const shown = texts.filter((text) => text.style !== "label" || anchors.get(text)).slice(0, MAX_TEXTS);
   let cardBottom = CARD.top;
   const card = shown
     .filter((text) => text.style !== "label")
@@ -703,17 +705,15 @@ export function layoutTexts(texts: VectorText[], vertical = false, anchor: (text
     });
   const tags = shown
     .filter((text) => text.style === "label")
-    .flatMap((text) => {
-      const at = anchor(text);
-      // Dayanağı olmayan etiket (adı geçen kişi bu çekimde yok) gösterilmez.
-      if (!at) return [];
+    .map((text) => {
+      const at = anchors.get(text)!;
       const { size, lines } = fit(text.text, TEXT_SIZE.label, TAG_WIDTH);
       const height = lines * size * 1.15;
       // Kafaya bağlı etiket kafanın hemen üstünde durur (y kafanın tepesi); değilse y etiketin ortasıdır.
       const y = at.head ? at.y - height / 2 - TAG_LIFT : at.y;
       // Kenar sınırı yazının kendi genişliğiyle: kenardaki kişinin etiketi ondan uzağa itilmesin.
       const half = plateWidth(text.text, size, TAG_WIDTH) / 2;
-      return [{ text, x: Math.min(W - half - 24, Math.max(half + 24, at.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, y)), size, height, half, card: false }];
+      return { text, x: Math.min(W - half - 24, Math.max(half + 24, at.x)), y: Math.min(TEXT_BOTTOM, Math.max(TEXT_TOP, y)), size, height, half, card: false };
     })
     .sort((a, b) => a.y - b.y);
   // Etiket yalnız yatayda örtüştüğü karta ya da etikete binmesin diye onun altına iner: yan yana iki kişinin etiketi

@@ -310,6 +310,7 @@ describe("vektör ajanları", () => {
     );
     expect(a.system).toContain("Never stage an event in a room where it did not happen.");
     expect(a.system).toContain("that shot is a close-up on it");
+    expect(a.system).toContain("counts the card lines and the name tags together");
     // Başka sahnenin mekânı işaretlenmez.
     const other = await capture((d) => vectorDirector({ ...input, scene: { ...input.scene, id: "s2" } }, style, d));
     expect(other.prompt).toContain("- l1 (background room shell): Station\n");

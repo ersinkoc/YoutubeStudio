@@ -827,6 +827,18 @@ describe("vektör sahne: yazılar", () => {
       cleanup();
     });
 
+    it("gizlenen etiket iki yazılık sınırdan yer kapmaz", () => {
+      const texts = [
+        { text: "Charles Babbage", style: "label", x: 1300, y: 300 },
+        { text: "1843", style: "title", x: 0, y: 0 },
+        { text: "Ada Lovelace", style: "label", x: 600, y: 300 },
+      ];
+      const c = scene({ layers: [{ asset: "ada", x: 600, depth: 0.3 }], texts }, { frame: 150 });
+      expect(tagOf(c, "Ada Lovelace")).toBeDefined();
+      expect(c.querySelector('[data-text="card"]')!.textContent).toContain("1843");
+      cleanup();
+    });
+
     it("namesMatch: biri ötekini içerir, çok kısa adlar eşleşmez", () => {
       expect(namesMatch("Charles Babbage", "babbage")).toBe(true);
       expect(namesMatch("Jobs", "Steve Jobs")).toBe(true);
